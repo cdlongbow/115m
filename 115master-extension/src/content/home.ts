@@ -936,25 +936,6 @@ function closeAnyVisibleLightbox() {
   })
 }
 
-// 全局捕获拦截：在最早阶段阻断 115 原生视频打开逻辑，确保只走扩展播放器链路
-document.addEventListener('click', (e) => {
-  const target = e.target as HTMLElement | null
-  if (!target) return
-
-  const nameHit = target.closest('.file-thumb, .file-name .name, .file-name')
-  if (!nameHit) return
-
-  const item = target.closest('li[pick_code], li[pickcode], div[pick_code], div[pickcode]') as HTMLElement | null
-  if (!item) return
-
-  const ivAttr = item.getAttribute('iv')
-  if (ivAttr !== '1') return
-
-  e.preventDefault()
-  e.stopPropagation()
-  e.stopImmediatePropagation()
-}, true)
-
 window.addEventListener('error', (event) => {
   const message = event.message || ''
   if (message.includes('Extension context invalidated')) {

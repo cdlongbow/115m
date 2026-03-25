@@ -75,34 +75,45 @@ class PlayerManager {
         loadingTextEl.textContent = '正在准备最快可用播放源...'
       }
 
-      const ultraPromise = this.fetchUltraSource()
-      const m3u8Promise = this.fetchM3u8WithRetry()
+      const ultraPromise = this.fetchUltraSource().catch(() => null)
+      const m3u8Promise = this.fetchM3u8WithRetry().catch(() => null)
 
-      const starter = await Promise.any([
-        m3u8Promise.then(list => ({ type: 'm3u8' as const, list })),
-        ultraPromise.then(url => ({ type: 'ultra' as const, url })),
-      ])
+      const ultraUrl = await ultraPromise
 
-      if (starter.type === 'm3u8') {
-        this.isNativeVideo = false
-        this.currentQuality = starter.list[0].quality
-        this.currentQualityLabel = this.getQualityDisplayName(starter.list[0].quality, true)
-        this.createArtplayer(starter.list[0].url, 'hls')
-      }
-      else {
+      if (ultraUrl) {
         this.isNativeVideo = true
         this.currentQuality = 9999
         this.currentQualityLabel = '无损'
-        this.createArtplayer(starter.url, 'native')
+        this.createArtplayer(ultraUrl, 'native')
+
+        // 异步等待 m3u8 加载完后更新画质菜单
+        void m3u8Promise.then(() => {
+          const currentUrl = this.artplayer?.url || ''
+          this.qualityOptions = this.buildQualityOptions(currentUrl)
+          this.updateQualityByUrl(currentUrl)
+          this.renderQualityPanel()
+          this.updateQualityButton()
+        })
+      }
+      else {
+        // 无损获取失败，等待 M3U8
+        const m3u8List = await m3u8Promise
+        if (m3u8List && m3u8List.length > 0) {
+          this.isNativeVideo = false
+          this.currentQuality = m3u8List[0].quality
+          this.currentQualityLabel = this.getQualityDisplayName(m3u8List[0].quality, true)
+          this.createArtplayer(m3u8List[0].url, 'hls')
+        }
+        else {
+          throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
+        }
       }
 
-      void Promise.allSettled([ultraPromise, m3u8Promise]).then(() => {
-        const currentUrl = this.artplayer?.url || ''
-        this.qualityOptions = this.buildQualityOptions(currentUrl)
-        this.updateQualityByUrl(currentUrl)
-        this.renderQualityPanel()
-        this.updateQualityButton()
-      })
+      const currentUrl = this.artplayer?.url || ''
+      this.qualityOptions = this.buildQualityOptions(currentUrl)
+      this.updateQualityByUrl(currentUrl)
+      this.renderQualityPanel()
+      this.updateQualityButton()
 
       void this.loadPlayHistory()
     }
