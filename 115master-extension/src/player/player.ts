@@ -77,21 +77,29 @@ class PlayerManager {
         loadingTextEl.textContent = '正在加载播放源...'
       }
 
-      const m3u8List = await this.fetchM3u8WithRetry().catch(() => null)
+      const ultraUrl = await this.fetchUltraSource().catch(() => null)
 
-      if (m3u8List && m3u8List.length > 0) {
-        this.isNativeVideo = false
-        this.currentQuality = m3u8List[0].quality
-        this.currentQualityLabel = this.getQualityDisplayName(m3u8List[0].quality, true)
-        this.createArtplayer(m3u8List[0].url, 'hls')
+      if (ultraUrl) {
+        this.isNativeVideo = true
+        this.currentQuality = 9999
+        this.currentQualityLabel = '无损'
+        this.createArtplayer(ultraUrl, 'native')
+        this.fetchM3u8WithRetry().then(() => {
+          if (this.artplayer) {
+            const currentUrl = this.artplayer.url
+            this.qualityOptions = this.buildQualityOptions(currentUrl)
+            this.renderQualityPanel()
+            this.updateQualityButton()
+          }
+        }).catch(() => null)
       }
       else {
-        const ultraUrl = await this.fetchUltraSource().catch(() => null)
-        if (ultraUrl) {
-          this.isNativeVideo = true
-          this.currentQuality = 9999
-          this.currentQualityLabel = '无损'
-          this.createArtplayer(ultraUrl, 'native')
+        const m3u8List = await this.fetchM3u8WithRetry().catch(() => null)
+        if (m3u8List && m3u8List.length > 0) {
+          this.isNativeVideo = false
+          this.currentQuality = m3u8List[0].quality
+          this.currentQualityLabel = this.getQualityDisplayName(m3u8List[0].quality, true)
+          this.createArtplayer(m3u8List[0].url, 'hls')
         }
         else {
           throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
@@ -190,7 +198,8 @@ class PlayerManager {
       pip: false,
       autoMini: true,
       screenshot: false,
-      setting: [],
+      setting: true,
+      quality: this.buildArtplayerQuality(),
       loop: true,
       flip: true,
       playbackRate: true,
@@ -200,25 +209,6 @@ class PlayerManager {
       miniProgressBar: true,
       theme: '#1890ff',
       lang: 'zh-cn',
-      controls: [
-        {
-          name: 'quality-label',
-          position: 'right',
-          html: '<span id="quality-control-label">画质: 加载中</span>',
-          index: 10,
-          tooltip: '选择画质',
-          style: {
-            marginRight: '20px',
-          },
-          click: (event: Event) => {
-            event?.stopPropagation?.()
-            const setting = (this.artplayer as any)?.setting
-            if (setting) {
-              setting.show = !setting.show
-            }
-          },
-        },
-      ],
       contextmenu: [],
       customType: {
         m3u8: async (video, url) => {
@@ -239,12 +229,15 @@ class PlayerManager {
 
     this.setupTopNav()
     this.setupProgressHoverPreview()
-    this.renderQualityPanel()
-    this.updateQualityButton()
     void this.loadThumbnails()
 
     if (this.artplayer) {
       this.patchArtInfoPanel()
+
+      this.artplayer.on('ready', () => {
+        this.renderQualityPanel()
+        this.updateQualityButton()
+      })
 
       this.artplayer.on('video:timeupdate', () => {
         this.savePlayHistory()
@@ -317,6 +310,16 @@ class PlayerManager {
     })
   }
 
+  private buildArtplayerQuality(): { html: string; url: string; default: boolean }[] {
+    return this.qualityOptions.map(opt => ({
+      html: opt.label,
+      url: opt.url,
+      default: opt.url === ORIGINAL_PLACEHOLDER_URL
+        ? this.currentQualityLabel === '115原画'
+        : this.artplayer?.url === opt.url,
+    }))
+  }
+
   private updateQualityByUrl(url: string) {
     const hit = this.qualityOptions.find(opt => opt.url === url)
     if (hit) {
@@ -338,42 +341,10 @@ class PlayerManager {
 
   private updateQualitySetting() {
     if (!this.artplayer) return
-    const setting = (this.artplayer as any).setting
-    if (!setting) return
+    if (!this.artplayer.quality) return
 
-    const selector = this.qualityOptions.map(opt => ({
-      html: opt.label,
-      value: opt.url,
-      default: opt.url === ORIGINAL_PLACEHOLDER_URL
-        ? this.currentQualityLabel === '115原画'
-        : this.artplayer?.url === opt.url,
-    }))
-
-    const item = {
-      name: 'quality',
-      html: '画质',
-      tooltip: this.currentQualityLabel,
-      selector,
-      onSelect: (sub: any) => {
-        const value = String(sub?.value || '')
-        const hit = this.qualityOptions.find(opt => opt.url === value)
-        if (hit) {
-          void this.switchQuality(hit)
-        }
-        return sub?.html || ''
-      },
-    }
-
-    if (typeof setting.update === 'function') {
-      setting.update(item)
-      return
-    }
-    if (typeof setting.add === 'function') {
-      try {
-        if (typeof setting.remove === 'function') setting.remove('quality')
-      } catch {}
-      setting.add(item)
-    }
+    const qualityList = this.buildArtplayerQuality()
+    this.artplayer.quality = qualityList
   }
 
   private async switchQuality(opt: QualityOption) {
