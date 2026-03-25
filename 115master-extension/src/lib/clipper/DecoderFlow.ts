@@ -420,12 +420,18 @@ export class DecoderFlow {
       try {
         this.logger.debug(`autoReadChunk 开始读取, decodeQueueSize: ${decodeQueueSize}`)
         const arrayBuffer = await this.reader.next()
+        
+        // 如果在等待数据返回的途中，解码器已经被 cleanup(destroy) 销毁，则直接丢弃数据，不报警告
+        if (!this.isRunning || !this.demuxer) {
+          return
+        }
+
         if (arrayBuffer) {
           this.logger.debug(`autoReadChunk 读取成功, 数据大小: ${arrayBuffer.byteLength} bytes`)
           this.pushData(arrayBuffer)
         }
         else {
-          this.logger.warn(`autoReadChunk 读取返回 undefined, reader.isDoned: ${this.reader.isDoned}`)
+          this.logger.debug(`autoReadChunk 读取返回 undefined, reader.isDoned: ${this.reader.isDoned}`)
         }
       }
       catch (error) {

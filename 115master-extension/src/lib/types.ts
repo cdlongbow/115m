@@ -16,7 +16,7 @@ export const qualityNumMap: Record<number, string> = {
   720: '720P',
   1080: '1080P',
   2160: '4K',
-  9999: 'Ultra',
+  9999: '原画',
 }
 
 export interface M3u8Item {

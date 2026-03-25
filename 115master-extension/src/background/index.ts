@@ -2,6 +2,8 @@
  * Background Service Worker
  */
 
+import { drive115 } from '../lib'
+
 // 安装时初始化
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[115Master] Extension installed', details.reason)
@@ -58,13 +60,104 @@ interface MsgOpenTab {
   url: string
 }
 
-type Message = MsgSetCookie | MsgDownload | MsgGetHistory | MsgSetHistory | MsgOpenTab
+interface MsgPrefetchVideoSource {
+  type: 'PREFETCH_VIDEO_SOURCE'
+  data: { pickCode: string }
+}
+
+interface MsgGetPrefetchVideoSource {
+  type: 'GET_PREFETCH_VIDEO_SOURCE'
+  data: { pickCode: string }
+}
+
+type Message =
+  | MsgSetCookie
+  | MsgDownload
+  | MsgGetHistory
+  | MsgSetHistory
+  | MsgOpenTab
+  | MsgPrefetchVideoSource
+  | MsgGetPrefetchVideoSource
+
+interface PrefetchUltraCache {
+  url: string
+  updatedAt: number
+}
+
+const PREFETCH_TTL = 2 * 60 * 1000
+const prefetchUltraCache = new Map<string, PrefetchUltraCache>()
+const prefetchUltraInflight = new Map<string, Promise<PrefetchUltraCache | null>>()
+
+async function prefetchUltraSource(pickCode: string): Promise<PrefetchUltraCache | null> {
+  const cached = prefetchUltraCache.get(pickCode)
+  if (cached && Date.now() - cached.updatedAt < PREFETCH_TTL) {
+    return cached
+  }
+
+  const inflight = prefetchUltraInflight.get(pickCode)
+  if (inflight) {
+    return inflight
+  }
+
+  const request = (async () => {
+    try {
+      const downloadResult = await drive115.getFileDownloadUrl(pickCode)
+      const url = downloadResult.url?.url
+      if (!url) return null
+
+      const authCookie = downloadResult.url?.auth_cookie
+      if (authCookie) {
+        await chrome.cookies.set({
+          url: 'https://dl.115cdn.net',
+          name: authCookie.name,
+          value: authCookie.value,
+          path: authCookie.path,
+          domain: '.115cdn.net',
+          secure: true,
+          expirationDate: Number(authCookie.expire),
+          sameSite: 'no_restriction',
+        })
+      }
+
+      const data = {
+        url,
+        updatedAt: Date.now(),
+      }
+      prefetchUltraCache.set(pickCode, data)
+      return data
+    }
+    catch (error) {
+      console.warn('[115Master] 预热视频地址失败:', pickCode, error)
+      return null
+    }
+    finally {
+      prefetchUltraInflight.delete(pickCode)
+    }
+  })()
+
+  prefetchUltraInflight.set(pickCode, request)
+  return request
+}
 
 async function handleMessage(message: Message): Promise<any> {
   switch (message.type) {
     case 'OPEN_TAB': {
       await chrome.tabs.create({ url: message.url })
       return { success: true }
+    }
+
+    case 'PREFETCH_VIDEO_SOURCE': {
+      void prefetchUltraSource(message.data.pickCode)
+      return { success: true }
+    }
+
+    case 'GET_PREFETCH_VIDEO_SOURCE': {
+      const result = await prefetchUltraSource(message.data.pickCode)
+      if (!result) return null
+      return {
+        url: result.url,
+        fromCache: true,
+      }
     }
 
     case 'SET_COOKIE': {

@@ -17,6 +17,7 @@ interface FileInfo {
   isVideo: boolean
   sha1?: string
   duration: number
+  cateId?: string
 }
 
 /**
@@ -262,7 +263,7 @@ class FileListMod {
    */
   private updateFileItems() {
     const targetDoc = this.getTargetDocument()
-    const fileItems = targetDoc.querySelectorAll('li[pick_code], li[pickcode], div[pick_code], div[pickcode]')
+    const fileItems = targetDoc.querySelectorAll('li[pick_code], li[pickcode], div[pick_code], div[pickcode], li[cate_id], div[cate_id]')
     if (fileItems.length === 0) return
 
     let processedCount = 0
@@ -288,7 +289,12 @@ class FileListMod {
     const fileInfo = this.extractFileInfo(item)
     if (!fileInfo) return
 
-    if (!fileInfo.isVideo) return
+    if (!fileInfo.isVideo) {
+      if (fileInfo.cateId) {
+        this.addFastFolderEntry(item, fileInfo)
+      }
+      return
+    }
 
     // 添加视频封面
     this.addVideoCover(item, fileInfo)
@@ -301,6 +307,29 @@ class FileListMod {
 
     // 显示完整路径标题
     this.updateTitleWithPath(item, fileInfo)
+  }
+
+  /**
+   * 文件夹瞬间进入
+   */
+  private addFastFolderEntry(item: HTMLElement, fileInfo: FileInfo) {
+    const fileNameNode = item.querySelector('.file-thumb') ?? item.querySelector('.file-name .name')
+    if (!fileNameNode) return
+
+    const handleFolderClick = (e: Event) => {
+      e.preventDefault()
+      e.stopPropagation()
+      e.stopImmediatePropagation()
+      
+      console.log('[115Master] 瞬间进入文件夹:', fileInfo.cateId)
+      if (top) {
+        top.location.href = `https://115.com/?cid=${fileInfo.cateId}&offset=0&mode=wangpan`
+      }
+    }
+
+    // 在捕获阶段拦截，防止 115 默认较慢的加载逻辑触发
+    fileNameNode.addEventListener('click', handleFolderClick, true)
+    item.addEventListener('dblclick', handleFolderClick, true)
   }
 
   /**
@@ -349,7 +378,9 @@ class FileListMod {
   private extractFileInfo(item: HTMLElement): FileInfo | null {
     try {
       const pickCode = item.getAttribute('pick_code') || item.getAttribute('pickcode') || ''
-      if (!pickCode) return null
+      const cateId = item.getAttribute('cate_id') || ''
+      
+      if (!pickCode && !cateId) return null
 
       const fileName = item.getAttribute('title') || ''
 
@@ -366,10 +397,10 @@ class FileListMod {
         ?? ''
       const duration = getDuration(durationStr)
 
-      const fileInfo: FileInfo = { pickCode, fileName, isVideo, sha1, duration }
+      const fileInfo: FileInfo = { pickCode, fileName, isVideo, sha1, duration, cateId }
 
       console.log('[115Master] 文件:', fileName.slice(0, 30), {
-        pickCode, isVideo, duration, durationStr,
+        pickCode, cateId, isVideo, duration, durationStr,
         hasDurationNode: !!durationNode,
       })
       return fileInfo
@@ -384,6 +415,8 @@ class FileListMod {
    * 添加视频封面
    */
   private addVideoCover(item: HTMLElement, fileInfo: FileInfo) {
+    if (item.hasAttribute('data-115master-cover-added')) return
+
     // 只在列表视图下添加
     const targetDoc = this.getTargetDocument()
     const listContents = targetDoc.querySelector('.list-contents')
@@ -396,6 +429,8 @@ class FileListMod {
       console.log('[115Master] 无 duration，跳过封面:', fileInfo.pickCode)
       return
     }
+
+    item.setAttribute('data-115master-cover-added', 'true')
 
     // 让 li 高度自适应
     item.classList.add('with-ext-video-cover')
@@ -491,7 +526,7 @@ class FileListMod {
       e.preventDefault()
       e.stopPropagation()
       e.stopImmediatePropagation() // 极力阻止115默认行为
-      this.openPlayer(fileInfo.pickCode)
+      this.openPlayer(fileInfo.pickCode, fileInfo.fileName)
     }
 
     if (fileNameNode) {
@@ -518,9 +553,16 @@ class FileListMod {
   /**
    * 打开播放器
    */
-  private openPlayer(pickCode: string) {
+  private openPlayer(pickCode: string, title: string) {
+    chrome.runtime.sendMessage({
+      type: 'PREFETCH_VIDEO_SOURCE',
+      data: { pickCode },
+    }).catch(() => {
+      // ignore prefetch errors
+    })
+
     const playerUrl = chrome.runtime.getURL('src/player/index.html')
-    const url = `${playerUrl}?pickCode=${pickCode}`
+    const url = `${playerUrl}?pickCode=${pickCode}&title=${encodeURIComponent(title)}`
     // 发送消息给后台，让后台权限去打开标签页，完美绕过屏蔽器
     chrome.runtime.sendMessage({
       type: 'OPEN_TAB',
@@ -618,6 +660,13 @@ function injectStyles() {
 }
 
 injectStyles()
+
+window.addEventListener('error', (event) => {
+  const message = event.message || ''
+  if (message.includes('Extension context invalidated')) {
+    console.warn('[115Master] 检测到扩展上下文失效，请在扩展管理页重新加载插件后刷新页面')
+  }
+})
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init)
