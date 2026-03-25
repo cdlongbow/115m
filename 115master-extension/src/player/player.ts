@@ -144,10 +144,16 @@ class PlayerManager {
     let lastError: unknown
     for (let i = 0; i < 2; i++) {
       try {
-        const list = await drive115.getM3u8(this.currentPickCode)
-        if (list[0]) {
-          this.m3u8List = list
-          return list
+        const res = await this.sendRuntimeMessageSafe<{ list?: M3u8Item[], error?: string }>({
+          type: 'FETCH_M3U8',
+          data: { pickCode: this.currentPickCode }
+        })
+        if (res?.list && res.list[0]) {
+          this.m3u8List = res.list
+          return res.list
+        }
+        if (res?.error) {
+          throw new Error(res.error)
         }
       }
       catch (error) {

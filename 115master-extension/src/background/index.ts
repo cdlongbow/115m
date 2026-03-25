@@ -77,6 +77,11 @@ interface MsgGetPrefetchM3u8 {
 }
 
 
+interface MsgFetchM3u8 {
+  type: 'FETCH_M3U8'
+  data: { pickCode: string }
+}
+
 type Message =
   | MsgSetCookie
   | MsgDownload
@@ -86,6 +91,7 @@ type Message =
   | MsgPrefetchVideoSource
   | MsgGetPrefetchVideoSource
   | MsgGetPrefetchM3u8
+  | MsgFetchM3u8
 
 interface PrefetchUltraCache {
   url: string
@@ -286,6 +292,15 @@ async function handleMessage(message: Message): Promise<any> {
       return {
         list: result.list,
         fromCache: true,
+      }
+    }
+
+    case 'FETCH_M3U8': {
+      try {
+        const list = await drive115.getM3u8(message.data.pickCode)
+        return { list }
+      } catch (e) {
+        return { error: String(e) }
       }
     }
 

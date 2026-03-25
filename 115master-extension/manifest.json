@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "115Master移植版",
-  "version": "1.0.10",
+  "version": "1.0.11",
   "description": "115网盘增强扩展 | Ultra画质播放 | 文件下载",
   "permissions": [
     "storage",

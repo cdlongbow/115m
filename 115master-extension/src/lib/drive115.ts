@@ -137,7 +137,9 @@ export class Drive115 {
    */
   async getM3u8Info(url: string, pickcode: string): Promise<M3u8Item[]> {
     const response = await this.req.get(url, {
-      headers: { 'Content-Type': 'application/json' },
+      headers: { 
+        'Accept': '*/*'
+      },
     })
 
     const htmlText = await response.text()
