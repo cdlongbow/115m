@@ -434,33 +434,35 @@ class PlayerManager {
   private positionQualityPanel(panel: HTMLElement | null) {
     if (!panel) return
 
-    const anchor = document.getElementById('quality-control-label')
+    const anchor = document.getElementById('quality-control-label')?.closest('.art-control') as HTMLElement | null
     if (!anchor) return
 
+    panel.style.visibility = 'hidden'
+    panel.classList.remove('hidden')
+
     const anchorRect = anchor.getBoundingClientRect()
-    const panelWidth = 170
-    const panelHeight = 140
-    const margin = 8
+    const panelRect = panel.getBoundingClientRect()
+    const panelWidth = panelRect.width || 170
+    const panelHeight = panelRect.height || 120
+    const margin = 10
 
     let left = anchorRect.right - panelWidth
     let top = anchorRect.top - panelHeight - margin
+
+    if (left < margin) left = margin
+    if (left + panelWidth > window.innerWidth - margin) {
+      left = window.innerWidth - panelWidth - margin
+    }
 
     if (top < margin) {
       top = anchorRect.bottom + margin
     }
 
-    if (left < margin) {
-      left = margin
-    }
-
-    if (left + panelWidth > window.innerWidth - margin) {
-      left = window.innerWidth - panelWidth - margin
-    }
-
-    panel.style.left = `${left}px`
-    panel.style.top = `${top}px`
+    panel.style.left = `${Math.round(left)}px`
+    panel.style.top = `${Math.round(top)}px`
     panel.style.right = 'auto'
     panel.style.bottom = 'auto'
+    panel.style.visibility = ''
   }
 
   private async loadThumbnails() {
