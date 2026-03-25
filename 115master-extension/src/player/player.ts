@@ -41,7 +41,6 @@ class PlayerManager {
   private hoverPreviewTimeEl: HTMLDivElement | null = null
   private hoverProgressEl: HTMLElement | null = null
   private hoverBindRetryTimer: number | null = null
-  private ignoreQualityPanelCloseOnce = false
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
@@ -191,7 +190,7 @@ class PlayerManager {
       pip: false,
       autoMini: true,
       screenshot: false,
-      setting: true,
+      setting: [],
       loop: true,
       flip: true,
       playbackRate: true,
@@ -213,13 +212,10 @@ class PlayerManager {
           },
           click: (event: Event) => {
             event?.stopPropagation?.()
-            this.ignoreQualityPanelCloseOnce = true
-            const panel = document.getElementById('quality-panel')
-            this.positionQualityPanel(panel as HTMLElement | null)
-            panel?.classList.toggle('hidden')
-            requestAnimationFrame(() => {
-              this.ignoreQualityPanelCloseOnce = false
-            })
+            const setting = (this.artplayer as any)?.setting
+            if (setting) {
+              setting.show = !setting.show
+            }
           },
         },
       ],
@@ -337,24 +333,47 @@ class PlayerManager {
   }
 
   private renderQualityPanel() {
-    const list = document.getElementById('quality-list')
-    if (!list) return
-    list.innerHTML = ''
+    this.updateQualitySetting()
+  }
 
-    this.qualityOptions.forEach((opt) => {
-      const btn = document.createElement('button')
-      const active = opt.url === ORIGINAL_PLACEHOLDER_URL
+  private updateQualitySetting() {
+    if (!this.artplayer) return
+    const setting = (this.artplayer as any).setting
+    if (!setting) return
+
+    const selector = this.qualityOptions.map(opt => ({
+      html: opt.label,
+      value: opt.url,
+      default: opt.url === ORIGINAL_PLACEHOLDER_URL
         ? this.currentQualityLabel === '115原画'
-        : this.artplayer?.url === opt.url
-      btn.className = `text-left px-3 py-2 rounded-lg text-sm transition-colors ${active ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/10'}`
-      btn.textContent = opt.label
-      btn.addEventListener('click', async (e) => {
-        e.stopPropagation()
-        await this.switchQuality(opt)
-        document.getElementById('quality-panel')?.classList.add('hidden')
-      })
-      list.appendChild(btn)
-    })
+        : this.artplayer?.url === opt.url,
+    }))
+
+    const item = {
+      name: 'quality',
+      html: '画质',
+      tooltip: this.currentQualityLabel,
+      selector,
+      onSelect: (sub: any) => {
+        const value = String(sub?.value || '')
+        const hit = this.qualityOptions.find(opt => opt.url === value)
+        if (hit) {
+          void this.switchQuality(hit)
+        }
+        return sub?.html || ''
+      },
+    }
+
+    if (typeof setting.update === 'function') {
+      setting.update(item)
+      return
+    }
+    if (typeof setting.add === 'function') {
+      try {
+        if (typeof setting.remove === 'function') setting.remove('quality')
+      } catch {}
+      setting.add(item)
+    }
   }
 
   private async switchQuality(opt: QualityOption) {
@@ -396,7 +415,6 @@ class PlayerManager {
 
     const titleEl = document.getElementById('video-title')
     const backBtn = document.getElementById('btn-back')
-    const qualityPanel = document.getElementById('quality-panel')
 
     if (titleEl) {
       titleEl.textContent = title
@@ -412,57 +430,6 @@ class PlayerManager {
       }
     })
 
-    qualityPanel?.addEventListener('click', (e) => {
-      e.stopPropagation()
-    })
-
-    window.addEventListener('resize', () => {
-      if (qualityPanel && !qualityPanel.classList.contains('hidden')) {
-        this.positionQualityPanel(qualityPanel)
-      }
-    })
-
-    document.addEventListener('click', (e) => {
-      if (this.ignoreQualityPanelCloseOnce) return
-      const target = e.target as HTMLElement | null
-      if (target?.closest('#quality-control-label')) return
-      if (target?.closest('#quality-panel')) return
-      qualityPanel?.classList.add('hidden')
-    })
-  }
-
-  private positionQualityPanel(panel: HTMLElement | null) {
-    if (!panel) return
-
-    const anchor = document.getElementById('quality-control-label')?.closest('.art-control') as HTMLElement | null
-    if (!anchor) return
-
-    panel.style.visibility = 'hidden'
-    panel.classList.remove('hidden')
-
-    const anchorRect = anchor.getBoundingClientRect()
-    const panelRect = panel.getBoundingClientRect()
-    const panelWidth = panelRect.width || 170
-    const panelHeight = panelRect.height || 120
-    const margin = 10
-
-    let left = anchorRect.right - panelWidth
-    let top = anchorRect.top - panelHeight - margin
-
-    if (left < margin) left = margin
-    if (left + panelWidth > window.innerWidth - margin) {
-      left = window.innerWidth - panelWidth - margin
-    }
-
-    if (top < margin) {
-      top = anchorRect.bottom + margin
-    }
-
-    panel.style.left = `${Math.round(left)}px`
-    panel.style.top = `${Math.round(top)}px`
-    panel.style.right = 'auto'
-    panel.style.bottom = 'auto'
-    panel.style.visibility = ''
   }
 
   private async loadThumbnails() {
