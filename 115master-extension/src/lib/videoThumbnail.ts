@@ -4,6 +4,12 @@ import { getImageResize } from './image'
 
 const MAX_WIDTH = 720
 const MAX_HEIGHT = 720
+const memoryCoverCache = new Map<string, VideoThumbnail[]>()
+
+function getStorageArea(): chrome.storage.StorageArea | null {
+  const area = (globalThis as any)?.chrome?.storage?.local as chrome.storage.StorageArea | undefined
+  return area ?? null
+}
 
 export interface VideoThumbnail {
   imgUrl: string
@@ -27,11 +33,24 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
   console.log('[115Master] getVideoCovers 开始:', { pickCode, duration, coverNum })
 
   const CACHE_KEY = `master115_covers_${pickCode}_${coverNum}`
+  const inMemory = memoryCoverCache.get(CACHE_KEY)
+  if (inMemory && inMemory.length > 0) {
+    return inMemory
+  }
+
+  const storageArea = getStorageArea()
   try {
-    const cached = await chrome.storage.local.get(CACHE_KEY)
-    if (cached[CACHE_KEY] && cached[CACHE_KEY].length > 0) {
-      console.log('[115Master] 命中本地强缓存，瞬间读取出图:', pickCode)
-      return cached[CACHE_KEY]
+    if (storageArea) {
+      const cached = await storageArea.get(CACHE_KEY)
+      if (cached[CACHE_KEY] && cached[CACHE_KEY].length > 0) {
+        const hit = cached[CACHE_KEY] as VideoThumbnail[]
+        memoryCoverCache.set(CACHE_KEY, hit)
+        console.log('[115Master] 命中本地强缓存，瞬间读取出图:', pickCode)
+        return hit
+      }
+    }
+    else {
+      console.warn('[115Master] 当前上下文不可用 chrome.storage.local，封面缓存降级为内存缓存')
     }
   } catch (e) {
     console.warn('[115Master] 读取缓存失败:', e)
@@ -98,9 +117,12 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
   console.log('[115Master] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
 
   if (results.length > 0) {
+    memoryCoverCache.set(CACHE_KEY, results)
     try {
-      await chrome.storage.local.set({ [CACHE_KEY]: results })
-      console.log('[115Master] 强缓存已写入数据库永久保存:', pickCode)
+      if (storageArea) {
+        await storageArea.set({ [CACHE_KEY]: results })
+        console.log('[115Master] 强缓存已写入数据库永久保存:', pickCode)
+      }
     } catch (e) {
       console.warn('[115Master] 写入缓存失败:', e)
     }
