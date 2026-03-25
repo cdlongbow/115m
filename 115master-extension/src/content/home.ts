@@ -20,6 +20,20 @@ interface FileInfo {
   cateId?: string
 }
 
+async function sendRuntimeMessageSafe<T = any>(message: any): Promise<T | null> {
+  try {
+    return await chrome.runtime.sendMessage(message) as T
+  }
+  catch (error) {
+    const msg = error instanceof Error ? error.message : String(error)
+    if (msg.includes('Extension context invalidated')) {
+      console.log('[115Master] 扩展刚更新，当前页面脚本已失效，刷新页面后恢复')
+      return null
+    }
+    throw error
+  }
+}
+
 /**
  * 时间字符串解析为秒
  * @example "10:00" => 600, "01:00:00" => 3600
@@ -32,6 +46,8 @@ function getDuration(time?: string): number {
     .reverse()
   return hours * 3600 + minutes * 60 + seconds
 }
+
+const HOME_WARMUP_KEY = 'master115_home_warmed_at'
 
 /**
  * 简易并发调度器
@@ -86,6 +102,9 @@ class FileListMod {
   private prefetchedPickCodes = new Set<string>()
   private lastOpenMeta: { pickCode: string, ts: number } | null = null
   private playEventsBoundDocs = new WeakSet<Document>()
+  private homeWarmupDone = false
+  private lightboxImages: string[] = []
+  private lightboxIndex: number = 0
 
   constructor() {
     this.init()
@@ -96,6 +115,10 @@ class FileListMod {
    */
   private init() {
     console.log('[115Master] 开始初始化 FileListMod...')
+    this.warmupTopVisibleVideos()
+
+    // 不等待列表容器，先绑定一次主文档点击链路
+    this.bindPlayOpenEvents(document)
 
     // 等待文件列表容器加载
     this.waitForFileList().then(() => {
@@ -207,6 +230,10 @@ class FileListMod {
       const checkExist = setInterval(() => {
         attempts++
         const targetDoc = this.getTargetDocument()
+
+      // 目标文档一旦可用就立即绑定播放事件，避免首击等待
+      this.bindPlayOpenEvents(targetDoc)
+      this.warmupTopVisibleVideos(targetDoc)
 
         // 策略1: 尝试 已知选择器
         this.dataListBoxSelector = getDataListBoxSelector()
@@ -351,8 +378,7 @@ class FileListMod {
     this.updateTitleWithPath(item, fileInfo)
   }
 
-  private bindPlayOpenEvents() {
-    const targetDoc = this.getTargetDocument()
+  private bindPlayOpenEvents(targetDoc: Document = this.getTargetDocument()) {
     if (this.playEventsBoundDocs.has(targetDoc)) return
     this.playEventsBoundDocs.add(targetDoc)
 
@@ -456,7 +482,7 @@ class FileListMod {
         
         if (res.url?.url) {
           // 发给后台强制静默下载，浏览器、IDM均可直接拦截并吃满网速
-          chrome.runtime.sendMessage({
+          await sendRuntimeMessageSafe({
             type: 'DOWNLOAD',
             data: {
               url: res.url.url,
@@ -604,7 +630,7 @@ class FileListMod {
         link.addEventListener('click', (e) => {
           e.preventDefault()
           e.stopPropagation()
-          this.showLightbox(res.imgUrl)
+          this.showLightbox(results.map(r => r.imgUrl), index)
         })
 
         const img = document.createElement('img')
@@ -637,12 +663,49 @@ class FileListMod {
     if (this.prefetchedPickCodes.has(pickCode)) return
     this.prefetchedPickCodes.add(pickCode)
 
-    chrome.runtime.sendMessage({
+    void sendRuntimeMessageSafe({
       type: 'PREFETCH_VIDEO_SOURCE',
       data: { pickCode },
     }).catch(() => {
       this.prefetchedPickCodes.delete(pickCode)
     })
+  }
+
+  private warmupTopVisibleVideos(targetDoc: Document = this.getTargetDocument()) {
+    try {
+      const now = Date.now()
+      const lastWarmup = Number(sessionStorage.getItem(HOME_WARMUP_KEY) || '0')
+      if (this.homeWarmupDone || (lastWarmup > 0 && now - lastWarmup < 30000)) {
+        return
+      }
+
+      const candidates = Array.from(targetDoc.querySelectorAll('li[pick_code], li[pickcode], div[pick_code], div[pickcode]')) as HTMLElement[]
+      const viewportTop = 0
+      const viewportBottom = window.innerHeight || 1080
+
+      const visiblePickCodes: string[] = []
+      for (const el of candidates) {
+        const iv = el.getAttribute('iv')
+        if (iv !== '1') continue
+        const rect = el.getBoundingClientRect()
+        if (rect.bottom < viewportTop || rect.top > viewportBottom) continue
+
+        const pickCode = el.getAttribute('pick_code') || el.getAttribute('pickcode') || ''
+        if (!pickCode) continue
+        visiblePickCodes.push(pickCode)
+        if (visiblePickCodes.length >= 3) break
+      }
+
+      if (visiblePickCodes.length === 0) return
+
+      this.homeWarmupDone = true
+      sessionStorage.setItem(HOME_WARMUP_KEY, String(now))
+      visiblePickCodes.forEach(code => this.prefetchVideoSource(code))
+      console.log('[115Master] 已预热首屏视频源:', visiblePickCodes.length)
+    }
+    catch {
+      // ignore warmup errors
+    }
   }
 
   /**
@@ -659,15 +722,24 @@ class FileListMod {
     const playerUrl = chrome.runtime.getURL('src/player/index.html')
     const url = `${playerUrl}?pickCode=${pickCode}&title=${encodeURIComponent(title)}`
 
-    // 固定单通道打开：仅走用户手势 window.open，彻底避免同页被改写成播放器
-    const opened = window.open(url, '_blank', 'noopener,noreferrer')
-    if (opened) {
+    // 立即打开一个新标签，确保点击后有瞬时反馈
+    const quickTab = window.open('about:blank', '_blank')
+    if (quickTab) {
+      try {
+        quickTab.opener = null
+      } catch {}
+      try {
+        quickTab.location.replace(url)
+      } catch {
+        quickTab.location.href = url
+      }
       this.prefetchVideoSource(pickCode)
       return
     }
 
-    // 不再回退当前页跳转，避免出现“原页也变播放页”
-    console.warn('[115Master] 浏览器拦截了新标签打开，请允许弹窗后重试')
+    // 兜底走后台开页
+    this.prefetchVideoSource(pickCode)
+    void sendRuntimeMessageSafe({ type: 'OPEN_TAB', url })
   }
 
   /**
@@ -689,27 +761,91 @@ class FileListMod {
   /**
    * 极简灯箱展示大图
    */
-  private showLightbox(imgSrc: string) {
+  private updateLightboxImage() {
     const targetDoc = this.getTargetDocument()
+    const lightbox = targetDoc.getElementById('master115-lightbox')
+    if (!lightbox) return
+    const imgNode = lightbox.querySelector('img.master115-lightbox-main-img') as HTMLImageElement | null
+    if (imgNode && this.lightboxImages.length > 0) {
+      imgNode.src = this.lightboxImages[this.lightboxIndex]
+    }
+  }
+
+  private showLightbox(images: string[], startIndex: number) {
+    if (!images || images.length === 0) return
+    
+    this.lightboxImages = images
+    this.lightboxIndex = startIndex
+    const targetDoc = this.getTargetDocument()
+    
     let lightbox = targetDoc.getElementById('master115-lightbox')
     if (!lightbox) {
       lightbox = targetDoc.createElement('div')
       lightbox.id = 'master115-lightbox'
       lightbox.className = 'master115-lightbox'
+      
       const img = targetDoc.createElement('img')
+      img.className = 'master115-lightbox-main-img'
       lightbox.appendChild(img)
 
+      const prevBtn = targetDoc.createElement('div')
+      prevBtn.className = 'master115-lightbox-btn master115-lightbox-prev'
+      prevBtn.innerHTML = '&#10094;'
+      
+      const nextBtn = targetDoc.createElement('div')
+      nextBtn.className = 'master115-lightbox-btn master115-lightbox-next'
+      nextBtn.innerHTML = '&#10095;'
+
+      lightbox.appendChild(prevBtn)
+      lightbox.appendChild(nextBtn)
+
+      const nextImg = (e?: Event) => {
+        if (e) { e.stopPropagation(); e.preventDefault(); }
+        this.lightboxIndex = (this.lightboxIndex + 1) % this.lightboxImages.length
+        this.updateLightboxImage()
+      }
+      
+      const prevImg = (e?: Event) => {
+        if (e) { e.stopPropagation(); e.preventDefault(); }
+        this.lightboxIndex = (this.lightboxIndex - 1 + this.lightboxImages.length) % this.lightboxImages.length
+        this.updateLightboxImage()
+      }
+
+      nextBtn.addEventListener('click', nextImg)
+      prevBtn.addEventListener('click', prevImg)
+
+      lightbox.addEventListener('wheel', (e) => {
+        if (this.lightboxImages.length <= 1) return
+        e.preventDefault()
+        if (e.deltaY > 0) {
+          nextImg()
+        } else {
+          prevImg()
+        }
+      })
+
       // 点击关闭
-      lightbox.addEventListener('click', () => {
+      lightbox.addEventListener('click', (e) => {
+        const target = e.target as HTMLElement
+        if (target.closest('.master115-lightbox-btn')) return
         lightbox?.classList.remove('active')
       })
+      
+      targetDoc.addEventListener('keydown', (e) => {
+        if (!lightbox?.classList.contains('active')) return
+        if (e.key === 'ArrowLeft') {
+          prevImg()
+        } else if (e.key === 'ArrowRight') {
+          nextImg()
+        } else if (e.key === 'Escape') {
+          lightbox?.classList.remove('active')
+        }
+      })
+      
       targetDoc.body.appendChild(lightbox)
     }
 
-    const imgNode = lightbox.querySelector('img')
-    if (imgNode) {
-      imgNode.src = imgSrc
-    }
+    this.updateLightboxImage()
     // 小延迟出动画
     requestAnimationFrame(() => {
       lightbox?.classList.add('active')

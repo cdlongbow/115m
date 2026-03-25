@@ -116,11 +116,41 @@
   visibility: visible;
 }
 
-.master115-lightbox img {
+.master115-lightbox img.master115-lightbox-main-img {
   max-width: 90vw;
   max-height: 90vh;
   object-fit: contain;
   box-shadow: 0 0 20px rgba(0,0,0,0.5);
+  transition: transform 0.2s;
+}
+
+.master115-lightbox-btn {
+  position: absolute;
+  top: 50%;
+  transform: translateY(-50%);
+  color: white;
+  font-size: 40px;
+  font-weight: bold;
+  padding: 16px;
+  cursor: pointer;
+  user-select: none;
+  background: rgba(0, 0, 0, 0.3);
+  border-radius: 8px;
+  transition: background 0.2s, transform 0.2s;
+  z-index: 1000000;
+}
+
+.master115-lightbox-btn:hover {
+  background: rgba(0, 0, 0, 0.8);
+  transform: translateY(-50%) scale(1.1);
+}
+
+.master115-lightbox-prev {
+  left: 20px;
+}
+
+.master115-lightbox-next {
+  right: 20px;
 }
 
 /* ====== 空状态 / 错误状态 ====== */

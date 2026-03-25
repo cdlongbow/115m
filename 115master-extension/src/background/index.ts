@@ -3,6 +3,7 @@
  */
 
 import { drive115 } from '../lib'
+import type { M3u8Item } from '../lib/types'
 
 // 安装时初始化
 chrome.runtime.onInstalled.addListener((details) => {
@@ -70,6 +71,12 @@ interface MsgGetPrefetchVideoSource {
   data: { pickCode: string }
 }
 
+interface MsgGetPrefetchM3u8 {
+  type: 'GET_PREFETCH_M3U8'
+  data: { pickCode: string }
+}
+
+
 type Message =
   | MsgSetCookie
   | MsgDownload
@@ -78,20 +85,88 @@ type Message =
   | MsgOpenTab
   | MsgPrefetchVideoSource
   | MsgGetPrefetchVideoSource
+  | MsgGetPrefetchM3u8
 
 interface PrefetchUltraCache {
   url: string
   updatedAt: number
 }
 
+interface PrefetchM3u8Cache {
+  list: M3u8Item[]
+  updatedAt: number
+}
+
 const PREFETCH_TTL = 2 * 60 * 1000
+const PREFETCH_SESSION_KEY = 'prefetchUltraCacheV1'
+const PREFETCH_M3U8_SESSION_KEY = 'prefetchM3u8CacheV1'
 const prefetchUltraCache = new Map<string, PrefetchUltraCache>()
 const prefetchUltraInflight = new Map<string, Promise<PrefetchUltraCache | null>>()
+const prefetchM3u8Cache = new Map<string, PrefetchM3u8Cache>()
+const prefetchM3u8Inflight = new Map<string, Promise<PrefetchM3u8Cache | null>>()
+
+async function readSessionCache(pickCode: string): Promise<PrefetchUltraCache | null> {
+  try {
+    const payload = await chrome.storage.session.get(PREFETCH_SESSION_KEY)
+    const table = (payload?.[PREFETCH_SESSION_KEY] || {}) as Record<string, PrefetchUltraCache>
+    const hit = table[pickCode]
+    if (!hit) return null
+    if (Date.now() - hit.updatedAt >= PREFETCH_TTL) return null
+    return hit
+  }
+  catch {
+    return null
+  }
+}
+
+async function readSessionM3u8Cache(pickCode: string): Promise<PrefetchM3u8Cache | null> {
+  try {
+    const payload = await chrome.storage.session.get(PREFETCH_M3U8_SESSION_KEY)
+    const table = (payload?.[PREFETCH_M3U8_SESSION_KEY] || {}) as Record<string, PrefetchM3u8Cache>
+    const hit = table[pickCode]
+    if (!hit || !Array.isArray(hit.list) || hit.list.length === 0) return null
+    if (Date.now() - hit.updatedAt >= PREFETCH_TTL) return null
+    return hit
+  }
+  catch {
+    return null
+  }
+}
+
+async function writeSessionCache(pickCode: string, data: PrefetchUltraCache): Promise<void> {
+  try {
+    const payload = await chrome.storage.session.get(PREFETCH_SESSION_KEY)
+    const table = (payload?.[PREFETCH_SESSION_KEY] || {}) as Record<string, PrefetchUltraCache>
+    table[pickCode] = data
+    await chrome.storage.session.set({ [PREFETCH_SESSION_KEY]: table })
+  }
+  catch {
+    // ignore session cache failure
+  }
+}
+
+async function writeSessionM3u8Cache(pickCode: string, data: PrefetchM3u8Cache): Promise<void> {
+  try {
+    const payload = await chrome.storage.session.get(PREFETCH_M3U8_SESSION_KEY)
+    const table = (payload?.[PREFETCH_M3U8_SESSION_KEY] || {}) as Record<string, PrefetchM3u8Cache>
+    table[pickCode] = data
+    await chrome.storage.session.set({ [PREFETCH_M3U8_SESSION_KEY]: table })
+  }
+  catch {
+    // ignore session cache failure
+  }
+}
 
 async function prefetchUltraSource(pickCode: string): Promise<PrefetchUltraCache | null> {
   const cached = prefetchUltraCache.get(pickCode)
   if (cached && Date.now() - cached.updatedAt < PREFETCH_TTL) {
     return cached
+  }
+
+  const sessionCached = await readSessionCache(pickCode)
+  if (sessionCached) {
+    prefetchUltraCache.set(pickCode, sessionCached)
+    return sessionCached
   }
 
   const inflight = prefetchUltraInflight.get(pickCode)
@@ -124,6 +199,7 @@ async function prefetchUltraSource(pickCode: string): Promise<PrefetchUltraCache
         updatedAt: Date.now(),
       }
       prefetchUltraCache.set(pickCode, data)
+      await writeSessionCache(pickCode, data)
       return data
     }
     catch (error) {
@@ -139,6 +215,49 @@ async function prefetchUltraSource(pickCode: string): Promise<PrefetchUltraCache
   return request
 }
 
+async function prefetchM3u8Source(pickCode: string): Promise<PrefetchM3u8Cache | null> {
+  const cached = prefetchM3u8Cache.get(pickCode)
+  if (cached && Date.now() - cached.updatedAt < PREFETCH_TTL && cached.list.length > 0) {
+    return cached
+  }
+
+  const sessionCached = await readSessionM3u8Cache(pickCode)
+  if (sessionCached) {
+    prefetchM3u8Cache.set(pickCode, sessionCached)
+    return sessionCached
+  }
+
+  const inflight = prefetchM3u8Inflight.get(pickCode)
+  if (inflight) {
+    return inflight
+  }
+
+  const request = (async () => {
+    try {
+      const list = await drive115.getM3u8(pickCode)
+      if (!Array.isArray(list) || list.length === 0) return null
+
+      const data = {
+        list,
+        updatedAt: Date.now(),
+      }
+      prefetchM3u8Cache.set(pickCode, data)
+      await writeSessionM3u8Cache(pickCode, data)
+      return data
+    }
+    catch (error) {
+      console.warn('[115Master] 预热 m3u8 失败:', pickCode, error)
+      return null
+    }
+    finally {
+      prefetchM3u8Inflight.delete(pickCode)
+    }
+  })()
+
+  prefetchM3u8Inflight.set(pickCode, request)
+  return request
+}
+
 async function handleMessage(message: Message): Promise<any> {
   switch (message.type) {
     case 'OPEN_TAB': {
@@ -148,6 +267,7 @@ async function handleMessage(message: Message): Promise<any> {
 
     case 'PREFETCH_VIDEO_SOURCE': {
       void prefetchUltraSource(message.data.pickCode)
+      void prefetchM3u8Source(message.data.pickCode)
       return { success: true }
     }
 
@@ -156,6 +276,15 @@ async function handleMessage(message: Message): Promise<any> {
       if (!result) return null
       return {
         url: result.url,
+        fromCache: true,
+      }
+    }
+
+    case 'GET_PREFETCH_M3U8': {
+      const result = await prefetchM3u8Source(message.data.pickCode)
+      if (!result) return null
+      return {
+        list: result.list,
         fromCache: true,
       }
     }

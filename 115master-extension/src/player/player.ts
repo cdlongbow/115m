@@ -33,76 +33,75 @@ class PlayerManager {
   private currentQuality = 0
   private currentQualityLabel = '加载中'
   private infoFpsTimer: number | null = null
+  private hoverCovers: Array<{ time: number, imgUrl: string }> = []
+  private hoverPreviewEl: HTMLDivElement | null = null
+  private hoverPreviewImgEl: HTMLImageElement | null = null
+  private hoverPreviewTimeEl: HTMLDivElement | null = null
+  private hoverProgressEl: HTMLElement | null = null
+  private hoverBindRetryTimer: number | null = null
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
     this.init()
   }
 
+  private async sendRuntimeMessageSafe<T = any>(message: any): Promise<T | null> {
+    try {
+      return await chrome.runtime.sendMessage(message) as T
+    }
+    catch {
+      return null
+    }
+  }
+
   private getPrefetchUltraUrl() {
-    return chrome.runtime.sendMessage({
+    return this.sendRuntimeMessageSafe<{ url: string, fromCache: boolean } | null>({
       type: 'GET_PREFETCH_VIDEO_SOURCE',
       data: { pickCode: this.currentPickCode },
-    }) as Promise<{ url: string, fromCache: boolean } | null>
+    })
+  }
+
+  private getPrefetchM3u8List() {
+    return this.sendRuntimeMessageSafe<{ list: M3u8Item[], fromCache: boolean } | null>({
+      type: 'GET_PREFETCH_M3U8',
+      data: { pickCode: this.currentPickCode },
+    })
   }
 
   private async init() {
     try {
       const loadingTextEl = document.getElementById('loading-text')
       if (loadingTextEl) {
-        loadingTextEl.textContent = '正在优先获取无损画质...'
+        loadingTextEl.textContent = '正在准备最快可用播放源...'
       }
 
-      const ultraPromise = this.getPrefetchUltraUrl()
-        .then((prefetched) => {
-          if (prefetched?.url) {
-            this.ultraUrl = prefetched.url
-            console.log('[115Master Player] 命中预热无损地址')
-            return prefetched.url
-          }
-          throw new Error('miss')
-        })
-        .catch(async () => {
-          const downloadResult = await drive115.getFileDownloadUrl(this.currentPickCode)
-          const url = downloadResult.url?.url
-          const authCookie = downloadResult.url?.auth_cookie
-          if (!url) throw new Error('未获取到 Ultra 下载地址')
+      const ultraPromise = this.fetchUltraSource()
+      const m3u8Promise = this.fetchM3u8WithRetry()
 
-          this.ultraUrl = url
-          if (authCookie) {
-            await drive115.setDownloadCookie(authCookie)
-          }
-          return url
-        })
+      const starter = await Promise.any([
+        m3u8Promise.then(list => ({ type: 'm3u8' as const, list })),
+        ultraPromise.then(url => ({ type: 'ultra' as const, url })),
+      ])
 
-      try {
-        const ultraUrl = await ultraPromise
-
+      if (starter.type === 'm3u8') {
+        this.isNativeVideo = false
+        this.currentQuality = starter.list[0].quality
+        this.currentQualityLabel = this.getQualityDisplayName(starter.list[0].quality, true)
+        this.createArtplayer(starter.list[0].url, 'hls')
+      }
+      else {
         this.isNativeVideo = true
         this.currentQuality = 9999
         this.currentQualityLabel = '无损'
-        this.createArtplayer(ultraUrl, 'native')
-      }
-      catch {
-        const list = await drive115.getM3u8(this.currentPickCode)
-        this.m3u8List = list
-        if (!list[0]) {
-          throw new Error('M3U8 empty')
-        }
-        this.isNativeVideo = false
-        this.currentQuality = list[0].quality
-        this.currentQualityLabel = this.getQualityDisplayName(list[0].quality, true)
-        this.createArtplayer(list[0].url, 'hls')
+        this.createArtplayer(starter.url, 'native')
       }
 
-      void drive115.getM3u8(this.currentPickCode).then((list) => {
-        this.m3u8List = list
-        this.qualityOptions = this.buildQualityOptions(this.artplayer?.url || '')
-        this.updateQualityByUrl(this.artplayer?.url || '')
+      void Promise.allSettled([ultraPromise, m3u8Promise]).then(() => {
+        const currentUrl = this.artplayer?.url || ''
+        this.qualityOptions = this.buildQualityOptions(currentUrl)
+        this.updateQualityByUrl(currentUrl)
         this.renderQualityPanel()
         this.updateQualityButton()
-      }).catch(() => {
-        // ignore optional m3u8 refresh failure
       })
 
       void this.loadPlayHistory()
@@ -114,6 +113,49 @@ class PlayerManager {
       const loadingEl = document.getElementById('loading')
       if (loadingEl) loadingEl.style.display = 'none'
     }
+  }
+
+  private async fetchUltraSource(): Promise<string> {
+    const prefetched = await this.getPrefetchUltraUrl().catch(() => null)
+    if (prefetched?.url) {
+      this.ultraUrl = prefetched.url
+      return prefetched.url
+    }
+
+    const downloadResult = await drive115.getFileDownloadUrl(this.currentPickCode)
+    const url = downloadResult.url?.url
+    const authCookie = downloadResult.url?.auth_cookie
+    if (!url) throw new Error('未获取到 Ultra 下载地址')
+
+    this.ultraUrl = url
+    if (authCookie) {
+      await drive115.setDownloadCookie(authCookie)
+    }
+    return url
+  }
+
+  private async fetchM3u8WithRetry(): Promise<M3u8Item[]> {
+    const prefetched = await this.getPrefetchM3u8List().catch(() => null)
+    if (prefetched?.list?.length) {
+      this.m3u8List = prefetched.list
+      return prefetched.list
+    }
+
+    let lastError: unknown
+    for (let i = 0; i < 2; i++) {
+      try {
+        const list = await drive115.getM3u8(this.currentPickCode)
+        if (list[0]) {
+          this.m3u8List = list
+          return list
+        }
+      }
+      catch (error) {
+        lastError = error
+      }
+      await new Promise(resolve => setTimeout(resolve, 250 * (i + 1)))
+    }
+    throw lastError ?? new Error('M3U8 empty')
   }
 
   private initHls(video: HTMLVideoElement, url: string): Hls {
@@ -187,6 +229,7 @@ class PlayerManager {
     }
 
     this.setupTopNav()
+    this.setupProgressHoverPreview()
     this.renderQualityPanel()
     this.updateQualityButton()
     void this.loadThumbnails()
@@ -360,6 +403,8 @@ class PlayerManager {
       const covers = await getVideoCovers(this.currentPickCode, duration, 30)
       if (covers.length === 0 || !this.artplayer) return
 
+      this.hoverCovers = covers
+
       let vtt = 'WEBVTT\n\n'
       covers.forEach((c) => {
         const tDuration = duration / covers.length
@@ -375,6 +420,156 @@ class PlayerManager {
     catch {
       // ignore thumbnail errors
     }
+  }
+
+  private setupProgressHoverPreview() {
+    if (!this.artplayer) return
+    this.ensureHoverPreviewElements()
+    this.bindProgressHoverEventsWithRetry(0)
+  }
+
+  private ensureHoverPreviewElements() {
+    if (this.hoverPreviewEl || !this.artplayer) return
+
+    const container = this.artplayer.template.$player as HTMLElement
+    const preview = document.createElement('div')
+    preview.style.cssText = [
+      'position:absolute',
+      'left:0',
+      'bottom:64px',
+      'transform:translateX(-50%)',
+      'display:none',
+      'pointer-events:none',
+      'z-index:80',
+      'background:rgba(0,0,0,.78)',
+      'border:1px solid rgba(255,255,255,.22)',
+      'border-radius:8px',
+      'padding:6px',
+      'min-width:182px',
+      'box-sizing:border-box',
+    ].join(';')
+
+    const img = document.createElement('img')
+    img.style.cssText = [
+      'display:block',
+      'width:170px',
+      'height:96px',
+      'object-fit:cover',
+      'border-radius:6px',
+      'background:#111',
+    ].join(';')
+
+    const time = document.createElement('div')
+    time.style.cssText = [
+      'margin-top:4px',
+      'font-size:12px',
+      'line-height:16px',
+      'color:#fff',
+      'text-align:center',
+      'font-variant-numeric:tabular-nums',
+    ].join(';')
+    time.textContent = '00:00'
+
+    preview.appendChild(img)
+    preview.appendChild(time)
+    container.appendChild(preview)
+
+    this.hoverPreviewEl = preview
+    this.hoverPreviewImgEl = img
+    this.hoverPreviewTimeEl = time
+  }
+
+  private bindProgressHoverEventsWithRetry(retry: number) {
+    if (!this.artplayer) return
+    const progress = this.findProgressElement()
+    if (!progress) {
+      if (retry >= 20) return
+      this.hoverBindRetryTimer = window.setTimeout(() => {
+        this.bindProgressHoverEventsWithRetry(retry + 1)
+      }, 300)
+      return
+    }
+
+    this.hoverProgressEl = progress
+
+    progress.addEventListener('mousemove', this.handleProgressMouseMove)
+    progress.addEventListener('mouseenter', this.handleProgressMouseEnter)
+    progress.addEventListener('mouseleave', this.handleProgressMouseLeave)
+  }
+
+  private findProgressElement(): HTMLElement | null {
+    if (!this.artplayer) return null
+    const root = this.artplayer.template.$player as HTMLElement
+    const selectors = [
+      '.art-control-progress',
+      '.art-progress',
+      '.art-control .art-progress',
+      '.art-bottom .art-progress',
+    ]
+    for (const selector of selectors) {
+      const hit = root.querySelector(selector) as HTMLElement | null
+      if (hit) return hit
+    }
+    return null
+  }
+
+  private handleProgressMouseEnter = () => {
+    if (this.hoverPreviewEl && this.hoverCovers.length > 0) {
+      this.hoverPreviewEl.style.display = 'block'
+    }
+  }
+
+  private handleProgressMouseLeave = () => {
+    if (this.hoverPreviewEl) {
+      this.hoverPreviewEl.style.display = 'none'
+    }
+  }
+
+  private handleProgressMouseMove = (event: MouseEvent) => {
+    if (!this.artplayer || !this.hoverProgressEl || !this.hoverPreviewEl || !this.hoverPreviewImgEl || !this.hoverPreviewTimeEl) {
+      return
+    }
+    if (this.hoverCovers.length === 0 || !this.artplayer.duration) return
+
+    const progressRect = this.hoverProgressEl.getBoundingClientRect()
+    if (progressRect.width <= 0) return
+
+    const raw = (event.clientX - progressRect.left) / progressRect.width
+    const ratio = Math.max(0, Math.min(1, raw))
+    const hoverTime = ratio * this.artplayer.duration
+
+    let nearest = this.hoverCovers[0]
+    let minDelta = Math.abs(nearest.time - hoverTime)
+    for (const cover of this.hoverCovers) {
+      const delta = Math.abs(cover.time - hoverTime)
+      if (delta < minDelta) {
+        minDelta = delta
+        nearest = cover
+      }
+    }
+
+    if (nearest?.imgUrl) {
+      this.hoverPreviewImgEl.src = nearest.imgUrl
+    }
+    this.hoverPreviewTimeEl.textContent = this.formatTimeLabel(hoverTime)
+
+    const containerRect = (this.artplayer.template.$player as HTMLElement).getBoundingClientRect()
+    const offsetX = event.clientX - containerRect.left
+    const minLeft = 96
+    const maxLeft = Math.max(minLeft, containerRect.width - 96)
+    const clamped = Math.max(minLeft, Math.min(maxLeft, offsetX))
+    this.hoverPreviewEl.style.left = `${clamped}px`
+  }
+
+  private formatTimeLabel(seconds: number) {
+    const sec = Math.max(0, Math.floor(seconds))
+    const h = Math.floor(sec / 3600)
+    const m = Math.floor((sec % 3600) / 60)
+    const s = sec % 60
+    if (h > 0) {
+      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
+    }
+    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
   }
 
   private formatVttTime(seconds: number) {
@@ -413,7 +608,7 @@ class PlayerManager {
 
   private async loadPlayHistory() {
     try {
-      const response = await chrome.runtime.sendMessage({
+      const response = await this.sendRuntimeMessageSafe<{ currentTime: number } | null>({
         type: 'GET_HISTORY',
         data: { pickCode: this.currentPickCode },
       })
@@ -443,7 +638,7 @@ class PlayerManager {
     if (now - lastSaveTime < 10000) return
     sessionStorage.setItem('lastSaveTime', now.toString())
 
-    void chrome.runtime.sendMessage({
+    void this.sendRuntimeMessageSafe({
       type: 'SET_HISTORY',
       data: {
         pickCode: this.currentPickCode,
@@ -594,6 +789,24 @@ class PlayerManager {
   }
 
   destroy() {
+    if (this.hoverBindRetryTimer) {
+      window.clearTimeout(this.hoverBindRetryTimer)
+      this.hoverBindRetryTimer = null
+    }
+    if (this.hoverProgressEl) {
+      this.hoverProgressEl.removeEventListener('mousemove', this.handleProgressMouseMove)
+      this.hoverProgressEl.removeEventListener('mouseenter', this.handleProgressMouseEnter)
+      this.hoverProgressEl.removeEventListener('mouseleave', this.handleProgressMouseLeave)
+      this.hoverProgressEl = null
+    }
+    if (this.hoverPreviewEl) {
+      this.hoverPreviewEl.remove()
+      this.hoverPreviewEl = null
+      this.hoverPreviewImgEl = null
+      this.hoverPreviewTimeEl = null
+    }
+    this.hoverCovers = []
+
     if (this.infoFpsTimer) {
       window.clearInterval(this.infoFpsTimer)
       this.infoFpsTimer = null
