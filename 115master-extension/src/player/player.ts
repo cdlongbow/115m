@@ -215,6 +215,7 @@ class PlayerManager {
             event?.stopPropagation?.()
             this.ignoreQualityPanelCloseOnce = true
             const panel = document.getElementById('quality-panel')
+            this.positionQualityPanel(panel as HTMLElement | null)
             panel?.classList.toggle('hidden')
             requestAnimationFrame(() => {
               this.ignoreQualityPanelCloseOnce = false
@@ -415,6 +416,12 @@ class PlayerManager {
       e.stopPropagation()
     })
 
+    window.addEventListener('resize', () => {
+      if (qualityPanel && !qualityPanel.classList.contains('hidden')) {
+        this.positionQualityPanel(qualityPanel)
+      }
+    })
+
     document.addEventListener('click', (e) => {
       if (this.ignoreQualityPanelCloseOnce) return
       const target = e.target as HTMLElement | null
@@ -422,6 +429,38 @@ class PlayerManager {
       if (target?.closest('#quality-panel')) return
       qualityPanel?.classList.add('hidden')
     })
+  }
+
+  private positionQualityPanel(panel: HTMLElement | null) {
+    if (!panel) return
+
+    const anchor = document.getElementById('quality-control-label')
+    if (!anchor) return
+
+    const anchorRect = anchor.getBoundingClientRect()
+    const panelWidth = 170
+    const panelHeight = 140
+    const margin = 8
+
+    let left = anchorRect.right - panelWidth
+    let top = anchorRect.top - panelHeight - margin
+
+    if (top < margin) {
+      top = anchorRect.bottom + margin
+    }
+
+    if (left < margin) {
+      left = margin
+    }
+
+    if (left + panelWidth > window.innerWidth - margin) {
+      left = window.innerWidth - panelWidth - margin
+    }
+
+    panel.style.left = `${left}px`
+    panel.style.top = `${top}px`
+    panel.style.right = 'auto'
+    panel.style.bottom = 'auto'
   }
 
   private async loadThumbnails() {
