@@ -53,16 +53,11 @@ class PlayerManager {
         loadingTextEl.textContent = '正在优先获取无损画质...'
       }
 
-      const m3u8Promise = drive115.getM3u8(this.currentPickCode)
-        .then((list) => {
-          this.m3u8List = list
-          return list
-        })
-
       const ultraPromise = this.getPrefetchUltraUrl()
         .then((prefetched) => {
           if (prefetched?.url) {
             this.ultraUrl = prefetched.url
+            console.log('[115Master Player] 命中预热无损地址')
             return prefetched.url
           }
           throw new Error('miss')
@@ -80,31 +75,34 @@ class PlayerManager {
           return url
         })
 
-      let firstPlayable: { type: 'native' | 'hls', url: string }
       try {
         const ultraUrl = await ultraPromise
-        firstPlayable = { type: 'native', url: ultraUrl }
+
+        this.isNativeVideo = true
+        this.currentQuality = 9999
+        this.currentQualityLabel = '无损'
+        this.createArtplayer(ultraUrl, 'native')
       }
       catch {
-        const list = await m3u8Promise
+        const list = await drive115.getM3u8(this.currentPickCode)
+        this.m3u8List = list
         if (!list[0]) {
           throw new Error('M3U8 empty')
         }
-        firstPlayable = { type: 'hls', url: list[0].url }
+        this.isNativeVideo = false
+        this.currentQuality = list[0].quality
+        this.currentQualityLabel = this.getQualityDisplayName(list[0].quality, true)
+        this.createArtplayer(list[0].url, 'hls')
       }
 
-      this.isNativeVideo = firstPlayable.type === 'native'
-      this.currentQuality = this.isNativeVideo ? 9999 : (this.m3u8List[0]?.quality ?? 0)
-      this.currentQualityLabel = this.isNativeVideo
-        ? '无损'
-        : this.getQualityDisplayName(this.m3u8List[0]?.quality ?? 0, true)
-      this.createArtplayer(firstPlayable.url, firstPlayable.type)
-
-      void Promise.allSettled([m3u8Promise, ultraPromise]).then(() => {
-        this.qualityOptions = this.buildQualityOptions(this.artplayer?.url || firstPlayable.url)
-        this.updateQualityByUrl(this.artplayer?.url || firstPlayable.url)
+      void drive115.getM3u8(this.currentPickCode).then((list) => {
+        this.m3u8List = list
+        this.qualityOptions = this.buildQualityOptions(this.artplayer?.url || '')
+        this.updateQualityByUrl(this.artplayer?.url || '')
         this.renderQualityPanel()
         this.updateQualityButton()
+      }).catch(() => {
+        // ignore optional m3u8 refresh failure
       })
 
       void this.loadPlayHistory()

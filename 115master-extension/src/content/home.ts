@@ -83,6 +83,7 @@ class FileListMod {
   private observer: MutationObserver | null = null
   private dataListBoxSelector: string = '#js_data_list'
   private mainWorldConfig: any = null
+  private prefetchedPickCodes = new Set<string>()
 
   constructor() {
     this.init()
@@ -296,8 +297,12 @@ class FileListMod {
       return
     }
 
-    // 添加视频封面
-    this.addVideoCover(item, fileInfo)
+    // 延迟一点再挂封面，避免列表刷新瞬间闪烁
+    setTimeout(() => {
+      if (!item.isConnected) return
+      if (!item.hasAttribute('data-115master-processed')) return
+      this.addVideoCover(item, fileInfo)
+    }, 180)
 
     // 添加点击播放事件
     this.addClickPlay(item, fileInfo)
@@ -438,6 +443,8 @@ class FileListMod {
     // 创建封面容器
     const container = document.createElement('div')
     container.className = 'master115-cover-container'
+    container.style.opacity = '0'
+    container.style.transition = 'opacity 0.15s ease'
 
     // 骨架屏
     const skeleton = document.createElement('div')
@@ -477,6 +484,7 @@ class FileListMod {
 
       container.innerHTML = ''
       container.classList.add('master115-cover-loaded')
+      container.style.opacity = '1'
 
       if (results.length === 0) {
         const empty = document.createElement('div')
@@ -490,6 +498,10 @@ class FileListMod {
         const link = document.createElement('a')
         link.className = 'master115-cover-thumb'
         link.href = res.imgUrl
+        link.style.width = '139px'
+        link.style.height = '96px'
+        link.style.display = 'inline-block'
+        link.style.overflow = 'hidden'
         link.addEventListener('click', (e) => {
           e.preventDefault()
           e.stopPropagation()
@@ -500,6 +512,10 @@ class FileListMod {
         img.src = res.imgUrl
         img.alt = `视频封面 ${index + 1}`
         img.className = 'master115-cover-img'
+        img.style.width = '139px'
+        img.style.height = '96px'
+        img.style.objectFit = 'cover'
+        img.style.display = 'block'
 
         link.appendChild(img)
         container.appendChild(link)
@@ -513,7 +529,21 @@ class FileListMod {
       err.className = 'master115-cover-error'
       err.textContent = '封面加载失败'
       container.appendChild(err)
+      container.style.opacity = '1'
     }
+  }
+
+  private prefetchVideoSource(pickCode: string) {
+    if (!pickCode) return
+    if (this.prefetchedPickCodes.has(pickCode)) return
+    this.prefetchedPickCodes.add(pickCode)
+
+    chrome.runtime.sendMessage({
+      type: 'PREFETCH_VIDEO_SOURCE',
+      data: { pickCode },
+    }).catch(() => {
+      this.prefetchedPickCodes.delete(pickCode)
+    })
   }
 
   /**
@@ -521,6 +551,15 @@ class FileListMod {
    */
   private addClickPlay(item: HTMLElement, fileInfo: FileInfo) {
     const fileNameNode = item.querySelector('.file-thumb') ?? item.querySelector('.file-name .name')
+
+    // 鼠标移入先预热，提升点击后无损打开速度
+    item.addEventListener('mouseenter', () => {
+      this.prefetchVideoSource(fileInfo.pickCode)
+    }, { once: true })
+
+    item.addEventListener('mousedown', () => {
+      this.prefetchVideoSource(fileInfo.pickCode)
+    }, { once: true })
 
     const handleClickPlayer = (e: Event) => {
       e.preventDefault()
@@ -554,12 +593,7 @@ class FileListMod {
    * 打开播放器
    */
   private openPlayer(pickCode: string, title: string) {
-    chrome.runtime.sendMessage({
-      type: 'PREFETCH_VIDEO_SOURCE',
-      data: { pickCode },
-    }).catch(() => {
-      // ignore prefetch errors
-    })
+    this.prefetchVideoSource(pickCode)
 
     const playerUrl = chrome.runtime.getURL('src/player/index.html')
     const url = `${playerUrl}?pickCode=${pickCode}&title=${encodeURIComponent(title)}`
@@ -661,6 +695,25 @@ function injectStyles() {
 
 injectStyles()
 
+function closeAnyVisibleLightbox() {
+  const docs: Document[] = [document]
+  const wFrame = document.querySelector('iframe[name="wangpan"]') as HTMLIFrameElement | null
+  if (wFrame?.contentDocument) {
+    docs.push(wFrame.contentDocument)
+  }
+
+  docs.forEach((doc) => {
+    const lightbox = doc.getElementById('master115-lightbox')
+    if (lightbox) {
+      lightbox.classList.remove('active')
+      const img = lightbox.querySelector('img') as HTMLImageElement | null
+      if (img) {
+        img.src = ''
+      }
+    }
+  })
+}
+
 window.addEventListener('error', (event) => {
   const message = event.message || ''
   if (message.includes('Extension context invalidated')) {
@@ -669,8 +722,12 @@ window.addEventListener('error', (event) => {
 })
 
 if (document.readyState === 'loading') {
-  document.addEventListener('DOMContentLoaded', init)
+  document.addEventListener('DOMContentLoaded', () => {
+    closeAnyVisibleLightbox()
+    init()
+  })
 } else {
+  closeAnyVisibleLightbox()
   init()
 }
 
