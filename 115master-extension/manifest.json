@@ -1,0 +1,47 @@
+{
+  "manifest_version": 3,
+  "name": "115Master",
+  "version": "1.0.0",
+  "description": "115网盘增强扩展 | Ultra画质播放 | 文件下载",
+  "permissions": [
+    "storage",
+    "downloads",
+    "cookies",
+    "tabs",
+    "activeTab",
+    "contextMenus"
+  ],
+  "host_permissions": [
+    "https://115.com/*",
+    "https://webapi.115.com/*",
+    "https://proapi.115.com/*",
+    "https://aps.115.com/*",
+    "https://dl.115cdn.net/*",
+    "https://cdnfhnfile.115cdn.net/*",
+    "https://115vod.com/*"
+  ],
+  "background": {
+    "service_worker": "src/background/index.ts",
+    "type": "module"
+  },
+  "content_scripts": [
+    {
+      "matches": [
+        "*://*.115.com/*",
+        "*://115.com/*"
+      ],
+      "js": ["src/content/home.ts"],
+      "run_at": "document_end",
+      "all_frames": true,
+      "match_about_blank": true
+    },
+    {
+      "matches": ["https://dl.115cdn.net/video/token*"],
+      "js": ["src/content/video-token.ts"],
+      "run_at": "document_start"
+    }
+  ],
+  "action": {
+    "default_title": "115Master"
+  }
+}
