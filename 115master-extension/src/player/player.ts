@@ -17,6 +17,8 @@ interface QualityOption {
   url: string
 }
 
+const ORIGINAL_PLACEHOLDER_URL = 'master115://original'
+
 interface VideoPlaybackQualityLike {
   droppedVideoFrames?: number
   totalVideoFrames?: number
@@ -72,32 +74,19 @@ class PlayerManager {
     try {
       const loadingTextEl = document.getElementById('loading-text')
       if (loadingTextEl) {
-        loadingTextEl.textContent = '正在准备最快可用播放源...'
+        loadingTextEl.textContent = '正在加载无损播放源...'
       }
 
-      const ultraPromise = this.fetchUltraSource().catch(() => null)
-      const m3u8Promise = this.fetchM3u8WithRetry().catch(() => null)
-
-      const ultraUrl = await ultraPromise
+      const ultraUrl = await this.fetchUltraSource().catch(() => null)
 
       if (ultraUrl) {
         this.isNativeVideo = true
         this.currentQuality = 9999
         this.currentQualityLabel = '无损'
         this.createArtplayer(ultraUrl, 'native')
-
-        // 异步等待 m3u8 加载完后更新画质菜单
-        void m3u8Promise.then(() => {
-          const currentUrl = this.artplayer?.url || ''
-          this.qualityOptions = this.buildQualityOptions(currentUrl)
-          this.updateQualityByUrl(currentUrl)
-          this.renderQualityPanel()
-          this.updateQualityButton()
-        })
       }
       else {
-        // 无损获取失败，等待 M3U8
-        const m3u8List = await m3u8Promise
+        const m3u8List = await this.fetchM3u8WithRetry().catch(() => null)
         if (m3u8List && m3u8List.length > 0) {
           this.isNativeVideo = false
           this.currentQuality = m3u8List[0].quality
@@ -266,7 +255,7 @@ class PlayerManager {
 
       this.artplayer.on('error', () => {
         if (this.isNativeVideo) {
-          this.fallbackToHls()
+          void this.fallbackToHls()
         }
       })
 
@@ -285,13 +274,20 @@ class PlayerManager {
       })
     }
 
-    this.m3u8List.forEach((item) => {
+    const original = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
+    if (original) {
       options.push({
-        label: this.getQualityDisplayName(item.quality, true),
-        quality: item.quality,
-        url: item.url,
+        label: '115原画',
+        quality: 9999,
+        url: original.url,
       })
-    })
+    } else if (this.ultraUrl) {
+      options.push({
+        label: '115原画',
+        quality: 9999,
+        url: ORIGINAL_PLACEHOLDER_URL,
+      })
+    }
 
     if (options.length === 0 && currentUrl) {
       options.push({
@@ -340,7 +336,9 @@ class PlayerManager {
 
     this.qualityOptions.forEach((opt) => {
       const btn = document.createElement('button')
-      const active = this.artplayer?.url === opt.url
+      const active = opt.url === ORIGINAL_PLACEHOLDER_URL
+        ? this.currentQualityLabel === '115原画'
+        : this.artplayer?.url === opt.url
       btn.className = `text-left px-3 py-2 rounded-lg text-sm transition-colors ${active ? 'bg-white/20 text-white' : 'text-white/80 hover:bg-white/10'}`
       btn.textContent = opt.label
       btn.addEventListener('click', async (e) => {
@@ -353,7 +351,18 @@ class PlayerManager {
   }
 
   private async switchQuality(opt: QualityOption) {
-    if (!this.artplayer || this.artplayer.url === opt.url) return
+    if (!this.artplayer) return
+
+    if (opt.url === ORIGINAL_PLACEHOLDER_URL) {
+      const resolvedUrl = await this.ensureOriginalSourceLoaded()
+      if (!resolvedUrl) {
+        this.showError('115原画加载失败，请稍后重试')
+        return
+      }
+      opt = { ...opt, url: resolvedUrl }
+    }
+
+    if (this.artplayer.url === opt.url) return
 
     const currentTime = this.artplayer.currentTime || 0
     const wasPlaying = !this.artplayer.video.paused
@@ -608,8 +617,17 @@ class PlayerManager {
     return map[quality] || '自动'
   }
 
-  private fallbackToHls() {
-    if (!this.artplayer || this.m3u8List.length === 0) {
+  private async fallbackToHls() {
+    if (!this.artplayer) {
+      this.showError('播放失败，无可用的视频源')
+      return
+    }
+
+    if (this.m3u8List.length === 0) {
+      await this.fetchM3u8WithRetry().catch(() => null)
+    }
+
+    if (this.m3u8List.length === 0) {
       this.showError('播放失败，无可用的视频源')
       return
     }
@@ -621,6 +639,19 @@ class PlayerManager {
     this.updateQualityButton()
     this.renderQualityPanel()
     this.artplayer.switchUrl(bestQuality.url)
+  }
+
+  private async ensureOriginalSourceLoaded(): Promise<string | null> {
+    if (this.m3u8List.length === 0) {
+      await this.fetchM3u8WithRetry().catch(() => null)
+    }
+    if (this.m3u8List.length === 0) return null
+
+    const original = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
+    const currentUrl = this.artplayer?.url || ''
+    this.qualityOptions = this.buildQualityOptions(currentUrl)
+    this.renderQualityPanel()
+    return original?.url || null
   }
 
   private async loadPlayHistory() {
