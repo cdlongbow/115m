@@ -74,24 +74,24 @@ class PlayerManager {
     try {
       const loadingTextEl = document.getElementById('loading-text')
       if (loadingTextEl) {
-        loadingTextEl.textContent = '正在加载无损播放源...'
+        loadingTextEl.textContent = '正在加载播放源...'
       }
 
-      const ultraUrl = await this.fetchUltraSource().catch(() => null)
+      const m3u8List = await this.fetchM3u8WithRetry().catch(() => null)
 
-      if (ultraUrl) {
-        this.isNativeVideo = true
-        this.currentQuality = 9999
-        this.currentQualityLabel = '无损'
-        this.createArtplayer(ultraUrl, 'native')
+      if (m3u8List && m3u8List.length > 0) {
+        this.isNativeVideo = false
+        this.currentQuality = m3u8List[0].quality
+        this.currentQualityLabel = this.getQualityDisplayName(m3u8List[0].quality, true)
+        this.createArtplayer(m3u8List[0].url, 'hls')
       }
       else {
-        const m3u8List = await this.fetchM3u8WithRetry().catch(() => null)
-        if (m3u8List && m3u8List.length > 0) {
-          this.isNativeVideo = false
-          this.currentQuality = m3u8List[0].quality
-          this.currentQualityLabel = this.getQualityDisplayName(m3u8List[0].quality, true)
-          this.createArtplayer(m3u8List[0].url, 'hls')
+        const ultraUrl = await this.fetchUltraSource().catch(() => null)
+        if (ultraUrl) {
+          this.isNativeVideo = true
+          this.currentQuality = 9999
+          this.currentQualityLabel = '无损'
+          this.createArtplayer(ultraUrl, 'native')
         }
         else {
           throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
