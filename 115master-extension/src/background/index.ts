@@ -53,10 +53,20 @@ interface MsgSetHistory {
   }
 }
 
-type Message = MsgSetCookie | MsgDownload | MsgGetHistory | MsgSetHistory
+interface MsgOpenTab {
+  type: 'OPEN_TAB'
+  url: string
+}
+
+type Message = MsgSetCookie | MsgDownload | MsgGetHistory | MsgSetHistory | MsgOpenTab
 
 async function handleMessage(message: Message): Promise<any> {
   switch (message.type) {
+    case 'OPEN_TAB': {
+      await chrome.tabs.create({ url: message.url })
+      return { success: true }
+    }
+
     case 'SET_COOKIE': {
       const { data } = message
       await chrome.cookies.set({

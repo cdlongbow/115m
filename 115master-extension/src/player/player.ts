@@ -91,6 +91,9 @@ class PlayerManager {
     catch (error) {
       console.error('[115Master Player] 初始化失败:', error)
       this.showError(`播放器初始化失败: ${error instanceof Error ? error.message : String(error)}`)
+    } finally {
+      const loadingEl = document.getElementById('loading')
+      if (loadingEl) loadingEl.style.display = 'none'
     }
   }
 

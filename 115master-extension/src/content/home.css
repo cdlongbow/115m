@@ -19,23 +19,22 @@
   margin-bottom: 0;
 }
 
-/* ====== 封面容器（插入 li 末尾） ====== */
+/* ====== 封面容器 ====== */
 .master115-cover-container {
   width: 100%;
-  max-width: 856px; /* 对应 Tailwind max-w-214 */
   height: 96px;
   position: relative;
   display: block;
   overflow: hidden;
-  padding-left: 80px; /* 对应 Tailwind px-20 */
-  padding-right: 80px; /* 对应 Tailwind px-20 */
+  margin-top: 6px; 
+  padding-left: 83px; /* 对齐前方图标缩进 */
   box-sizing: border-box;
 }
 
 /* ====== 骨架屏 ====== */
 .master115-cover-skeleton {
-  width: 100%;
-  height: 100%;
+  width: 696px; /* 锁死标准排版尺寸，完美对齐 */
+  height: 96px;
   background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 200% 100%;
   animation: master115-shimmer 1.5s infinite;
@@ -49,9 +48,8 @@
 
 /* ====== 封面缩略图行 ====== */
 .master115-cover-loaded {
-  display: flex;
-  width: 100%;
-  height: 100%;
+  display: inline-flex; /* 紧贴图片，绝不多流出一丝缝隙 */
+  height: 96px;
   gap: 0;
   overflow: hidden;
   background-color: #f3f4f6; /* DaisyUI bg-base-300 浅灰色 */
@@ -59,9 +57,9 @@
 }
 
 .master115-cover-thumb {
-  flex: 1 1 0% !important; /* 核心修正：允许按需缩小，像原版一样把多余的 16:9 宽度压缩进窄容器内 */
+  flex: none !important; /* 彻底禁止图片任意拉伸！ */
   height: 96px !important; 
-  /* 移除 width: 170px 强锁，让 flex 均分 */
+  width: 139px !important; /* 强制指定为占位图分配的 1/5 比例，杜绝边缘白框 */
   margin: 0 !important;
   padding: 0 !important;
   border: none !important;

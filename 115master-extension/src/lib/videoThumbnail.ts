@@ -26,6 +26,17 @@ function calculateTimes(duration: number, count = 5): number[] {
 export async function getVideoCovers(pickCode: string, duration: number, coverNum = 5): Promise<VideoThumbnail[]> {
   console.log('[115Master] getVideoCovers 开始:', { pickCode, duration, coverNum })
 
+  const CACHE_KEY = `master115_covers_${pickCode}_${coverNum}`
+  try {
+    const cached = await chrome.storage.local.get(CACHE_KEY)
+    if (cached[CACHE_KEY] && cached[CACHE_KEY].length > 0) {
+      console.log('[115Master] 命中本地强缓存，瞬间读取出图:', pickCode)
+      return cached[CACHE_KEY]
+    }
+  } catch (e) {
+    console.warn('[115Master] 读取缓存失败:', e)
+  }
+
   const m3u8List = await drive115.getM3u8(pickCode)
   console.log('[115Master] m3u8List:', m3u8List.map(m => ({ name: m.name, quality: m.quality })))
 
@@ -51,7 +62,7 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
         const resize = getImageResize(result.videoFrame.displayWidth, result.videoFrame.displayHeight, MAX_WIDTH, MAX_HEIGHT)
         const canvas = new OffscreenCanvas(resize.width, resize.height)
         const ctx = canvas.getContext('2d')
-        
+
         if (ctx) {
           ctx.drawImage(
             await createImageBitmap(result.videoFrame, {
@@ -62,8 +73,14 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
             0, 0, resize.width, resize.height
           )
           const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 })
+          const base64Url = await new Promise<string>((resolve) => {
+            const reader = new FileReader()
+            reader.onloadend = () => resolve(reader.result as string)
+            reader.readAsDataURL(blob)
+          })
+
           results.push({
-            imgUrl: URL.createObjectURL(blob),
+            imgUrl: base64Url,
             width: resize.width,
             height: resize.height,
             time: t
@@ -79,5 +96,15 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
 
   clipper.destroy()
   console.log('[115Master] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
+
+  if (results.length > 0) {
+    try {
+      await chrome.storage.local.set({ [CACHE_KEY]: results })
+      console.log('[115Master] 强缓存已写入数据库永久保存:', pickCode)
+    } catch (e) {
+      console.warn('[115Master] 写入缓存失败:', e)
+    }
+  }
+
   return results
 }

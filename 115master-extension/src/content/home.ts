@@ -367,7 +367,7 @@ class FileListMod {
     skeleton.textContent = '加载封面中...'
     container.appendChild(skeleton)
 
-    // 追加到 li 末尾
+    // 追加到 li 末尾换行展示
     item.appendChild(container)
 
     // 懒加载
@@ -442,15 +442,34 @@ class FileListMod {
    * 添加点击播放事件
    */
   private addClickPlay(item: HTMLElement, fileInfo: FileInfo) {
-    const fileNameNode = item.querySelector('.file-name') as HTMLElement
+    const fileNameNode = item.querySelector('.file-thumb') ?? item.querySelector('.file-name .name')
+
+    const handleClickPlayer = (e: Event) => {
+      e.preventDefault()
+      e.stopPropagation()
+      e.stopImmediatePropagation() // 极力阻止115默认行为
+      this.openPlayer(fileInfo.pickCode)
+    }
 
     if (fileNameNode) {
-      fileNameNode.addEventListener('dblclick', (e) => {
+      // 核心：必须使用 capture: true 在捕获阶段拦截点击，否则 115 会提早跳转
+      fileNameNode.addEventListener('click', handleClickPlayer, true)
+    }
+
+    // 双击整行使用 Master 播放
+    item.addEventListener('dblclick', handleClickPlayer)
+
+    // 鼠标中键：保留回退后门，中键点击依然使用 115 原生播放器
+    item.addEventListener('auxclick', (e: Event) => {
+      const mouseEvent = e as MouseEvent
+      if (mouseEvent.button === 1) {
         e.preventDefault()
         e.stopPropagation()
-        this.openPlayer(fileInfo.pickCode)
-      })
-    }
+        e.stopImmediatePropagation()
+        const url = `https://115.com/s/vod/?pickcode=${fileInfo.pickCode}&share_id=0`
+        window.open(url, '_blank')
+      }
+    })
   }
 
   /**
@@ -459,7 +478,11 @@ class FileListMod {
   private openPlayer(pickCode: string) {
     const playerUrl = chrome.runtime.getURL('src/player/index.html')
     const url = `${playerUrl}?pickCode=${pickCode}`
-    window.open(url, '_blank')
+    // 发送消息给后台，让后台权限去打开标签页，完美绕过屏蔽器
+    chrome.runtime.sendMessage({
+      type: 'OPEN_TAB',
+      url: url
+    })
   }
 
   /**

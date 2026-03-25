@@ -5,6 +5,7 @@
   "description": "115网盘增强扩展 | Ultra画质播放 | 文件下载",
   "permissions": [
     "storage",
+    "unlimitedStorage",
     "downloads",
     "cookies",
     "tabs",
@@ -43,5 +44,18 @@
   ],
   "action": {
     "default_title": "115Master"
-  }
+  },
+  "web_accessible_resources": [
+    {
+      "resources": [
+        "src/player/index.html",
+        "src/player/*",
+        "*"
+      ],
+      "matches": [
+        "https://115.com/*",
+        "https://*.115.com/*"
+      ]
+    }
+  ]
 }
