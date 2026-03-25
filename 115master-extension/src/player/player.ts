@@ -41,6 +41,7 @@ class PlayerManager {
   private hoverPreviewTimeEl: HTMLDivElement | null = null
   private hoverProgressEl: HTMLElement | null = null
   private hoverBindRetryTimer: number | null = null
+  private ignoreQualityPanelCloseOnce = false
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
@@ -210,9 +211,14 @@ class PlayerManager {
           style: {
             marginRight: '20px',
           },
-          click: () => {
+          click: (event: Event) => {
+            event?.stopPropagation?.()
+            this.ignoreQualityPanelCloseOnce = true
             const panel = document.getElementById('quality-panel')
             panel?.classList.toggle('hidden')
+            requestAnimationFrame(() => {
+              this.ignoreQualityPanelCloseOnce = false
+            })
           },
         },
       ],
@@ -405,7 +411,15 @@ class PlayerManager {
       }
     })
 
-    document.addEventListener('click', () => {
+    qualityPanel?.addEventListener('click', (e) => {
+      e.stopPropagation()
+    })
+
+    document.addEventListener('click', (e) => {
+      if (this.ignoreQualityPanelCloseOnce) return
+      const target = e.target as HTMLElement | null
+      if (target?.closest('#quality-control-label')) return
+      if (target?.closest('#quality-panel')) return
       qualityPanel?.classList.add('hidden')
     })
   }
