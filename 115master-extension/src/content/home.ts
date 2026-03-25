@@ -296,8 +296,51 @@ class FileListMod {
     // 添加点击播放事件
     this.addClickPlay(item, fileInfo)
 
+    // 添加下载拦截（反 115 浏览器挟持）
+    this.addDownloadIntercept(item, fileInfo)
+
     // 显示完整路径标题
     this.updateTitleWithPath(item, fileInfo)
+  }
+
+  /**
+   * 拦截官方限制下载的恶心设定，替换为提取出直链后走扩展下载/IDM 接管
+   */
+  private addDownloadIntercept(item: HTMLElement, fileInfo: FileInfo) {
+    const downloadNode = item.querySelector('.file-opr a[menu="download_one"]') as HTMLElement
+    if (!downloadNode) return
+
+    downloadNode.addEventListener('click', async (e) => {
+      e.preventDefault()
+      e.stopPropagation()
+      e.stopImmediatePropagation()
+
+      try {
+        downloadNode.style.opacity = '0.5' // 视觉反馈
+
+        const { drive115 } = await import('../lib/drive115')
+        const res = await drive115.getFileDownloadUrl(fileInfo.pickCode)
+        
+        if (res.url?.url) {
+          // 发给后台强制静默下载，浏览器、IDM均可直接拦截并吃满网速
+          chrome.runtime.sendMessage({
+            type: 'DOWNLOAD',
+            data: {
+              url: res.url.url,
+              filename: fileInfo.fileName
+            }
+          })
+          console.log('[115Master] 下载任务已推送至浏览器下载器或 IDM')
+        } else {
+          throw new Error('拿不到真实下载地址喵！')
+        }
+      } catch (error) {
+        console.error('[115Master] 解析下载直链失败:', error)
+        alert('解析下载直链失败: ' + (error instanceof Error ? error.message : String(error)))
+      } finally {
+        downloadNode.style.opacity = '1'
+      }
+    }, true)
   }
 
   /**
