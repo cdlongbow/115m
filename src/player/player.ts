@@ -4,26 +4,20 @@
 
 import Artplayer from 'artplayer'
 import Hls from 'hls.js'
-import { drive115 } from '../lib'
 import type { M3u8Item } from '../lib/types'
+import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
+import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
+import { loadPlayHistory, savePlayHistory } from './core/history'
+import type { QualityOption, VideoPlaybackQualityLike } from './core/types'
+import { clamp, findNearestCover, formatTimeLabel, formatVttTime } from './core/hover-utils'
+import { runPlayerSmokeChecks } from './core/smoke'
+import { applyTopNavFromQuery, createHoverPreviewElements, findProgressElement, renderPlayerError } from './core/dom'
+import { bindKeyboardShortcuts } from './core/keyboard'
 
 interface PlayerConfig {
   pickCode: string
   traceId?: string
   clickTs?: number
-}
-
-interface QualityOption {
-  label: string
-  quality: number
-  url: string
-}
-
-const ORIGINAL_PLACEHOLDER_URL = 'master115://original'
-
-interface VideoPlaybackQualityLike {
-  droppedVideoFrames?: number
-  totalVideoFrames?: number
 }
 
 class PlayerManager {
@@ -51,6 +45,7 @@ class PlayerManager {
   private initStartTs = 0
   private perfMarks: Partial<Record<'init' | 'ultraReady' | 'loadedmetadata' | 'canplay' | 'playing', number>> = {}
   private firstPlayingReported = false
+  private cleanupKeyboard: (() => void) | null = null
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
@@ -58,6 +53,7 @@ class PlayerManager {
     this.clickTs = config.clickTs || 0
     this.initStartTs = performance.now()
     this.perfMarks.init = this.initStartTs
+    runPlayerSmokeChecks()
     this.init()
   }
 
@@ -97,29 +93,6 @@ class PlayerManager {
     })
   }
 
-  private async sendRuntimeMessageSafe<T = any>(message: any): Promise<T | null> {
-    try {
-      return await chrome.runtime.sendMessage(message) as T
-    }
-    catch {
-      return null
-    }
-  }
-
-  private getPrefetchUltraUrl() {
-    return this.sendRuntimeMessageSafe<{ url: string, fromCache: boolean } | null>({
-      type: 'GET_PREFETCH_VIDEO_SOURCE',
-      data: { pickCode: this.currentPickCode },
-    })
-  }
-
-  private getPrefetchM3u8List() {
-    return this.sendRuntimeMessageSafe<{ list: M3u8Item[], fromCache: boolean } | null>({
-      type: 'GET_PREFETCH_M3U8',
-      data: { pickCode: this.currentPickCode },
-    })
-  }
-
   private async init() {
     try {
       this.perf('player-init-start')
@@ -128,7 +101,11 @@ class PlayerManager {
         loadingTextEl.textContent = '正在加载播放源...'
       }
 
-      const ultraUrl = await this.fetchUltraSource().catch(() => null)
+      const ultraSource = await fetchUltraSource(this.currentPickCode).catch(() => null)
+      const ultraUrl = ultraSource?.url || null
+      if (ultraSource?.ultraUrl) {
+        this.ultraUrl = ultraSource.ultraUrl
+      }
       this.perfMarks.ultraReady = performance.now()
       this.perf('ultra-source-ready', { ok: !!ultraUrl })
 
@@ -146,7 +123,7 @@ class PlayerManager {
         if (m3u8List && m3u8List.length > 0) {
           this.isNativeVideo = false
           this.currentQuality = m3u8List[0].quality
-          this.currentQualityLabel = this.getQualityDisplayName(m3u8List[0].quality, true)
+          this.currentQualityLabel = getQualityDisplayName(m3u8List[0].quality, true)
           this.createArtplayer(m3u8List[0].url, 'hls')
           this.perf('create-player-hls-fallback')
         }
@@ -156,12 +133,22 @@ class PlayerManager {
       }
 
       const currentUrl = this.artplayer?.url || ''
-      this.qualityOptions = this.buildQualityOptions(currentUrl)
+      this.qualityOptions = buildQualityOptions(
+        currentUrl,
+        this.ultraUrl,
+        this.m3u8List,
+        this.currentQuality,
+        this.currentQualityLabel,
+      )
       this.updateQualityByUrl(currentUrl)
       this.renderQualityPanel()
       this.updateQualityButton()
 
-      void this.loadPlayHistory()
+      void loadPlayHistory(this.currentPickCode, (time) => {
+        if (this.artplayer) {
+          this.artplayer.seek = time
+        }
+      })
     }
     catch (error) {
       this.showError(`播放器初始化失败: ${error instanceof Error ? error.message : String(error)}`)
@@ -173,52 +160,15 @@ class PlayerManager {
   }
 
   private async fetchUltraSource(): Promise<string> {
-    const prefetched = await this.getPrefetchUltraUrl().catch(() => null)
-    if (prefetched?.url) {
-      this.ultraUrl = prefetched.url
-      return prefetched.url
-    }
-
-    const downloadResult = await drive115.getFileDownloadUrl(this.currentPickCode)
-    const url = downloadResult.url?.url
-    const authCookie = downloadResult.url?.auth_cookie
-    if (!url) throw new Error('未获取到 Ultra 下载地址')
-
-    this.ultraUrl = url
-    if (authCookie) {
-      await drive115.setDownloadCookie(authCookie)
-    }
-    return url
+    const source = await fetchUltraSource(this.currentPickCode)
+    this.ultraUrl = source.ultraUrl
+    return source.url
   }
 
   private async fetchM3u8WithRetry(): Promise<M3u8Item[]> {
-    const prefetched = await this.getPrefetchM3u8List().catch(() => null)
-    if (prefetched?.list?.length) {
-      this.m3u8List = prefetched.list
-      return prefetched.list
-    }
-
-    let lastError: unknown
-    for (let i = 0; i < 2; i++) {
-      try {
-        const res = await this.sendRuntimeMessageSafe<{ list?: M3u8Item[], error?: string }>({
-          type: 'FETCH_M3U8',
-          data: { pickCode: this.currentPickCode }
-        })
-        if (res?.list && res.list[0]) {
-          this.m3u8List = res.list
-          return res.list
-        }
-        if (res?.error) {
-          throw new Error(res.error)
-        }
-      }
-      catch (error) {
-        lastError = error
-      }
-      await new Promise(resolve => setTimeout(resolve, 250 * (i + 1)))
-    }
-    throw lastError ?? new Error('M3U8 empty')
+    const list = await fetchM3u8WithRetry(this.currentPickCode)
+    this.m3u8List = list
+    return list
   }
 
   private initHls(video: HTMLVideoElement, url: string): Hls {
@@ -237,7 +187,13 @@ class PlayerManager {
     const container = document.getElementById('artplayer-app')
     if (!container) throw new Error('找不到播放器容器')
 
-    this.qualityOptions = this.buildQualityOptions(videoUrl)
+    this.qualityOptions = buildQualityOptions(
+      videoUrl,
+      this.ultraUrl,
+      this.m3u8List,
+      this.currentQuality,
+      this.currentQualityLabel,
+    )
 
     this.artplayer = new Artplayer({
       container: container as HTMLDivElement,
@@ -248,7 +204,7 @@ class PlayerManager {
       autoMini: true,
       screenshot: false,
       setting: true,
-      quality: this.buildArtplayerQuality(),
+      quality: buildArtplayerQuality(this.qualityOptions, videoUrl, this.currentQualityLabel),
       loop: true,
       flip: true,
       playbackRate: true,
@@ -289,7 +245,13 @@ class PlayerManager {
       })
 
       this.artplayer.on('video:timeupdate', () => {
-        this.savePlayHistory()
+        savePlayHistory({
+          pickCode: this.currentPickCode,
+          fileName: this.currentPickCode,
+          currentTime: this.artplayer?.currentTime || 0,
+          duration: this.artplayer?.duration || 0,
+          quality: this.currentQualityLabel,
+        })
       })
 
       this.artplayer.on('video:loadedmetadata', () => {
@@ -317,70 +279,13 @@ class PlayerManager {
         }
       })
 
-      this.setupKeyboardShortcuts()
-    }
-  }
-
-  private buildQualityOptions(currentUrl: string): QualityOption[] {
-    const options: QualityOption[] = []
-
-    if (this.ultraUrl) {
-      options.push({
-        label: '无损',
-        quality: 9999,
-        url: this.ultraUrl,
-      })
-    }
-
-    const original = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
-    if (original) {
-      options.push({
-        label: '115原画',
-        quality: 9999,
-        url: original.url,
-      })
-    } else if (this.ultraUrl) {
-      options.push({
-        label: '115原画',
-        quality: 9999,
-        url: ORIGINAL_PLACEHOLDER_URL,
-      })
-    }
-
-    if (options.length === 0 && currentUrl) {
-      options.push({
-        label: this.currentQualityLabel,
-        quality: this.currentQuality,
-        url: currentUrl,
-      })
-    }
-
-    const dedup = new Map<string, QualityOption>()
-    options.forEach((opt) => {
-      if (!dedup.has(opt.url)) {
-        dedup.set(opt.url, opt)
+      if (this.cleanupKeyboard) {
+        this.cleanupKeyboard()
       }
-    })
-
-    return Array.from(dedup.values()).sort((a, b) => {
-      const rank = (label: string, quality: number) => {
-        if (label === '无损') return 10000
-        if (label === '115原画') return 9999
-        return quality
-      }
-      return rank(b.label, b.quality) - rank(a.label, a.quality)
-    })
+      this.cleanupKeyboard = bindKeyboardShortcuts(this.artplayer)
+    }
   }
 
-  private buildArtplayerQuality(): { html: string; url: string; default: boolean }[] {
-    return this.qualityOptions.map(opt => ({
-      html: opt.label,
-      url: opt.url,
-      default: opt.url === ORIGINAL_PLACEHOLDER_URL
-        ? this.currentQualityLabel === '115原画'
-        : this.artplayer?.url === opt.url,
-    }))
-  }
 
   private updateQualityByUrl(url: string) {
     const hit = this.qualityOptions.find(opt => opt.url === url)
@@ -405,7 +310,7 @@ class PlayerManager {
     if (!this.artplayer) return
     if (!this.artplayer.quality) return
 
-    const qualityList = this.buildArtplayerQuality()
+    const qualityList = buildArtplayerQuality(this.qualityOptions, this.artplayer.url, this.currentQualityLabel)
     this.artplayer.quality = qualityList
   }
 
@@ -444,26 +349,7 @@ class PlayerManager {
   }
 
   private setupTopNav() {
-    const urlParams = new URLSearchParams(window.location.search)
-    const title = urlParams.get('title') || '视频播放'
-
-    const titleEl = document.getElementById('video-title')
-    const backBtn = document.getElementById('btn-back')
-
-    if (titleEl) {
-      titleEl.textContent = title
-    }
-    document.title = title
-
-    backBtn?.addEventListener('click', () => {
-      if (window.history.length > 1) {
-        window.history.back()
-      }
-      else {
-        window.close()
-      }
-    })
-
+    applyTopNavFromQuery()
   }
 
   private async loadThumbnails() {
@@ -492,8 +378,8 @@ class PlayerManager {
       let vtt = 'WEBVTT\n\n'
       covers.forEach((c) => {
         const tDuration = duration / covers.length
-        const startTime = this.formatVttTime(Math.max(0, c.time - tDuration / 2))
-        const endTime = this.formatVttTime(Math.min(duration, c.time + tDuration / 2))
+        const startTime = formatVttTime(Math.max(0, c.time - tDuration / 2))
+        const endTime = formatVttTime(Math.min(duration, c.time + tDuration / 2))
         vtt += `${startTime} --> ${endTime}\n${c.imgUrl}\n\n`
       })
 
@@ -519,57 +405,15 @@ class PlayerManager {
   private ensureHoverPreviewElements() {
     if (this.hoverPreviewEl || !this.artplayer) return
 
-    const container = this.artplayer.template.$player as HTMLElement
-    const preview = document.createElement('div')
-    preview.style.cssText = [
-      'position:absolute',
-      'left:0',
-      'bottom:64px',
-      'transform:translateX(-50%)',
-      'display:none',
-      'pointer-events:none',
-      'z-index:80',
-      'background:rgba(0,0,0,.78)',
-      'border:1px solid rgba(255,255,255,.22)',
-      'border-radius:8px',
-      'padding:6px',
-      'min-width:182px',
-      'box-sizing:border-box',
-    ].join(';')
-
-    const img = document.createElement('img')
-    img.style.cssText = [
-      'display:block',
-      'width:170px',
-      'height:96px',
-      'object-fit:cover',
-      'border-radius:6px',
-      'background:#111',
-    ].join(';')
-
-    const time = document.createElement('div')
-    time.style.cssText = [
-      'margin-top:4px',
-      'font-size:12px',
-      'line-height:16px',
-      'color:#fff',
-      'text-align:center',
-      'font-variant-numeric:tabular-nums',
-    ].join(';')
-    time.textContent = '00:00'
-
-    preview.appendChild(img)
-    preview.appendChild(time)
-    container.appendChild(preview)
-
-    this.hoverPreviewEl = preview
-    this.hoverPreviewImgEl = img
-    this.hoverPreviewTimeEl = time
+    const refs = createHoverPreviewElements(this.artplayer)
+    this.hoverPreviewEl = refs.preview
+    this.hoverPreviewImgEl = refs.image
+    this.hoverPreviewTimeEl = refs.time
   }
 
   private bindProgressHoverEventsWithRetry(retry: number) {
     if (!this.artplayer) return
-    const progress = this.findProgressElement()
+    const progress = findProgressElement(this.artplayer)
     if (!progress) {
       if (retry >= 20) return
       this.hoverBindRetryTimer = window.setTimeout(() => {
@@ -583,22 +427,6 @@ class PlayerManager {
     progress.addEventListener('mousemove', this.handleProgressMouseMove)
     progress.addEventListener('mouseenter', this.handleProgressMouseEnter)
     progress.addEventListener('mouseleave', this.handleProgressMouseLeave)
-  }
-
-  private findProgressElement(): HTMLElement | null {
-    if (!this.artplayer) return null
-    const root = this.artplayer.template.$player as HTMLElement
-    const selectors = [
-      '.art-control-progress',
-      '.art-progress',
-      '.art-control .art-progress',
-      '.art-bottom .art-progress',
-    ]
-    for (const selector of selectors) {
-      const hit = root.querySelector(selector) as HTMLElement | null
-      if (hit) return hit
-    }
-    return null
   }
 
   private handleProgressMouseEnter = () => {
@@ -626,61 +454,25 @@ class PlayerManager {
     if (progressRect.width <= 0) return
 
     const raw = (event.clientX - progressRect.left) / progressRect.width
-    const ratio = Math.max(0, Math.min(1, raw))
+    const ratio = clamp(raw, 0, 1)
     const hoverTime = ratio * this.artplayer.duration
 
-    let nearest = this.hoverCovers[0]
-    let minDelta = Math.abs(nearest.time - hoverTime)
-    for (const cover of this.hoverCovers) {
-      const delta = Math.abs(cover.time - hoverTime)
-      if (delta < minDelta) {
-        minDelta = delta
-        nearest = cover
-      }
-    }
+    const nearest = findNearestCover(this.hoverCovers, hoverTime)
+    if (!nearest) return
 
     if (nearest?.imgUrl) {
       this.hoverPreviewImgEl.src = nearest.imgUrl
     }
-    this.hoverPreviewTimeEl.textContent = this.formatTimeLabel(hoverTime)
+    this.hoverPreviewTimeEl.textContent = formatTimeLabel(hoverTime)
 
     const containerRect = (this.artplayer.template.$player as HTMLElement).getBoundingClientRect()
     const offsetX = event.clientX - containerRect.left
     const minLeft = 96
     const maxLeft = Math.max(minLeft, containerRect.width - 96)
-    const clamped = Math.max(minLeft, Math.min(maxLeft, offsetX))
+    const clamped = clamp(offsetX, minLeft, maxLeft)
     this.hoverPreviewEl.style.left = `${clamped}px`
   }
 
-  private formatTimeLabel(seconds: number) {
-    const sec = Math.max(0, Math.floor(seconds))
-    const h = Math.floor(sec / 3600)
-    const m = Math.floor((sec % 3600) / 60)
-    const s = sec % 60
-    if (h > 0) {
-      return `${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-    }
-    return `${String(m).padStart(2, '0')}:${String(s).padStart(2, '0')}`
-  }
-
-  private formatVttTime(seconds: number) {
-    const h = Math.floor(seconds / 3600).toString().padStart(2, '0')
-    const m = Math.floor((seconds % 3600) / 60).toString().padStart(2, '0')
-    const s = (seconds % 60).toFixed(3).padStart(6, '0')
-    return `${h}:${m}:${s}`
-  }
-
-  private getQualityDisplayName(quality: number, fromM3u8 = false): string {
-    const map: Record<number, string> = {
-      9999: fromM3u8 ? '115原画' : '无损',
-      2160: '4K',
-      1080: '1080P',
-      720: '720P',
-      480: '480P',
-      360: '360P',
-    }
-    return map[quality] || '自动'
-  }
 
   private async fallbackToHls() {
     if (!this.artplayer) {
@@ -689,7 +481,7 @@ class PlayerManager {
     }
 
     if (this.m3u8List.length === 0) {
-      await this.fetchM3u8WithRetry().catch(() => null)
+      this.m3u8List = await fetchM3u8WithRetry(this.currentPickCode).catch(() => this.m3u8List)
     }
 
     if (this.m3u8List.length === 0) {
@@ -700,7 +492,7 @@ class PlayerManager {
     const bestQuality = this.m3u8List[0]
     this.isNativeVideo = false
     this.currentQuality = bestQuality.quality
-    this.currentQualityLabel = this.getQualityDisplayName(bestQuality.quality, true)
+    this.currentQualityLabel = getQualityDisplayName(bestQuality.quality, true)
     this.updateQualityButton()
     this.renderQualityPanel()
     this.artplayer.switchUrl(bestQuality.url)
@@ -708,102 +500,26 @@ class PlayerManager {
 
   private async ensureOriginalSourceLoaded(): Promise<string | null> {
     if (this.m3u8List.length === 0) {
-      await this.fetchM3u8WithRetry().catch(() => null)
+      this.m3u8List = await fetchM3u8WithRetry(this.currentPickCode).catch(() => this.m3u8List)
     }
     if (this.m3u8List.length === 0) return null
 
     const original = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
     const currentUrl = this.artplayer?.url || ''
-    this.qualityOptions = this.buildQualityOptions(currentUrl)
+    this.qualityOptions = buildQualityOptions(
+      currentUrl,
+      this.ultraUrl,
+      this.m3u8List,
+      this.currentQuality,
+      this.currentQualityLabel,
+    )
     this.renderQualityPanel()
     return original?.url || null
   }
 
-  private async loadPlayHistory() {
-    try {
-      const response = await this.sendRuntimeMessageSafe<{ currentTime: number } | null>({
-        type: 'GET_HISTORY',
-        data: { pickCode: this.currentPickCode },
-      })
-
-      if (response && response.currentTime) {
-        setTimeout(() => {
-          if (this.artplayer) {
-            this.artplayer.seek = response.currentTime
-          }
-        }, 500)
-      }
-    }
-    catch {
-      // ignore history errors
-    }
-  }
-
-  private savePlayHistory() {
-    if (!this.artplayer) return
-
-    const currentTime = this.artplayer.currentTime
-    const duration = this.artplayer.duration
-    if (!duration || currentTime < 5) return
-
-    const lastSaveTime = Number.parseInt(sessionStorage.getItem('lastSaveTime') || '0', 10)
-    const now = Date.now()
-    if (now - lastSaveTime < 10000) return
-    sessionStorage.setItem('lastSaveTime', now.toString())
-
-    void this.sendRuntimeMessageSafe({
-      type: 'SET_HISTORY',
-      data: {
-        pickCode: this.currentPickCode,
-        fileName: this.currentPickCode,
-        currentTime,
-        duration,
-        quality: this.currentQualityLabel,
-      },
-    })
-  }
-
-  private setupKeyboardShortcuts() {
-    if (!this.artplayer) return
-
-    document.addEventListener('keydown', (e) => {
-      if (e.code === 'Space') {
-        e.preventDefault()
-        this.artplayer!.toggle()
-      }
-      else if (e.code === 'ArrowLeft') {
-        this.artplayer!.seek = this.artplayer!.currentTime - 5
-      }
-      else if (e.code === 'ArrowRight') {
-        this.artplayer!.seek = this.artplayer!.currentTime + 5
-      }
-      else if (e.code === 'ArrowUp') {
-        e.preventDefault()
-        this.artplayer!.volume = Math.min(1, this.artplayer!.volume + 0.1)
-      }
-      else if (e.code === 'ArrowDown') {
-        e.preventDefault()
-        this.artplayer!.volume = Math.max(0, this.artplayer!.volume - 0.1)
-      }
-      else if (e.code === 'KeyF') {
-        this.artplayer!.fullscreen = !this.artplayer!.fullscreen
-      }
-      else if (e.code === 'KeyP') {
-        // reserved for future PIP feature
-      }
-    })
-  }
 
   private showError(message: string) {
-    const container = document.getElementById('artplayer-app')
-    if (container) {
-      container.innerHTML = `
-        <div style="display:flex;flex-direction:column;align-items:center;justify-content:center;height:100vh;color:#ff4d4f;font-size:18px;">
-          <div style="font-size:48px;margin-bottom:20px;">⚠️</div>
-          <div>${message}</div>
-        </div>
-      `
-    }
+    renderPlayerError(message)
   }
 
   private patchArtInfoPanel() {
@@ -924,6 +640,10 @@ class PlayerManager {
     if (this.infoFpsTimer) {
       window.clearInterval(this.infoFpsTimer)
       this.infoFpsTimer = null
+    }
+    if (this.cleanupKeyboard) {
+      this.cleanupKeyboard()
+      this.cleanupKeyboard = null
     }
     if (this.hlsInstance) {
       this.hlsInstance.destroy()

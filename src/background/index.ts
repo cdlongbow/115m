@@ -4,6 +4,7 @@
 
 import { drive115 } from '../lib'
 import type { M3u8Item } from '../lib/types'
+import type { RuntimeMessage } from '../shared/messages'
 
 // 安装时初始化
 chrome.runtime.onInstalled.addListener((details) => {
@@ -18,95 +19,6 @@ chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   })
   return true // 保持 sendResponse 有效
 })
-
-interface MsgSetCookie {
-  type: 'SET_COOKIE'
-  data: {
-    name: string
-    value: string
-    path: string
-    domain: string
-    secure: boolean
-    expirationDate: number
-    sameSite: string
-  }
-}
-
-interface MsgDownload {
-  type: 'DOWNLOAD'
-  data: {
-    url: string
-    filename: string
-  }
-}
-
-interface MsgGetHistory {
-  type: 'GET_HISTORY'
-  data: { pickCode: string }
-}
-
-interface MsgSetHistory {
-  type: 'SET_HISTORY'
-  data: {
-    pickCode: string
-    fileName: string
-    currentTime: number
-    duration: number
-    quality: string
-  }
-}
-
-interface MsgOpenTab {
-  type: 'OPEN_TAB'
-  url: string
-}
-
-interface MsgPrefetchVideoSource {
-  type: 'PREFETCH_VIDEO_SOURCE'
-  data: { pickCode: string }
-}
-
-interface MsgGetPrefetchVideoSource {
-  type: 'GET_PREFETCH_VIDEO_SOURCE'
-  data: { pickCode: string }
-}
-
-interface MsgSetPrefetchVideoSource {
-  type: 'SET_PREFETCH_VIDEO_SOURCE'
-  data: {
-    pickCode: string
-    url: string
-    authCookie?: {
-      expire: string
-      name: string
-      path: string
-      value: string
-    } | null
-  }
-}
-
-interface MsgGetPrefetchM3u8 {
-  type: 'GET_PREFETCH_M3U8'
-  data: { pickCode: string }
-}
-
-
-interface MsgFetchM3u8 {
-  type: 'FETCH_M3U8'
-  data: { pickCode: string }
-}
-
-type Message =
-  | MsgSetCookie
-  | MsgDownload
-  | MsgGetHistory
-  | MsgSetHistory
-  | MsgOpenTab
-  | MsgPrefetchVideoSource
-  | MsgGetPrefetchVideoSource
-  | MsgSetPrefetchVideoSource
-  | MsgGetPrefetchM3u8
-  | MsgFetchM3u8
 
 interface PrefetchUltraCache {
   url: string
@@ -315,7 +227,7 @@ async function prefetchM3u8Source(pickCode: string): Promise<PrefetchM3u8Cache |
   return request
 }
 
-async function handleMessage(message: Message): Promise<any> {
+async function handleMessage(message: RuntimeMessage): Promise<any> {
   switch (message.type) {
     case 'OPEN_TAB': {
       const now = Date.now()

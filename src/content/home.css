@@ -20,7 +20,7 @@
 }
 
 /* ====== 封面容器 ====== */
-.master115-cover-container {
+.m115-cover-container {
   width: 100%;
   height: 96px;
   position: relative;
@@ -32,22 +32,22 @@
 }
 
 /* ====== 骨架屏 ====== */
-.master115-cover-skeleton {
+.m115-cover-skeleton {
   width: 696px; /* 锁死标准排版尺寸，完美对齐 */
   height: 96px;
   background: linear-gradient(90deg, #f0f0f0 25%, #e0e0e0 50%, #f0f0f0 75%);
   background-size: 200% 100%;
-  animation: master115-shimmer 1.5s infinite;
+  animation: m115-shimmer 1.5s infinite;
   border-radius: 4px;
 }
 
-@keyframes master115-shimmer {
+@keyframes m115-shimmer {
   0% { background-position: 200% 0; }
   100% { background-position: -200% 0; }
 }
 
 /* ====== 封面缩略图行 ====== */
-.master115-cover-loaded {
+.m115-cover-loaded {
   display: inline-flex; /* 紧贴图片，绝不多流出一丝缝隙 */
   height: 96px;
   gap: 0;
@@ -56,7 +56,7 @@
   border-radius: 4px;
 }
 
-.master115-cover-thumb {
+.m115-cover-thumb {
   flex: none !important; /* 彻底禁止图片任意拉伸！ */
   height: 96px !important; 
   width: 139px !important; /* 强制指定为占位图分配的 1/5 比例，杜绝边缘白框 */
@@ -74,11 +74,11 @@
   box-sizing: border-box !important;
 }
 
-.master115-cover-thumb:hover {
+.m115-cover-thumb:hover {
   opacity: 0.85;
 }
 
-.master115-cover-img {
+.m115-cover-img {
   height: 100% !important;
   width: 100% !important;
   margin: 0 !important;
@@ -92,7 +92,7 @@
 }
 
 /* ====== 简易灯箱查看器 ====== */
-.master115-lightbox {
+.m115-lightbox {
   position: fixed;
   top: 0;
   left: 0;
@@ -110,13 +110,13 @@
   visibility: hidden;
 }
 
-.master115-lightbox.active {
+.m115-lightbox.active {
   opacity: 1;
   pointer-events: auto;
   visibility: visible;
 }
 
-.master115-lightbox img.master115-lightbox-main-img {
+.m115-lightbox img.m115-lightbox-main-img {
   max-width: 90vw;
   max-height: 90vh;
   object-fit: contain;
@@ -124,7 +124,7 @@
   transition: transform 0.2s;
 }
 
-.master115-lightbox-btn {
+.m115-lightbox-btn {
   position: absolute;
   top: 50%;
   transform: translateY(-50%);
@@ -140,22 +140,22 @@
   z-index: 1000000;
 }
 
-.master115-lightbox-btn:hover {
+.m115-lightbox-btn:hover {
   background: rgba(0, 0, 0, 0.8);
   transform: translateY(-50%) scale(1.1);
 }
 
-.master115-lightbox-prev {
+.m115-lightbox-prev {
   left: 20px;
 }
 
-.master115-lightbox-next {
+.m115-lightbox-next {
   right: 20px;
 }
 
 /* ====== 空状态 / 错误状态 ====== */
-.master115-cover-empty,
-.master115-cover-error {
+.m115-cover-empty,
+.m115-cover-error {
   width: 100%;
   height: 100%;
   display: flex;
@@ -165,12 +165,12 @@
   border-radius: 4px;
 }
 
-.master115-cover-empty {
+.m115-cover-empty {
   color: #999;
   background: #f5f5f5;
 }
 
-.master115-cover-error {
+.m115-cover-error {
   color: #ff4d4f;
   background: #fff2f0;
 }
