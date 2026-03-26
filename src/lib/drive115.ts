@@ -2,16 +2,15 @@
  * 115 Drive API 核心 - 从原项目移植，适配扩展环境
  */
 import {
-  NORMAL_URL, WEB_API_URL, PRO_API_URL, VOD_URL, APS_URL, DL_URL,
+  NORMAL_URL, WEB_API_URL, VOD_URL, APS_URL, DL_URL,
 } from './constants'
 import { qualityCodeMap } from './types'
 import type { M3u8Item } from './types'
 import type {
   DownloadResult,
-  FilesDownloadRes, ProDownurlRes, VideoM3u8Res,
+  FilesDownloadRes, VideoM3u8Res,
   FilesRes, FilesVideoRes,
 } from './api/types'
-import { crypto115 } from './crypto'
 
 export class Drive115Error extends Error {
   static NotFoundM3u8 = class extends Error {
@@ -84,31 +83,6 @@ export class Drive115 {
     }
 
     return { url: { url: res.file_url } }
-  }
-
-  /**
-   * Pro 下载接口（无限制大小，Ultra 画质）
-   */
-  async proPostAppChromeDownurl(pickcode: string): Promise<DownloadResult> {
-    const tm = Math.floor(Date.now() / 1000).toString()
-    const src = JSON.stringify({ pickcode })
-    const encoded = crypto115.m115_encode(src, tm)
-    const data = `data=${encodeURIComponent(encoded.data)}`
-
-    const res = await this.req.postJson<ProDownurlRes>(
-      `${PRO_API_URL}/app/chrome/downurl?t=${tm}`,
-      data,
-    )
-
-    if (!res.state) {
-      throw new Error(`Pro API 获取下载地址失败: ${JSON.stringify(res)}`)
-    }
-
-    const result = JSON.parse(
-      crypto115.m115_decode(res.data, encoded.key),
-    )
-    const downloadInfo = Object.values(result)[0] as DownloadResult
-    return downloadInfo
   }
 
 
