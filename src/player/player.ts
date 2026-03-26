@@ -71,7 +71,7 @@ class PlayerManager {
       initCostMs: Math.round(now - this.initStartTs),
       ...extra,
     }
-    console.log('[115Master][Perf]', payload)
+    console.log('[115m][Perf]', payload)
   }
 
   private reportFirstFrameSummary() {
@@ -86,7 +86,7 @@ class PlayerManager {
     const metaToPlay = p.loadedmetadata ? Math.round(p.playing - p.loadedmetadata) : -1
     const initToPlay = Math.round(p.playing - p.init)
 
-    console.log('[115Master][首播耗时]', {
+    console.log('[115m][首播耗时]', {
       traceId: this.traceId,
       pickCode: this.currentPickCode,
       clickToPlayMs: clickToPlay,
@@ -847,16 +847,16 @@ class PlayerManager {
     const panel = info.querySelector('.art-info-panel')
     if (!panel) return
 
-    let fpsItem = info.querySelector('[data-115master="fps"]') as HTMLElement | null
+    let fpsItem = info.querySelector('[data-115m="fps"]') as HTMLElement | null
     if (!fpsItem) {
       fpsItem = document.createElement('div')
       fpsItem.className = 'art-info-item'
-      fpsItem.setAttribute('data-115master', 'fps')
-      fpsItem.innerHTML = '<div class="art-info-title">当前帧率：</div><div class="art-info-content" data-115master-fps>-- FPS</div>'
+      fpsItem.setAttribute('data-115m', 'fps')
+      fpsItem.innerHTML = '<div class="art-info-title">当前帧率：</div><div class="art-info-content" data-115m-fps>-- FPS</div>'
       panel.appendChild(fpsItem)
     }
 
-    const fpsTarget = info.querySelector('[data-115master-fps]') as HTMLElement | null
+    const fpsTarget = info.querySelector('[data-115m-fps]') as HTMLElement | null
     const video = this.artplayer.video as HTMLVideoElement
 
     const getTotalFrames = () => {

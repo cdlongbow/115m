@@ -12,7 +12,7 @@ window.fetch = new Proxy(originalFetch, {
 
     // 拦截视频 token 请求
     if (url.includes('/video/token')) {
-      console.log('[115Master] 拦截到视频 token 请求:', url)
+      console.log('[115m] 拦截到视频 token 请求:', url)
 
       return target.apply(thisArg, args as any).then((response) => {
         // 克隆响应以便读取
@@ -33,11 +33,11 @@ window.fetch = new Proxy(originalFetch, {
                 sameSite: data.data.sameSite,
               },
             }).catch((error) => {
-              console.error('[115Master] 发送 token 到 background 失败:', error)
+              console.error('[115m] 发送 token 到 background 失败:', error)
             })
           }
         }).catch((error) => {
-          console.error('[115Master] 解析 token 响应失败:', error)
+          console.error('[115m] 解析 token 响应失败:', error)
         })
 
         return response
@@ -48,4 +48,4 @@ window.fetch = new Proxy(originalFetch, {
   },
 })
 
-console.log('[115Master] Video Token Interceptor initialized')
+console.log('[115m] Video Token Interceptor initialized')

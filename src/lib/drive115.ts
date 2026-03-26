@@ -124,7 +124,7 @@ export class Drive115 {
     const startAt = performance.now()
     const cached = pickCodeUrlCache.get(pickcode)
     if (cached && Date.now() - cached.updatedAt < PICKCODE_URL_CACHE_TTL) {
-      console.log('[115Master][Downurl]', {
+      console.log('[115m][Downurl]', {
         trace,
         pickCode: pickcode,
         source: 'memory-cache',
@@ -135,7 +135,7 @@ export class Drive115 {
 
     const inflight = pickCodeInflight.get(pickcode)
     if (inflight) {
-      console.log('[115Master][Downurl]', {
+      console.log('[115m][Downurl]', {
         trace,
         pickCode: pickcode,
         source: 'inflight-reuse',
@@ -167,7 +167,7 @@ export class Drive115 {
       const first = await Promise.race([proTask, deferredWebTask])
       if (first.ok) {
         pickCodeUrlCache.set(pickcode, { value: first.result, updatedAt: Date.now() })
-        console.log('[115Master][Downurl]', {
+        console.log('[115m][Downurl]', {
           trace,
           pickCode: pickcode,
           source: first.from,
@@ -182,7 +182,7 @@ export class Drive115 {
         : proTask)
       if (second.ok) {
         pickCodeUrlCache.set(pickcode, { value: second.result, updatedAt: Date.now() })
-        console.log('[115Master][Downurl]', {
+        console.log('[115m][Downurl]', {
           trace,
           pickCode: pickcode,
           source: second.from,

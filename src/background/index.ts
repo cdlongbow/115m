@@ -7,13 +7,13 @@ import type { M3u8Item } from '../lib/types'
 
 // 安装时初始化
 chrome.runtime.onInstalled.addListener((details) => {
-  console.log('[115Master] Extension installed', details.reason)
+  console.log('[115m] Extension installed', details.reason)
 })
 
 // 监听来自 content script 和 player 页面的消息
 chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
   handleMessage(message).then(sendResponse).catch((err) => {
-    console.error('[115Master] BG error:', err)
+    console.error('[115m] BG error:', err)
     sendResponse({ error: err.message })
   })
   return true // 保持 sendResponse 有效
@@ -260,7 +260,7 @@ async function prefetchUltraSource(pickCode: string): Promise<PrefetchUltraCache
       return data
     }
     catch (error) {
-      console.warn('[115Master] 预热视频地址失败:', pickCode, error)
+      console.warn('[115m] 预热视频地址失败:', pickCode, error)
       return null
     }
     finally {
@@ -303,7 +303,7 @@ async function prefetchM3u8Source(pickCode: string): Promise<PrefetchM3u8Cache |
       return data
     }
     catch (error) {
-      console.warn('[115Master] 预热 m3u8 失败:', pickCode, error)
+      console.warn('[115m] 预热 m3u8 失败:', pickCode, error)
       return null
     }
     finally {

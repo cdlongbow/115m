@@ -30,9 +30,9 @@ function calculateTimes(duration: number, count = 5): number[] {
 }
 
 export async function getVideoCovers(pickCode: string, duration: number, coverNum = 5): Promise<VideoThumbnail[]> {
-  console.log('[115Master] getVideoCovers 开始:', { pickCode, duration, coverNum })
+  console.log('[115m] getVideoCovers 开始:', { pickCode, duration, coverNum })
 
-  const CACHE_KEY = `master115_covers_${pickCode}_${coverNum}`
+  const CACHE_KEY = `115m_covers_${pickCode}_${coverNum}`
   const inMemory = memoryCoverCache.get(CACHE_KEY)
   if (inMemory && inMemory.length > 0) {
     return inMemory
@@ -45,37 +45,37 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
       if (cached[CACHE_KEY] && cached[CACHE_KEY].length > 0) {
         const hit = cached[CACHE_KEY] as VideoThumbnail[]
         memoryCoverCache.set(CACHE_KEY, hit)
-        console.log('[115Master] 命中本地强缓存，瞬间读取出图:', pickCode)
+        console.log('[115m] 命中本地强缓存，瞬间读取出图:', pickCode)
         return hit
       }
     }
     else {
-      console.warn('[115Master] 当前上下文不可用 chrome.storage.local，封面缓存降级为内存缓存')
+      console.warn('[115m] 当前上下文不可用 chrome.storage.local，封面缓存降级为内存缓存')
     }
   } catch (e) {
-    console.warn('[115Master] 读取缓存失败:', e)
+    console.warn('[115m] 读取缓存失败:', e)
   }
 
   const m3u8List = await drive115.getM3u8(pickCode)
-  console.log('[115Master] m3u8List:', m3u8List.map(m => ({ name: m.name, quality: m.quality })))
+  console.log('[115m] m3u8List:', m3u8List.map(m => ({ name: m.name, quality: m.quality })))
 
   const source = m3u8List.sort((a, b) => a.quality - b.quality)[0] // use lowest quality for fastest decode
   if (!source) throw new Error('No m3u8 source found')
 
-  console.log('[115Master] 使用源:', source.name, source.url.slice(0, 80))
+  console.log('[115m] 使用源:', source.name, source.url.slice(0, 80))
 
   const clipper = new M3U8ClipperNew({ url: source.url })
   await clipper.open()
-  console.log('[115Master] clipper 已打开, segments:', clipper.hlsIo.segments.length)
+  console.log('[115m] clipper 已打开, segments:', clipper.hlsIo.segments.length)
 
   const times = calculateTimes(duration, coverNum)
-  console.log('[115Master] 截取时间点:', times)
+  console.log('[115m] 截取时间点:', times)
 
   const results: VideoThumbnail[] = []
 
   for (const t of times) {
     try {
-      console.log('[115Master] 正在 seek:', t, 's')
+      console.log('[115m] 正在 seek:', t, 's')
       const result = await clipper.seek(t, true)
       if (result) {
         const resize = getImageResize(result.videoFrame.displayWidth, result.videoFrame.displayHeight, MAX_WIDTH, MAX_HEIGHT)
@@ -104,27 +104,27 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
             height: resize.height,
             time: t
           })
-          console.log('[115Master] 封面截取成功:', t, 's, 尺寸:', resize.width, 'x', resize.height)
+          console.log('[115m] 封面截取成功:', t, 's, 尺寸:', resize.width, 'x', resize.height)
         }
         result.videoFrame.close()
       }
     } catch (e) {
-      console.warn('[115Master] seek error for time', t, e)
+      console.warn('[115m] seek error for time', t, e)
     }
   }
 
   clipper.destroy()
-  console.log('[115Master] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
+  console.log('[115m] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
 
   if (results.length > 0) {
     memoryCoverCache.set(CACHE_KEY, results)
     try {
       if (storageArea) {
         await storageArea.set({ [CACHE_KEY]: results })
-        console.log('[115Master] 强缓存已写入数据库永久保存:', pickCode)
+        console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
       }
     } catch (e) {
-      console.warn('[115Master] 写入缓存失败:', e)
+      console.warn('[115m] 写入缓存失败:', e)
     }
   }
 
