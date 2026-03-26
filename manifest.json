@@ -1,13 +1,14 @@
 {
   "manifest_version": 3,
   "name": "115m",
-  "version": "1.0.20",
+  "version": "1.0.21",
   "description": "115m | 列表预览图 + 无损播放",
   "permissions": [
     "storage",
     "unlimitedStorage",
     "downloads",
     "cookies",
+    "scripting",
     "tabs",
     "activeTab",
     "contextMenus"
@@ -35,6 +36,14 @@
       "run_at": "document_end",
       "all_frames": true,
       "match_about_blank": true
+    },
+    {
+      "matches": [
+        "https://115.com/web/lixian/master/video/*",
+        "https://*.115.com/web/lixian/master/video/*"
+      ],
+      "js": ["src/content/video-page.ts"],
+      "run_at": "document_start"
     },
     {
       "matches": ["https://dl.115cdn.net/video/token*"],

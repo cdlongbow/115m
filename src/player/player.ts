@@ -98,7 +98,7 @@ class PlayerManager {
       this.perf('player-init-start')
       const loadingTextEl = document.getElementById('loading-text')
       if (loadingTextEl) {
-        loadingTextEl.textContent = '正在加载播放源...'
+        loadingTextEl.textContent = '正在获取无损播放源...'
       }
 
       const ultraSource = await fetchUltraSource(this.currentPickCode).catch(() => null)

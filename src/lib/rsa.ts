@@ -117,6 +117,22 @@ export class Rsa115 {
     return c.slice(i + 1)
   }
 
+  /**
+   * 模幂运算（square-and-multiply）
+   * 避免 mBI ** eBI 暴力指数运算导致的性能灾难
+   */
+  private modPow(base: bigint, exp: bigint, mod: bigint): bigint {
+    let result = 1n
+    let b = base % mod
+    let e = exp
+    while (e > 0n) {
+      if (e & 1n) result = (result * b) % mod
+      e >>= 1n
+      b = (b * b) % mod
+    }
+    return result
+  }
+
   encrypt(text: string): string {
     const m = this.pkcs1pad2(text, 0x80)
     if (!m) throw new Error('pkcs1pad2 failed')
@@ -124,7 +140,7 @@ export class Rsa115 {
     const mBI = BigInt('0x' + m)
     const eBI = BigInt('0x' + this.e)
     const nBI = BigInt('0x' + this.n)
-    const c = mBI ** eBI % nBI
+    const c = this.modPow(mBI, eBI, nBI)
 
     let h = c.toString(16)
     while (h.length < 0x80 * 2) {
@@ -141,7 +157,7 @@ export class Rsa115 {
     const a = BigInt('0x' + this.a2hex(ba))
     const eBI = BigInt('0x' + this.e)
     const nBI = BigInt('0x' + this.n)
-    const c = a ** eBI % nBI
+    const c = this.modPow(a, eBI, nBI)
     const d = this.pkcs1unpad2(c.toString(16).padStart(0x80 * 2, '0'))
     return d
   }

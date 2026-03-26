@@ -1,11 +1,12 @@
 import homeCss from './home.css?inline'
-import { extractFileInfo, isPlayIntentTarget } from './core/extractors'
+import { extractFileInfo } from './core/extractors'
 import { openPlayer } from './core/player-open'
 import { renderPreview } from './core/preview'
 
 class HomeController {
   private boundDocs = new WeakSet<Document>()
   private scannedItems = new WeakSet<HTMLElement>()
+  private playBoundItems = new WeakSet<HTMLElement>()
   private observers: MutationObserver[] = []
   private lastOpen: { pickCode: string, ts: number } | null = null
   private openingLock = false
@@ -39,7 +40,6 @@ class HomeController {
     this.boundDocs.add(doc)
 
     this.injectStyles(doc)
-    this.bindPlayClick(doc)
     this.scanAndRender(doc)
 
     const observer = new MutationObserver(() => this.scanAndRender(doc))
@@ -55,24 +55,29 @@ class HomeController {
     doc.head?.appendChild(style)
   }
 
-  private bindPlayClick(doc: Document) {
-    doc.addEventListener('click', (event) => {
-      const mouse = event as MouseEvent
-      if (mouse.button !== 0) return
+  private bindItemPlay(item: HTMLElement) {
+    if (this.playBoundItems.has(item)) return
 
-      const target = event.target as HTMLElement | null
-      if (!target) return
-      if (!isPlayIntentTarget(target)) return
+    const file = extractFileInfo(item)
+    if (!file || !file.isVideo) return
 
-      const item = target.closest('li[pick_code],li[pickcode],div[pick_code],div[pickcode]') as HTMLElement | null
-      if (!item) return
+    const fileNameNode = (item.querySelector('.file-thumb') || item.querySelector('.file-name .name') || item.querySelector('.file-name')) as HTMLElement | null
+    if (!fileNameNode) return
 
-      const file = extractFileInfo(item)
-      if (!file || !file.isVideo) return
-
+    const handleClickPlayer = (event: Event) => {
       const now = Date.now()
-      if (this.openingLock) return
-      if (this.lastOpen && this.lastOpen.pickCode === file.pickCode && now - this.lastOpen.ts < 1500) return
+      if (this.openingLock) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        return
+      }
+      if (this.lastOpen && this.lastOpen.pickCode === file.pickCode && now - this.lastOpen.ts < 1500) {
+        event.preventDefault()
+        event.stopPropagation()
+        event.stopImmediatePropagation()
+        return
+      }
 
       this.openingLock = true
       this.lastOpen = { pickCode: file.pickCode, ts: now }
@@ -83,9 +88,12 @@ class HomeController {
       event.preventDefault()
       event.stopPropagation()
       event.stopImmediatePropagation()
+      void openPlayer(file)
+    }
 
-      openPlayer(file)
-    }, true)
+    fileNameNode.addEventListener('click', handleClickPlayer as EventListener, true)
+    item.addEventListener('dblclick', handleClickPlayer as EventListener, true)
+    this.playBoundItems.add(item)
   }
 
   private scanAndRender(doc: Document) {
@@ -99,8 +107,13 @@ class HomeController {
       this.scannedItems.add(item)
 
       const file = extractFileInfo(item)
-      if (!file || !file.isVideo || file.duration <= 0) return
-      renderPreview(item, file)
+      if (!file || !file.isVideo) return
+
+      this.bindItemPlay(item)
+
+      if (file.duration > 0) {
+        renderPreview(item, file)
+      }
     })
   }
 }
@@ -109,6 +122,7 @@ let controller: HomeController | null = null
 
 function init() {
   if (window.top !== window) return
+  if (/\/web\/lixian\/master\/video\//.test(window.location.pathname)) return
   controller = new HomeController()
   controller.init()
 }

@@ -6,6 +6,10 @@ const MAX_WIDTH = 720
 const MAX_HEIGHT = 720
 const memoryCoverCache = new Map<string, VideoThumbnail[]>()
 
+function isContextInvalidatedError(error: unknown): boolean {
+  return String(error).includes('Extension context invalidated')
+}
+
 function getStorageArea(): chrome.storage.StorageArea | null {
   const area = (globalThis as any)?.chrome?.storage?.local as chrome.storage.StorageArea | undefined
   return area ?? null
@@ -53,6 +57,9 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
       console.warn('[115m] 当前上下文不可用 chrome.storage.local，封面缓存降级为内存缓存')
     }
   } catch (e) {
+    if (isContextInvalidatedError(e)) {
+      return inMemory || []
+    }
     console.warn('[115m] 读取缓存失败:', e)
   }
 
@@ -124,6 +131,9 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
         console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
       }
     } catch (e) {
+      if (isContextInvalidatedError(e)) {
+        return results
+      }
       console.warn('[115m] 写入缓存失败:', e)
     }
   }

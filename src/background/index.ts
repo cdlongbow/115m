@@ -1,9 +1,9 @@
 /**
  * Background Service Worker
+ * 精简版：仅保留必要的消息代理功能
  */
 
 import { drive115 } from '../lib'
-import type { M3u8Item } from '../lib/types'
 import type { RuntimeMessage } from '../shared/messages'
 
 // 安装时初始化
@@ -12,223 +12,64 @@ chrome.runtime.onInstalled.addListener((details) => {
 })
 
 // 监听来自 content script 和 player 页面的消息
-chrome.runtime.onMessage.addListener((message, _sender, sendResponse) => {
-  handleMessage(message).then(sendResponse).catch((err) => {
+chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+  handleMessage(message, sender).then(sendResponse).catch((err) => {
     console.error('[115m] BG error:', err)
     sendResponse({ error: err.message })
   })
   return true // 保持 sendResponse 有效
 })
 
-interface PrefetchUltraCache {
-  url: string
-  updatedAt: number
-}
-
-interface PrefetchM3u8Cache {
-  list: M3u8Item[]
-  updatedAt: number
-}
-
-const PREFETCH_TTL = 2 * 60 * 1000
-const PREFETCH_SESSION_KEY = 'prefetchUltraCacheV1'
-const PREFETCH_M3U8_SESSION_KEY = 'prefetchM3u8CacheV1'
-const ULTRA_WARMUP_TIMEOUT = 1500
-const prefetchUltraCache = new Map<string, PrefetchUltraCache>()
-const prefetchUltraInflight = new Map<string, Promise<PrefetchUltraCache | null>>()
-const prefetchM3u8Cache = new Map<string, PrefetchM3u8Cache>()
-const prefetchM3u8Inflight = new Map<string, Promise<PrefetchM3u8Cache | null>>()
-const ultraWarmupInflight = new Map<string, Promise<void>>()
 let lastOpenTabMeta: { url: string, ts: number } | null = null
 
-function warmupUltraStream(url: string): Promise<void> {
-  const inflight = ultraWarmupInflight.get(url)
-  if (inflight) return inflight
-
-  const task = (async () => {
-    const controller = new AbortController()
-    const timer = setTimeout(() => controller.abort(), ULTRA_WARMUP_TIMEOUT)
-    try {
-      await fetch(url, {
-        method: 'GET',
-        credentials: 'include',
-        cache: 'no-store',
-        headers: {
-          Range: 'bytes=0-32767',
-        },
-        signal: controller.signal,
-      })
-    }
-    catch {
-      // ignore warmup errors
-    }
-    finally {
-      clearTimeout(timer)
-      ultraWarmupInflight.delete(url)
-    }
-  })()
-
-  ultraWarmupInflight.set(url, task)
-  return task
-}
-
-async function readSessionCache(pickCode: string): Promise<PrefetchUltraCache | null> {
-  try {
-    const payload = await chrome.storage.session.get(PREFETCH_SESSION_KEY)
-    const table = (payload?.[PREFETCH_SESSION_KEY] || {}) as Record<string, PrefetchUltraCache>
-    const hit = table[pickCode]
-    if (!hit) return null
-    if (Date.now() - hit.updatedAt >= PREFETCH_TTL) return null
-    return hit
-  }
-  catch {
-    return null
-  }
-}
-
-async function readSessionM3u8Cache(pickCode: string): Promise<PrefetchM3u8Cache | null> {
-  try {
-    const payload = await chrome.storage.session.get(PREFETCH_M3U8_SESSION_KEY)
-    const table = (payload?.[PREFETCH_M3U8_SESSION_KEY] || {}) as Record<string, PrefetchM3u8Cache>
-    const hit = table[pickCode]
-    if (!hit || !Array.isArray(hit.list) || hit.list.length === 0) return null
-    if (Date.now() - hit.updatedAt >= PREFETCH_TTL) return null
-    return hit
-  }
-  catch {
-    return null
-  }
-}
-
-async function writeSessionCache(pickCode: string, data: PrefetchUltraCache): Promise<void> {
-  try {
-    const payload = await chrome.storage.session.get(PREFETCH_SESSION_KEY)
-    const table = (payload?.[PREFETCH_SESSION_KEY] || {}) as Record<string, PrefetchUltraCache>
-    table[pickCode] = data
-    await chrome.storage.session.set({ [PREFETCH_SESSION_KEY]: table })
-  }
-  catch {
-    // ignore session cache failure
-  }
-}
-
-async function writeSessionM3u8Cache(pickCode: string, data: PrefetchM3u8Cache): Promise<void> {
-  try {
-    const payload = await chrome.storage.session.get(PREFETCH_M3U8_SESSION_KEY)
-    const table = (payload?.[PREFETCH_M3U8_SESSION_KEY] || {}) as Record<string, PrefetchM3u8Cache>
-    table[pickCode] = data
-    await chrome.storage.session.set({ [PREFETCH_M3U8_SESSION_KEY]: table })
-  }
-  catch {
-    // ignore session cache failure
-  }
-}
-
-async function prefetchUltraSource(pickCode: string): Promise<PrefetchUltraCache | null> {
-  const cached = prefetchUltraCache.get(pickCode)
-  if (cached && Date.now() - cached.updatedAt < PREFETCH_TTL) {
-    return cached
-  }
-
-  const sessionCached = await readSessionCache(pickCode)
-  if (sessionCached) {
-    prefetchUltraCache.set(pickCode, sessionCached)
-    void warmupUltraStream(sessionCached.url)
-    return sessionCached
-  }
-
-  const inflight = prefetchUltraInflight.get(pickCode)
-  if (inflight) {
-    return inflight
-  }
-
-  const request = (async () => {
-    try {
-      const downloadResult = await drive115.getFileDownloadUrl(pickCode)
-      const url = downloadResult.url?.url
-      if (!url) return null
-
-      const authCookie = downloadResult.url?.auth_cookie
-      if (authCookie) {
-        await chrome.cookies.set({
-          url: 'https://dl.115cdn.net',
-          name: authCookie.name,
-          value: authCookie.value,
-          path: authCookie.path,
-          domain: '.115cdn.net',
-          secure: true,
-          expirationDate: Number(authCookie.expire),
-          sameSite: 'no_restriction',
-        })
-      }
-
-      const data = {
-        url,
-        updatedAt: Date.now(),
-      }
-      prefetchUltraCache.set(pickCode, data)
-      await writeSessionCache(pickCode, data)
-      void warmupUltraStream(url)
-      return data
-    }
-    catch (error) {
-      console.warn('[115m] 预热视频地址失败:', pickCode, error)
-      return null
-    }
-    finally {
-      prefetchUltraInflight.delete(pickCode)
-    }
-  })()
-
-  prefetchUltraInflight.set(pickCode, request)
-  return request
-}
-
-async function prefetchM3u8Source(pickCode: string): Promise<PrefetchM3u8Cache | null> {
-  const cached = prefetchM3u8Cache.get(pickCode)
-  if (cached && Date.now() - cached.updatedAt < PREFETCH_TTL && cached.list.length > 0) {
-    return cached
-  }
-
-  const sessionCached = await readSessionM3u8Cache(pickCode)
-  if (sessionCached) {
-    prefetchM3u8Cache.set(pickCode, sessionCached)
-    return sessionCached
-  }
-
-  const inflight = prefetchM3u8Inflight.get(pickCode)
-  if (inflight) {
-    return inflight
-  }
-
-  const request = (async () => {
-    try {
-      const list = await drive115.getM3u8(pickCode)
-      if (!Array.isArray(list) || list.length === 0) return null
-
-      const data = {
-        list,
-        updatedAt: Date.now(),
-      }
-      prefetchM3u8Cache.set(pickCode, data)
-      await writeSessionM3u8Cache(pickCode, data)
-      return data
-    }
-    catch (error) {
-      console.warn('[115m] 预热 m3u8 失败:', pickCode, error)
-      return null
-    }
-    finally {
-      prefetchM3u8Inflight.delete(pickCode)
-    }
-  })()
-
-  prefetchM3u8Inflight.set(pickCode, request)
-  return request
-}
-
-async function handleMessage(message: RuntimeMessage): Promise<any> {
+async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.MessageSender): Promise<any> {
   switch (message.type) {
+    case 'MAIN_WORLD_FETCH': {
+      // 通过 executeScript 在页面主世界执行 fetch
+      // 确保 Origin: https://115.com，和原项目一致
+      let tabId = sender?.tab?.id
+      if (!tabId) {
+        // 没有 sender tab，找一个 115.com 的 tab
+        const tabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
+        tabId = tabs[0]?.id
+      }
+      if (!tabId) {
+        return { ok: false, error: 'no 115.com tab found' }
+      }
+
+      try {
+        const injected = await chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: async (url: string, body: string) => {
+            try {
+              const res = await fetch(url, {
+                method: 'POST',
+                credentials: 'include',
+                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                body,
+              })
+              const text = await res.text()
+              return { ok: res.ok, status: res.status, text }
+            }
+            catch (error) {
+              return { ok: false, status: 0, text: '', error: String(error) }
+            }
+          },
+          args: [message.data.url, message.data.body],
+        })
+
+        const result = injected?.[0]?.result as { ok: boolean, text: string, error?: string } | undefined
+        if (!result) {
+          return { ok: false, error: 'executeScript returned empty' }
+        }
+        return result
+      }
+      catch (error) {
+        return { ok: false, error: String(error) }
+      }
+    }
+
     case 'OPEN_TAB': {
       const now = Date.now()
       if (lastOpenTabMeta && lastOpenTabMeta.url === message.url && now - lastOpenTabMeta.ts < 2500) {
@@ -237,56 +78,6 @@ async function handleMessage(message: RuntimeMessage): Promise<any> {
       lastOpenTabMeta = { url: message.url, ts: now }
       await chrome.tabs.create({ url: message.url })
       return { success: true }
-    }
-
-    case 'PREFETCH_VIDEO_SOURCE': {
-      void prefetchUltraSource(message.data.pickCode)
-      return { success: true }
-    }
-
-    case 'GET_PREFETCH_VIDEO_SOURCE': {
-      const result = await prefetchUltraSource(message.data.pickCode)
-      if (!result) return null
-      return {
-        url: result.url,
-        fromCache: true,
-      }
-    }
-
-    case 'SET_PREFETCH_VIDEO_SOURCE': {
-      const { pickCode, url, authCookie } = message.data
-      if (!pickCode || !url) return { success: false }
-
-      const data = {
-        url,
-        updatedAt: Date.now(),
-      }
-      prefetchUltraCache.set(pickCode, data)
-      await writeSessionCache(pickCode, data)
-
-      if (authCookie) {
-        await chrome.cookies.set({
-          url: 'https://dl.115cdn.net',
-          name: authCookie.name,
-          value: authCookie.value,
-          path: authCookie.path,
-          domain: '.115cdn.net',
-          secure: true,
-          expirationDate: Number(authCookie.expire),
-          sameSite: 'no_restriction',
-        })
-      }
-
-      return { success: true }
-    }
-
-    case 'GET_PREFETCH_M3U8': {
-      const result = await prefetchM3u8Source(message.data.pickCode)
-      if (!result) return null
-      return {
-        list: result.list,
-        fromCache: true,
-      }
     }
 
     case 'FETCH_M3U8': {
