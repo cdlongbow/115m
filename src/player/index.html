@@ -3,13 +3,19 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>115Master Player</title>
+  <title>115m Player</title>
+  <!-- 预连接 CDN，节省 DNS+TLS 握手时间 -->
+  <link rel="preconnect" href="https://dl.115cdn.net" crossorigin />
+  <link rel="preconnect" href="https://cdnfhnfile.115cdn.net" crossorigin />
+  <link rel="preconnect" href="https://proapi.115.com" crossorigin />
+  <link rel="dns-prefetch" href="https://dl.115cdn.net" />
+  <link rel="dns-prefetch" href="https://cdnfhnfile.115cdn.net" />
   <link rel="stylesheet" href="style.css" />
 </head>
 <body class="bg-black text-white m-0 p-0 overflow-hidden">
-  <div id="app">
+  <div id="app" class="flex flex-col h-screen">
     <!-- 顶部信息栏 -->
-    <header id="header" class="relative z-20 bg-black border-b border-zinc-800 px-6 py-3 flex items-center gap-4">
+    <header id="header" class="relative z-20 px-6 py-2 flex items-center gap-2">
       <button id="btn-back" class="text-white/60 hover:text-white transition-colors" title="返回">
         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
           <path d="M19 12H5M12 19l-7-7 7-7"/>
@@ -20,7 +26,7 @@
     </header>
 
     <!-- 播放器容器 -->
-    <div id="artplayer-app" class="w-full h-[calc(100vh-49px)] flex items-center justify-center"></div>
+    <div id="artplayer-app" class="w-full flex-1 flex items-center justify-center"></div>
 
     <!-- 加载状态 -->
     <div id="loading" class="fixed inset-0 z-40 bg-black flex items-center justify-center">

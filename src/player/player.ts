@@ -9,6 +9,8 @@ import type { M3u8Item } from '../lib/types'
 
 interface PlayerConfig {
   pickCode: string
+  traceId?: string
+  clickTs?: number
 }
 
 interface QualityOption {
@@ -41,10 +43,58 @@ class PlayerManager {
   private hoverPreviewTimeEl: HTMLDivElement | null = null
   private hoverProgressEl: HTMLElement | null = null
   private hoverBindRetryTimer: number | null = null
+  private ultraSwitchAborted = false
+  private thumbnailsLoading = false
+  private thumbnailsLoaded = false
+  private traceId = ''
+  private clickTs = 0
+  private initStartTs = 0
+  private perfMarks: Partial<Record<'init' | 'ultraReady' | 'loadedmetadata' | 'canplay' | 'playing', number>> = {}
+  private firstPlayingReported = false
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
+    this.traceId = config.traceId || `${config.pickCode}-${Date.now()}`
+    this.clickTs = config.clickTs || 0
+    this.initStartTs = performance.now()
+    this.perfMarks.init = this.initStartTs
     this.init()
+  }
+
+  private perf(stage: string, extra?: Record<string, unknown>) {
+    const now = performance.now()
+    const payload = {
+      stage,
+      traceId: this.traceId,
+      pickCode: this.currentPickCode,
+      clickToNowMs: this.clickTs > 0 ? Math.round(Date.now() - this.clickTs) : -1,
+      initCostMs: Math.round(now - this.initStartTs),
+      ...extra,
+    }
+    console.log('[115Master][Perf]', payload)
+  }
+
+  private reportFirstFrameSummary() {
+    if (this.firstPlayingReported) return
+    const p = this.perfMarks
+    if (!p.playing || !p.init) return
+    this.firstPlayingReported = true
+
+    const clickToPlay = this.clickTs > 0 ? Math.round(Date.now() - this.clickTs) : -1
+    const initToUltra = p.ultraReady ? Math.round(p.ultraReady - p.init) : -1
+    const ultraToMeta = p.ultraReady && p.loadedmetadata ? Math.round(p.loadedmetadata - p.ultraReady) : -1
+    const metaToPlay = p.loadedmetadata ? Math.round(p.playing - p.loadedmetadata) : -1
+    const initToPlay = Math.round(p.playing - p.init)
+
+    console.log('[115Master][首播耗时]', {
+      traceId: this.traceId,
+      pickCode: this.currentPickCode,
+      clickToPlayMs: clickToPlay,
+      initToPlayMs: initToPlay,
+      initToUltraMs: initToUltra,
+      ultraToLoadedmetadataMs: ultraToMeta,
+      loadedmetadataToPlayingMs: metaToPlay,
+    })
   }
 
   private async sendRuntimeMessageSafe<T = any>(message: any): Promise<T | null> {
@@ -72,34 +122,33 @@ class PlayerManager {
 
   private async init() {
     try {
+      this.perf('player-init-start')
       const loadingTextEl = document.getElementById('loading-text')
       if (loadingTextEl) {
         loadingTextEl.textContent = '正在加载播放源...'
       }
 
       const ultraUrl = await this.fetchUltraSource().catch(() => null)
+      this.perfMarks.ultraReady = performance.now()
+      this.perf('ultra-source-ready', { ok: !!ultraUrl })
 
       if (ultraUrl) {
+        // 默认无损播放
         this.isNativeVideo = true
         this.currentQuality = 9999
         this.currentQualityLabel = '无损'
         this.createArtplayer(ultraUrl, 'native')
-        this.fetchM3u8WithRetry().then(() => {
-          if (this.artplayer) {
-            const currentUrl = this.artplayer.url
-            this.qualityOptions = this.buildQualityOptions(currentUrl)
-            this.renderQualityPanel()
-            this.updateQualityButton()
-          }
-        }).catch(() => null)
+        this.perf('create-player-native')
       }
       else {
+        // Ultra 不可用，降级到 HLS
         const m3u8List = await this.fetchM3u8WithRetry().catch(() => null)
         if (m3u8List && m3u8List.length > 0) {
           this.isNativeVideo = false
           this.currentQuality = m3u8List[0].quality
           this.currentQualityLabel = this.getQualityDisplayName(m3u8List[0].quality, true)
           this.createArtplayer(m3u8List[0].url, 'hls')
+          this.perf('create-player-hls-fallback')
         }
         else {
           throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
@@ -229,12 +278,12 @@ class PlayerManager {
 
     this.setupTopNav()
     this.setupProgressHoverPreview()
-    void this.loadThumbnails()
 
     if (this.artplayer) {
       this.patchArtInfoPanel()
 
       this.artplayer.on('ready', () => {
+        this.perf('art-ready', { type })
         this.renderQualityPanel()
         this.updateQualityButton()
       })
@@ -244,9 +293,22 @@ class PlayerManager {
       })
 
       this.artplayer.on('video:loadedmetadata', () => {
+        this.perfMarks.loadedmetadata = performance.now()
+        this.perf('video-loadedmetadata', { type })
         this.updateQualityByUrl(this.artplayer?.url || '')
         this.updateQualityButton()
         this.renderQualityPanel()
+      })
+
+      this.artplayer.on('video:canplay', () => {
+        this.perfMarks.canplay = performance.now()
+        this.perf('video-canplay', { type })
+      })
+
+      this.artplayer.on('video:playing', () => {
+        this.perfMarks.playing = performance.now()
+        this.perf('video-playing', { type })
+        this.reportFirstFrameSummary()
       })
 
       this.artplayer.on('error', () => {
@@ -349,6 +411,7 @@ class PlayerManager {
 
   private async switchQuality(opt: QualityOption) {
     if (!this.artplayer) return
+    this.ultraSwitchAborted = true // 用户手动切换画质，取消自动切换
 
     if (opt.url === ORIGINAL_PLACEHOLDER_URL) {
       const resolvedUrl = await this.ensureOriginalSourceLoaded()
@@ -405,6 +468,8 @@ class PlayerManager {
 
   private async loadThumbnails() {
     if (!this.artplayer) return
+    if (this.thumbnailsLoaded || this.thumbnailsLoading) return
+    this.thumbnailsLoading = true
     try {
       const { getVideoCovers } = await import('../lib/videoThumbnail')
 
@@ -435,9 +500,13 @@ class PlayerManager {
       const blob = new Blob([vtt], { type: 'text/vtt' })
       const vttUrl = URL.createObjectURL(blob)
       this.artplayer.emit('artplayerPluginThumbnail:update', { url: vttUrl })
+      this.thumbnailsLoaded = true
     }
     catch {
       // ignore thumbnail errors
+    }
+    finally {
+      this.thumbnailsLoading = false
     }
   }
 
@@ -533,6 +602,9 @@ class PlayerManager {
   }
 
   private handleProgressMouseEnter = () => {
+    if (!this.thumbnailsLoaded && !this.thumbnailsLoading) {
+      void this.loadThumbnails()
+    }
     if (this.hoverPreviewEl && this.hoverCovers.length > 0) {
       this.hoverPreviewEl.style.display = 'block'
     }
@@ -830,6 +902,7 @@ class PlayerManager {
   }
 
   destroy() {
+    this.ultraSwitchAborted = true
     if (this.hoverBindRetryTimer) {
       window.clearTimeout(this.hoverBindRetryTimer)
       this.hoverBindRetryTimer = null
@@ -868,6 +941,9 @@ let playerManager: PlayerManager | null = null
 function initPlayer() {
   const urlParams = new URLSearchParams(window.location.search)
   const pickCode = urlParams.get('pickCode')
+  const traceId = urlParams.get('traceId') || undefined
+  const clickTsRaw = urlParams.get('clickTs')
+  const clickTs = clickTsRaw ? Number(clickTsRaw) : undefined
 
   if (!pickCode) {
     const el = document.getElementById('artplayer-app')
@@ -877,7 +953,7 @@ function initPlayer() {
     return
   }
 
-  playerManager = new PlayerManager({ pickCode })
+  playerManager = new PlayerManager({ pickCode, traceId, clickTs })
 }
 
 if (document.readyState === 'loading') {

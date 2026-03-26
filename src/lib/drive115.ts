@@ -53,6 +53,10 @@ class Request {
 }
 
 const request = new Request()
+const PICKCODE_URL_CACHE_TTL = 5 * 60 * 1000
+const pickCodeUrlCache = new Map<string, { value: DownloadResult, updatedAt: number }>()
+const pickCodeInflight = new Map<string, Promise<DownloadResult>>()
+const WEB_API_DEFER_MS = 300
 
 /**
  * 获取 URL 的绝对路径
@@ -116,12 +120,90 @@ export class Drive115 {
    * 获取文件下载地址（先尝试 Pro，失败降级普通）
    */
   async getFileDownloadUrl(pickcode: string): Promise<DownloadResult> {
-    try {
-      return await this.proPostAppChromeDownurl(pickcode)
+    const trace = `${pickcode.slice(0, 8)}-${Date.now()}`
+    const startAt = performance.now()
+    const cached = pickCodeUrlCache.get(pickcode)
+    if (cached && Date.now() - cached.updatedAt < PICKCODE_URL_CACHE_TTL) {
+      console.log('[115Master][Downurl]', {
+        trace,
+        pickCode: pickcode,
+        source: 'memory-cache',
+        totalMs: Math.round(performance.now() - startAt),
+      })
+      return cached.value
     }
-    catch (error) {
-      console.warn('[Drive115] Pro API 失败，降级普通下载', error)
-      return await this.webApiFilesDownload(pickcode)
+
+    const inflight = pickCodeInflight.get(pickcode)
+    if (inflight) {
+      console.log('[115Master][Downurl]', {
+        trace,
+        pickCode: pickcode,
+        source: 'inflight-reuse',
+        totalMs: Math.round(performance.now() - startAt),
+      })
+      return inflight
+    }
+
+    const task = (async () => {
+      let webStarted = false
+      const proAt = performance.now()
+      const proTask = this.proPostAppChromeDownurl(pickcode)
+        .then(result => ({ ok: true as const, result, from: 'pro' as const, costMs: Math.round(performance.now() - proAt) }))
+        .catch(error => ({ ok: false as const, error, from: 'pro' as const, costMs: Math.round(performance.now() - proAt) }))
+
+      const startWebTask = () => {
+        webStarted = true
+        const webAt = performance.now()
+        return this.webApiFilesDownload(pickcode)
+          .then(result => ({ ok: true as const, result, from: 'web' as const, costMs: Math.round(performance.now() - webAt) }))
+          .catch(error => ({ ok: false as const, error, from: 'web' as const, costMs: Math.round(performance.now() - webAt) }))
+      }
+
+      const deferredWebTask = (async () => {
+        await new Promise(resolve => setTimeout(resolve, WEB_API_DEFER_MS))
+        return startWebTask()
+      })()
+
+      const first = await Promise.race([proTask, deferredWebTask])
+      if (first.ok) {
+        pickCodeUrlCache.set(pickcode, { value: first.result, updatedAt: Date.now() })
+        console.log('[115Master][Downurl]', {
+          trace,
+          pickCode: pickcode,
+          source: first.from,
+          sourceMs: first.costMs,
+          totalMs: Math.round(performance.now() - startAt),
+        })
+        return first.result
+      }
+
+      const second = await (first.from === 'pro'
+        ? (webStarted ? deferredWebTask : startWebTask())
+        : proTask)
+      if (second.ok) {
+        pickCodeUrlCache.set(pickcode, { value: second.result, updatedAt: Date.now() })
+        console.log('[115Master][Downurl]', {
+          trace,
+          pickCode: pickcode,
+          source: second.from,
+          fallbackFrom: first.from,
+          sourceMs: second.costMs,
+          firstFailMs: first.costMs,
+          totalMs: Math.round(performance.now() - startAt),
+        })
+        return second.result
+      }
+
+      console.warn('[Drive115] Pro/Web API 均失败', { pro: first.from === 'pro' ? first.error : second.error, web: first.from === 'web' ? first.error : second.error })
+      throw (first.from === 'pro' ? second.error : first.error)
+    })()
+
+    pickCodeInflight.set(pickcode, task)
+    try {
+      return await task
+    }
+    finally {
+      pickCodeInflight.delete(pickcode)
     }
   }
 

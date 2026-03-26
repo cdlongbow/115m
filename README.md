@@ -1,4 +1,4 @@
-# 115Master 扩展（简版说明）
+# 115m 扩展（简版说明）
 
 这是一个 115 网盘增强扩展。
 
@@ -10,16 +10,16 @@
 
 ## 项目目录
 
-- 扩展项目：`115master-extension/`
-- 打包输出：`115master-extension/dist/`
-- 发布压缩包：`115master-extension/release/115master-extension-v版本号.zip`
+- 扩展项目：`115m-extension/`
+- 打包输出：`115m-extension/dist/`
+- 发布压缩包：`115m-extension/release/115m-extension-v版本号.zip`
 
 ## 常用命令
 
 在 Git Bash 中执行：
 
 ```bash
-cd /e/qh775885/115master/115master-extension
+cd /e/qh775885/115m/115m-extension
 pnpm install
 pnpm dev
 ```
@@ -42,7 +42,7 @@ pnpm zip
 1. 打开 `chrome://extensions/`
 2. 开启“开发者模式”
 3. 点击“加载已解压的扩展程序”
-4. 选择 `115master-extension/dist`
+4. 选择 `115m-extension/dist`
 
 每次改代码后：
 - 重新加载扩展
@@ -51,5 +51,5 @@ pnpm zip
 ## 分享给别人
 
 1. 执行：`pnpm zip`
-2. 把 `115master-extension/release/115master-extension-v版本号.zip` 发给对方
+2. 把 `115m-extension/release/115m-extension-v版本号.zip` 发给对方
 3. 对方解压后按“本地加载扩展”步骤安装

@@ -71,6 +71,20 @@ interface MsgGetPrefetchVideoSource {
   data: { pickCode: string }
 }
 
+interface MsgSetPrefetchVideoSource {
+  type: 'SET_PREFETCH_VIDEO_SOURCE'
+  data: {
+    pickCode: string
+    url: string
+    authCookie?: {
+      expire: string
+      name: string
+      path: string
+      value: string
+    } | null
+  }
+}
+
 interface MsgGetPrefetchM3u8 {
   type: 'GET_PREFETCH_M3U8'
   data: { pickCode: string }
@@ -90,6 +104,7 @@ type Message =
   | MsgOpenTab
   | MsgPrefetchVideoSource
   | MsgGetPrefetchVideoSource
+  | MsgSetPrefetchVideoSource
   | MsgGetPrefetchM3u8
   | MsgFetchM3u8
 
@@ -106,10 +121,44 @@ interface PrefetchM3u8Cache {
 const PREFETCH_TTL = 2 * 60 * 1000
 const PREFETCH_SESSION_KEY = 'prefetchUltraCacheV1'
 const PREFETCH_M3U8_SESSION_KEY = 'prefetchM3u8CacheV1'
+const ULTRA_WARMUP_TIMEOUT = 1500
 const prefetchUltraCache = new Map<string, PrefetchUltraCache>()
 const prefetchUltraInflight = new Map<string, Promise<PrefetchUltraCache | null>>()
 const prefetchM3u8Cache = new Map<string, PrefetchM3u8Cache>()
 const prefetchM3u8Inflight = new Map<string, Promise<PrefetchM3u8Cache | null>>()
+const ultraWarmupInflight = new Map<string, Promise<void>>()
+let lastOpenTabMeta: { url: string, ts: number } | null = null
+
+function warmupUltraStream(url: string): Promise<void> {
+  const inflight = ultraWarmupInflight.get(url)
+  if (inflight) return inflight
+
+  const task = (async () => {
+    const controller = new AbortController()
+    const timer = setTimeout(() => controller.abort(), ULTRA_WARMUP_TIMEOUT)
+    try {
+      await fetch(url, {
+        method: 'GET',
+        credentials: 'include',
+        cache: 'no-store',
+        headers: {
+          Range: 'bytes=0-32767',
+        },
+        signal: controller.signal,
+      })
+    }
+    catch {
+      // ignore warmup errors
+    }
+    finally {
+      clearTimeout(timer)
+      ultraWarmupInflight.delete(url)
+    }
+  })()
+
+  ultraWarmupInflight.set(url, task)
+  return task
+}
 
 async function readSessionCache(pickCode: string): Promise<PrefetchUltraCache | null> {
   try {
@@ -172,6 +221,7 @@ async function prefetchUltraSource(pickCode: string): Promise<PrefetchUltraCache
   const sessionCached = await readSessionCache(pickCode)
   if (sessionCached) {
     prefetchUltraCache.set(pickCode, sessionCached)
+    void warmupUltraStream(sessionCached.url)
     return sessionCached
   }
 
@@ -206,6 +256,7 @@ async function prefetchUltraSource(pickCode: string): Promise<PrefetchUltraCache
       }
       prefetchUltraCache.set(pickCode, data)
       await writeSessionCache(pickCode, data)
+      void warmupUltraStream(url)
       return data
     }
     catch (error) {
@@ -267,13 +318,17 @@ async function prefetchM3u8Source(pickCode: string): Promise<PrefetchM3u8Cache |
 async function handleMessage(message: Message): Promise<any> {
   switch (message.type) {
     case 'OPEN_TAB': {
+      const now = Date.now()
+      if (lastOpenTabMeta && lastOpenTabMeta.url === message.url && now - lastOpenTabMeta.ts < 2500) {
+        return { success: true, deduped: true }
+      }
+      lastOpenTabMeta = { url: message.url, ts: now }
       await chrome.tabs.create({ url: message.url })
       return { success: true }
     }
 
     case 'PREFETCH_VIDEO_SOURCE': {
       void prefetchUltraSource(message.data.pickCode)
-      void prefetchM3u8Source(message.data.pickCode)
       return { success: true }
     }
 
@@ -284,6 +339,33 @@ async function handleMessage(message: Message): Promise<any> {
         url: result.url,
         fromCache: true,
       }
+    }
+
+    case 'SET_PREFETCH_VIDEO_SOURCE': {
+      const { pickCode, url, authCookie } = message.data
+      if (!pickCode || !url) return { success: false }
+
+      const data = {
+        url,
+        updatedAt: Date.now(),
+      }
+      prefetchUltraCache.set(pickCode, data)
+      await writeSessionCache(pickCode, data)
+
+      if (authCookie) {
+        await chrome.cookies.set({
+          url: 'https://dl.115cdn.net',
+          name: authCookie.name,
+          value: authCookie.value,
+          path: authCookie.path,
+          domain: '.115cdn.net',
+          secure: true,
+          expirationDate: Number(authCookie.expire),
+          sameSite: 'no_restriction',
+        })
+      }
+
+      return { success: true }
     }
 
     case 'GET_PREFETCH_M3U8': {

@@ -1,8 +1,8 @@
 {
   "manifest_version": 3,
-  "name": "115Master移植版",
+  "name": "115m",
   "version": "1.0.20",
-  "description": "115网盘增强扩展 | Ultra画质播放 | 文件下载",
+  "description": "115m | 列表预览图 + 无损播放",
   "permissions": [
     "storage",
     "unlimitedStorage",
@@ -43,7 +43,7 @@
     }
   ],
   "action": {
-    "default_title": "115Master移植版",
+    "default_title": "115m",
     "default_icon": {
       "16": "icons/icon16.png",
       "32": "icons/icon32.png",
