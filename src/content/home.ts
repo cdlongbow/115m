@@ -2,6 +2,7 @@ import homeCss from './home.css?inline'
 import { extractFileInfo } from './core/extractors'
 import { openPlayer } from './core/player-open'
 import { renderPreview } from './core/preview'
+import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
 
 class HomeController {
   private boundDocs = new WeakSet<Document>()
@@ -10,6 +11,7 @@ class HomeController {
   private observers: MutationObserver[] = []
   private lastOpen: { pickCode: string, ts: number } | null = null
   private openingLock = false
+  private scrollManagers = new WeakMap<Document, ScrollPositionManager>()
 
   init() {
     this.bindDocument(document)
@@ -41,6 +43,7 @@ class HomeController {
 
     this.injectStyles(doc)
     this.scanAndRender(doc)
+    this.initScrollHistory(doc)
 
     const observer = new MutationObserver(() => this.scanAndRender(doc))
     observer.observe(doc.documentElement, { childList: true, subtree: true })
@@ -94,6 +97,34 @@ class HomeController {
     fileNameNode.addEventListener('click', handleClickPlayer as EventListener, true)
     item.addEventListener('dblclick', handleClickPlayer as EventListener, true)
     this.playBoundItems.add(item)
+  }
+
+  /**
+   * 初始化滚动位置记忆
+   * 115 网盘切换目录时会重建 .list-cell，需要监听其出现并重新绑定。
+   */
+  private initScrollHistory(doc: Document) {
+    const tryBind = () => {
+      const scrollBox = findScrollBox(doc)
+      if (!scrollBox) return
+
+      // 如果已经绑定了同一个滚动容器，跳过
+      const manager = this.scrollManagers.get(doc)
+      if (manager) {
+        manager.unbind()
+      }
+      const m = new ScrollPositionManager()
+      m.bind(scrollBox, doc)
+      this.scrollManagers.set(doc, m)
+    }
+
+    // 初次尝试
+    tryBind()
+
+    // 监听 .list-cell 重建（切换目录时整个容器会被替换）
+    const observer = new MutationObserver(() => tryBind())
+    observer.observe(doc.documentElement, { childList: true, subtree: true })
+    this.observers.push(observer)
   }
 
   private scanAndRender(doc: Document) {
