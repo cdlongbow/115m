@@ -1,0 +1,51 @@
+@utility app-font-time {
+  font-feature-settings: 'case' 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility app-font-file-size {
+  font-feature-settings: 'case' 1;
+  font-variant-numeric: tabular-nums;
+}
+
+@utility app-shadow {
+  box-shadow:
+    0 1px 1px rgba(0, 0, 0, 0.01),
+    0 2px 2px rgba(0, 0, 0, 0.01),
+    0 4px 4px rgba(0, 0, 0, 0.02),
+    0 8px 8px rgba(0, 0, 0, 0.03),
+    0 14px 14px rgba(0, 0, 0, 0.03);
+}
+
+@utility app-text-shadow {
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 0.01),
+    0 0 2px rgba(0, 0, 0, 0.01),
+    0 0 4px rgba(0, 0, 0, 0.02),
+    0 0 8px rgba(0, 0, 0, 0.03),
+    0 0 14px rgba(0, 0, 0, 0.03);
+}
+
+@utility app-text-shadow-drak {
+  text-shadow:
+    0 0 1px rgba(0, 0, 0, 0.02),
+    0 0 2px rgba(0, 0, 0, 0.02),
+    0 0 4px rgba(0, 0, 0, 0.03),
+    0 0 8px rgba(0, 0, 0, 0.04),
+    0 0 14px rgba(0, 0, 0, 0.04);
+}
+
+@utility app-glass-border {
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+@utility app-bg-gradient-glass {
+  &::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: -1;
+    backdrop-filter: blur(48px) saturate(180%) brightness(50%);
+    mask-image: linear-gradient(to top, transparent, black 50%);
+  }
+}

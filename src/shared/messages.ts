@@ -1,4 +1,5 @@
 import type { M3u8Item } from '../lib/types'
+import type { FileItem } from '../lib/api/types'
 
 export interface MsgSetCookie {
   type: 'SET_COOKIE'
@@ -52,6 +53,26 @@ export interface MsgMainWorldFetch {
   data: { url: string, body: string }
 }
 
+export interface MsgFetchPlaylist {
+  type: 'FETCH_PLAYLIST'
+  data: { cid: string }
+}
+
+export interface MsgMoveFile {
+  type: 'MOVE_FILE'
+  data: {
+    fileId: string
+    parentId: string
+    cid: string
+  }
+}
+
+export interface MsgFetchPlaylistResponse {
+  list?: FileItem[]
+  path?: Array<{ cid: string, name: string }>
+  error?: string
+}
+
 export type RuntimeMessage =
   | MsgSetCookie
   | MsgDownload
@@ -60,3 +81,5 @@ export type RuntimeMessage =
   | MsgOpenTab
   | MsgFetchM3u8
   | MsgMainWorldFetch
+  | MsgFetchPlaylist
+  | MsgMoveFile

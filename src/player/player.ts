@@ -10,11 +10,12 @@ import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
 import { loadPlayHistory } from './core/history'
 import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
-import { applyTopNavFromQuery, renderPlayerError } from './core/dom'
+import { renderPlayerError } from './core/dom'
 import { createHlsInstance, isHlsSupported } from './core/hls'
 import { patchArtInfoPanel } from './core/info-panel'
 import { HoverPreviewController } from './core/hover-preview'
 import { bindPlayerEvents } from './core/events'
+import { PlayerOverlayController, readOverlayMetaFromQuery, type OverlayPlaylistItem } from './core/overlay'
 import {
   applyFallbackToHlsState,
   applySelectedQualityOption,
@@ -24,6 +25,10 @@ import {
   resolveOriginalPlaceholderUrl,
   syncPlaybackStateByUrl,
 } from './core/playback-state'
+import { sendRuntimeMessageSafe } from './core/runtime'
+import { WEB_API_URL } from '../lib/constants'
+import type { FileItem } from '../lib/api/types'
+import type { MsgFetchPlaylistResponse } from '../shared/messages'
 
 interface PlayerConfig {
   pickCode: string
@@ -43,6 +48,7 @@ class PlayerManager {
   private currentQualityLabel = '加载中'
   private cleanupInfoPanel: (() => void) | null = null
   private hoverPreview: HoverPreviewController | null = null
+  private overlay: PlayerOverlayController | null = null
   private traceId = ''
   private clickTs = 0
   private initStartTs = 0
@@ -194,7 +200,7 @@ class PlayerManager {
       playbackRate: true,
       aspectRatio: true,
       fullscreen: true,
-      fullscreenWeb: true,
+      fullscreenWeb: false,
       miniProgressBar: true,
       theme: '#1890ff',
       lang: 'zh-cn',
@@ -210,6 +216,8 @@ class PlayerManager {
         },
       },
     })
+
+    this.artplayer.fullscreenWeb = true
 
     if (type === 'native') {
       this.currentQuality = 9999
@@ -232,6 +240,9 @@ class PlayerManager {
         getQualityLabel: () => this.currentQualityLabel,
         onPerf: (stage, extra) => this.perf(stage, extra),
         onReady: () => {
+          this.artplayer!.contextmenu.remove('playbackRate')
+          this.artplayer!.contextmenu.remove('aspectRatio')
+          this.artplayer!.contextmenu.remove('flip')
           this.renderQualityPanel()
           this.updateQualityButton()
         },
@@ -332,7 +343,22 @@ class PlayerManager {
   }
 
   private setupTopNav() {
-    applyTopNavFromQuery()
+    if (!this.artplayer) return
+    this.overlay?.destroy()
+    this.overlay = new PlayerOverlayController({
+      art: this.artplayer,
+      meta: readOverlayMetaFromQuery(),
+      onMove: async () => await this.moveCurrentFile(),
+      onToggleFavorite: async nextMarked => await this.toggleFavorite(nextMarked),
+      onPlaylistToggle: async open => open ? await this.fetchPlaylistItems() : [],
+      onPlaylistPlay: (pickCode) => {
+        if (pickCode && pickCode !== this.currentPickCode) {
+          this.navigateToVideo(pickCode)
+        }
+      },
+      getCurrentPickCode: () => this.currentPickCode,
+    })
+    this.overlay.init()
   }
 
   private setupProgressHoverPreview() {
@@ -392,7 +418,92 @@ class PlayerManager {
     renderPlayerError(message)
   }
 
+  private async fetchPlaylistItems(): Promise<OverlayPlaylistItem[]> {
+    const cid = new URLSearchParams(window.location.search).get('cid') || ''
+    if (!cid) return []
+
+    const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
+      type: 'FETCH_PLAYLIST',
+      data: { cid },
+    })
+
+    return (res?.list || [])
+      .filter(item => !!item.pick_code)
+      .map((item: FileItem) => ({
+        pickCode: item.pick_code,
+        name: item.fn,
+        size: item.fs > 0 ? this.formatFileSize(item.fs) : '',
+      }))
+  }
+
+  private async moveCurrentFile(): Promise<void> {
+    const params = new URLSearchParams(window.location.search)
+    const fileId = params.get('fileId') || ''
+    const cid = params.get('cid') || ''
+    if (!fileId || !cid) return
+
+    await sendRuntimeMessageSafe({
+      type: 'MOVE_FILE',
+      data: {
+        fileId,
+        parentId: cid,
+        cid,
+      },
+    })
+  }
+
+  private async toggleFavorite(nextMarked: boolean): Promise<boolean> {
+    const fileId = new URLSearchParams(window.location.search).get('fileId') || ''
+    if (!fileId) return !nextMarked
+
+    const body = `file_id=${encodeURIComponent(fileId)}&star=${nextMarked ? '1' : '0'}`
+    const res = await sendRuntimeMessageSafe<{ ok?: boolean, text?: string }>({
+      type: 'MAIN_WORLD_FETCH',
+      data: {
+        url: `${WEB_API_URL}/files/star`,
+        body,
+      },
+    })
+
+    try {
+      const parsed = res?.text ? JSON.parse(res.text) as { state?: boolean } : null
+      if (res?.ok && parsed?.state !== false) {
+        const params = new URLSearchParams(window.location.search)
+        params.set('marked', nextMarked ? '1' : '0')
+        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
+        return nextMarked
+      }
+    }
+    catch {
+      // ignore parse error
+    }
+
+    return !nextMarked
+  }
+
+  private navigateToVideo(pickCode: string) {
+    const params = new URLSearchParams(window.location.search)
+    params.set('pick_code', pickCode)
+    params.set('pickCode', pickCode)
+    const title = this.overlay ? undefined : ''
+    void title
+    const playlistItem = document.querySelector(`[data-pickcode="${pickCode}"] .block.truncate`)?.textContent?.trim()
+    if (playlistItem) {
+      params.set('title', playlistItem)
+    }
+    window.location.href = `${window.location.pathname}?${params.toString()}`
+  }
+
+  private formatFileSize(size: number): string {
+    if (size < 1024) return `${size} B`
+    if (size < 1024 * 1024) return `${(size / 1024).toFixed(2)} KB`
+    if (size < 1024 * 1024 * 1024) return `${(size / 1024 / 1024).toFixed(2)} MB`
+    return `${(size / 1024 / 1024 / 1024).toFixed(2)} GB`
+  }
+
   destroy() {
+    this.overlay?.destroy()
+    this.overlay = null
     this.hoverPreview?.destroy()
     this.hoverPreview = null
     this.cleanupInfoPanel?.()

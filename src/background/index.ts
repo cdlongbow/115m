@@ -89,6 +89,60 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
       }
     }
 
+    case 'FETCH_PLAYLIST': {
+      try {
+        const result = await drive115.getPlaylist(message.data.cid)
+        return {
+          list: result.data?.list ?? [],
+          path: result.path ?? [],
+        }
+      }
+      catch (e) {
+        return { error: String(e) }
+      }
+    }
+
+    case 'MOVE_FILE': {
+      const tabId = sender?.tab?.id
+      if (!tabId) {
+        return { error: 'missing sender tab' }
+      }
+
+      const { fileId, parentId, cid } = message.data
+      const injected = await chrome.scripting.executeScript({
+        target: { tabId },
+        world: 'MAIN',
+        func: (payload: { fileId: string, parentId: string, cid: string }) => {
+          const win = window as any
+          const Core = win.Core
+          if (!Core?.TreeDG?.Show) {
+            return { ok: false, error: 'Core.TreeDG unavailable' }
+          }
+
+          if (Core.FileConfig) {
+            Core.FileConfig.aid = Number(payload.parentId) || 0
+            Core.FileConfig.cid = payload.cid || '0'
+          }
+
+          Core.TreeDG.Show({
+            list: [{
+              file_type: '1',
+              file_id: payload.fileId,
+              cate_id: payload.parentId || '',
+              area_id: '0',
+            }],
+            type: 'move',
+            has_dir: false,
+          })
+
+          return { ok: true }
+        },
+        args: [{ fileId, parentId, cid }],
+      })
+
+      return injected?.[0]?.result ?? { ok: false, error: 'move executeScript empty' }
+    }
+
     case 'SET_COOKIE': {
       const { data } = message
       await chrome.cookies.set({

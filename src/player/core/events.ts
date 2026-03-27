@@ -28,6 +28,8 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
     onReady,
     onError,
   } = options
+  const root = art.template.$player as HTMLDivElement
+  const mask = art.template.$mask as HTMLDivElement
 
   art.on('ready', () => {
     onPerf('art-ready', { type })
@@ -61,5 +63,48 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
 
   art.on('error', onError)
 
-  return bindKeyboardShortcuts(art)
+  const stopRootBubble = (event: Event) => {
+    event.stopPropagation()
+  }
+
+  const handleMaskClick = (event: MouseEvent) => {
+    if (event.target !== mask) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+
+    if (art.video.paused) {
+      void art.play()
+    }
+    else {
+      art.pause()
+    }
+  }
+
+  const handleMaskDoubleClick = (event: MouseEvent) => {
+    if (event.target !== mask) return
+    event.preventDefault()
+    event.stopImmediatePropagation()
+  }
+
+  root.addEventListener('click', stopRootBubble)
+  root.addEventListener('dblclick', stopRootBubble)
+  root.addEventListener('mousedown', stopRootBubble)
+  root.addEventListener('mouseup', stopRootBubble)
+  root.addEventListener('contextmenu', stopRootBubble)
+
+  mask.addEventListener('click', handleMaskClick)
+  mask.addEventListener('dblclick', handleMaskDoubleClick)
+
+  const cleanupKeyboard = bindKeyboardShortcuts(art)
+
+  return () => {
+    root.removeEventListener('click', stopRootBubble)
+    root.removeEventListener('dblclick', stopRootBubble)
+    root.removeEventListener('mousedown', stopRootBubble)
+    root.removeEventListener('mouseup', stopRootBubble)
+    root.removeEventListener('contextmenu', stopRootBubble)
+    mask.removeEventListener('click', handleMaskClick)
+    mask.removeEventListener('dblclick', handleMaskDoubleClick)
+    cleanupKeyboard()
+  }
 }

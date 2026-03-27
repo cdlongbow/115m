@@ -44,6 +44,10 @@ export interface VideoM3u8Res {
  */
 export interface FilesRes {
   state: boolean
+  path?: Array<{
+    cid: string
+    name: string
+  }>
   data?: {
     list?: FileItem[]
     count: number
