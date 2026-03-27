@@ -48,10 +48,8 @@ export interface FilesRes {
     cid: string
     name: string
   }>
-  data?: {
-    list?: FileItem[]
-    count: number
-  }
+  data?: FileItem[]
+  count?: number
 }
 
 export interface FileItem {

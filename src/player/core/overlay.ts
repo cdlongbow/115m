@@ -1,4 +1,5 @@
 import type Artplayer from 'artplayer'
+import { getVideoCovers } from '../../lib/videoThumbnail'
 
 export interface OverlayPathItem {
   cid: string
@@ -7,8 +8,12 @@ export interface OverlayPathItem {
 
 export interface OverlayPlaylistItem {
   pickCode: string
+  fileId: string
   name: string
   size?: string
+  isMarked?: boolean
+  duration?: number
+  sha?: string
 }
 
 export interface PlayerOverlayMeta {
@@ -24,8 +29,8 @@ export interface PlayerOverlayMeta {
 export interface PlayerOverlayOptions {
   art: Artplayer
   meta: PlayerOverlayMeta
-  onMove: () => Promise<void>
-  onToggleFavorite: (nextMarked: boolean) => Promise<boolean>
+  onMoveFile: (fileId: string, cid: string) => Promise<void>
+  onToggleFavorite: (fileId: string, nextMarked: boolean) => Promise<boolean>
   onPlaylistToggle: (open: boolean) => Promise<OverlayPlaylistItem[]>
   onPlaylistPlay: (pickCode: string) => void
   getCurrentPickCode: () => string
@@ -64,53 +69,36 @@ export class PlayerOverlayController {
   private readonly controlsEl: HTMLElement
   private readonly bottomEl: HTMLElement
   private readonly progressEl: HTMLElement
+  private sidebarEl: HTMLElement | null
   private headerEl: HTMLElement | null = null
   private titleEl: HTMLElement | null = null
   private statsEl: HTMLElement | null = null
   private breadcrumbsEl: HTMLElement | null = null
-  private readonly backBtn: HTMLButtonElement | null
-  private readonly moveBtn: HTMLButtonElement | null
-  private readonly favoriteBtn: HTMLButtonElement | null
-  private readonly favoriteOutlineEl: HTMLElement | null
-  private readonly favoriteFilledEl: HTMLElement | null
-  private readonly playlistBtn: HTMLButtonElement | null
-  private readonly playlistCloseBtn: HTMLButtonElement | null
-  private readonly playlistMaskEl: HTMLElement | null
-  private readonly playlistPanelEl: HTMLElement | null
-  private readonly playlistListEl: HTMLElement | null
+  private playlistTabEl: HTMLElement | null = null
+  private playlistListEl: HTMLElement | null = null
+  private favBtnEl: HTMLButtonElement | null = null
+  private moveBtnEl: HTMLButtonElement | null = null
   private visibleTimer: number | null = null
   private isPointerInsideOverlay = false
   private playlistOpen = false
-  private favoritePending = false
+  private playlistItems: OverlayPlaylistItem[] = []
 
   constructor(private readonly options: PlayerOverlayOptions) {
     this.root = options.art.template.$player as HTMLElement
     this.controlsEl = options.art.template.$controls as HTMLElement
     this.bottomEl = options.art.template.$bottom as HTMLElement
     this.progressEl = options.art.template.$progress as HTMLElement
-    this.backBtn = document.getElementById('btn-back') as HTMLButtonElement | null
-    this.moveBtn = document.getElementById('btn-move') as HTMLButtonElement | null
-    this.favoriteBtn = document.getElementById('btn-favorite') as HTMLButtonElement | null
-    this.favoriteOutlineEl = document.getElementById('icon-favorite-outline')
-    this.favoriteFilledEl = document.getElementById('icon-favorite-filled')
-    this.playlistBtn = document.getElementById('btn-playlist') as HTMLButtonElement | null
-    this.playlistCloseBtn = document.getElementById('btn-playlist-close') as HTMLButtonElement | null
-    this.playlistMaskEl = document.getElementById('playlist-mask')
-    this.playlistPanelEl = document.getElementById('playlist-panel')
-    this.playlistListEl = document.getElementById('playlist-list')
+    this.sidebarEl = document.getElementById('playlist-sidebar')
   }
 
   init() {
+    // Hide the static HTML header
+    const staticHeader = document.getElementById('header')
+    if (staticHeader) staticHeader.style.display = 'none'
+
     this.mountHeaderOverlay()
-    if (this.playlistMaskEl) {
-      this.root.appendChild(this.playlistMaskEl)
-      this.playlistMaskEl.addEventListener('click', this.handlePlaylistClose)
-    }
-    if (this.playlistPanelEl) {
-      this.root.appendChild(this.playlistPanelEl)
-      this.playlistPanelEl.addEventListener('mouseenter', this.handleOverlayEnter)
-      this.playlistPanelEl.addEventListener('mouseleave', this.handleOverlayLeave)
-    }
+    this.mountPlaylistTab()
+    this.mountSidebarContent()
 
     this.controlsEl.addEventListener('mouseenter', this.handleOverlayEnter)
     this.controlsEl.addEventListener('mouseleave', this.handleOverlayLeave)
@@ -124,18 +112,10 @@ export class PlayerOverlayController {
 
     if (this.statsEl && this.options.meta.fileSize) {
       this.statsEl.textContent = this.options.meta.fileSize
-      this.statsEl.classList.remove('hidden')
+      this.statsEl.style.display = ''
     }
 
     this.renderBreadcrumbs(this.options.meta.path)
-    this.renderFavorite(this.options.meta.isMarked)
-
-    this.backBtn?.addEventListener('click', this.handleBack)
-    this.moveBtn?.addEventListener('click', this.handleMove)
-    this.favoriteBtn?.addEventListener('click', this.handleFavorite)
-    this.playlistBtn?.addEventListener('click', this.handlePlaylistButton)
-    this.playlistCloseBtn?.addEventListener('click', this.handlePlaylistClose)
-
     this.showTemporarily()
   }
 
@@ -151,8 +131,6 @@ export class PlayerOverlayController {
     this.controlsEl.removeEventListener('mouseleave', this.handleOverlayLeave)
     this.headerEl?.removeEventListener('mouseenter', this.handleOverlayEnter)
     this.headerEl?.removeEventListener('mouseleave', this.handleOverlayLeave)
-    this.playlistPanelEl?.removeEventListener('mouseenter', this.handleOverlayEnter)
-    this.playlistPanelEl?.removeEventListener('mouseleave', this.handleOverlayLeave)
   }
 
   setCurrentTitle(title: string) {
@@ -170,48 +148,95 @@ export class PlayerOverlayController {
   private renderBreadcrumbs(items: OverlayPathItem[]) {
     if (!this.breadcrumbsEl) return
     if (items.length === 0) {
-      this.breadcrumbsEl.classList.add('hidden')
+      this.breadcrumbsEl.style.display = 'none'
       this.breadcrumbsEl.innerHTML = ''
       return
     }
 
-    this.breadcrumbsEl.classList.remove('hidden')
+    this.breadcrumbsEl.style.display = ''
     this.breadcrumbsEl.innerHTML = items.map((item, index) => {
-      const sep = index < items.length - 1 ? '<span class="mx-2 text-white/40">></span>' : ''
-      return `<a class="pointer-events-auto hover:text-white" href="https://115.com/?cid=${encodeURIComponent(item.cid)}&offset=0&tab=&mode=wangpan" target="_blank" rel="noreferrer">${escapeHtml(item.name)}</a>${sep}`
+      const sep = index < items.length - 1 ? '<span style="margin:0 6px;opacity:.4">›</span>' : ''
+      return `<a style="pointer-events:auto;text-decoration:none;color:inherit;transition:color .15s" onmouseenter="this.style.color='#fff'" onmouseleave="this.style.color=''" href="https://115.com/?cid=${encodeURIComponent(item.cid)}&offset=0&tab=&mode=wangpan" target="_blank" rel="noreferrer">${escapeHtml(item.name)}</a>${sep}`
     }).join('')
-  }
-
-  private renderFavorite(marked: boolean) {
-    this.options.meta.isMarked = marked
-    this.favoriteOutlineEl?.classList.toggle('hidden', marked)
-    this.favoriteFilledEl?.classList.toggle('hidden', !marked)
   }
 
   private renderPlaylist(items: OverlayPlaylistItem[]) {
     if (!this.playlistListEl) return
+    this.playlistItems = items
     const currentPickCode = this.options.getCurrentPickCode()
-    this.playlistListEl.innerHTML = items.map((item) => {
+
+    this.playlistListEl.innerHTML = items.map((item, index) => {
       const active = item.pickCode === currentPickCode
+      const num = index + 1
       return `
-        <button class="m115-playlist-item flex w-full items-start gap-3 rounded-lg px-3 py-2 text-left transition-colors ${active ? 'bg-white/14 text-white' : 'text-white/76 hover:bg-white/8 hover:text-white'}" data-pickcode="${escapeHtml(item.pickCode)}">
-          <span class="mt-1 h-2 w-2 shrink-0 rounded-full ${active ? 'bg-sky-400' : 'bg-white/18'}"></span>
-          <span class="min-w-0 flex-1">
-            <span class="block truncate text-sm font-medium">${escapeHtml(item.name)}</span>
-            ${item.size ? `<span class="mt-0.5 block text-xs text-white/45">${escapeHtml(item.size)}</span>` : ''}
-          </span>
-        </button>
+        <div class="m115-pl-item" data-pickcode="${esc(item.pickCode)}" data-index="${index}"
+          style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;cursor:pointer;transition:background .15s;${active ? 'background:rgba(255,255,255,.12)' : ''}">
+          <span style="flex-shrink:0;width:22px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums;${active ? 'color:#38bdf8;font-weight:600' : 'color:rgba(255,255,255,.35)'}">${num}</span>
+          <div class="m115-pl-thumb" style="position:relative;width:120px;height:68px;border-radius:6px;flex-shrink:0;background:#1a1a1a;overflow:hidden;display:flex;align-items:center;justify-content:center">
+            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
+          </div>
+          <div style="min-width:0;flex:1;overflow:hidden">
+            <div style="font-size:13px;font-weight:500;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;${active ? 'color:#fff' : 'color:rgba(255,255,255,.78)'}">${escapeHtml(item.name)}</div>
+            ${item.size ? `<div style="font-size:11px;color:rgba(255,255,255,.35);margin-top:2px">${escapeHtml(item.size)}</div>` : ''}
+          </div>
+        </div>
       `
     }).join('')
 
-    this.playlistListEl.querySelectorAll<HTMLButtonElement>('.m115-playlist-item').forEach((node) => {
+    // Bind events
+    this.playlistListEl.querySelectorAll<HTMLElement>('.m115-pl-item').forEach((node) => {
+      const pc = node.dataset.pickcode || ''
+      const isActive = pc === currentPickCode
+
+      node.addEventListener('mouseenter', () => {
+        node.style.background = isActive ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.06)'
+      })
+      node.addEventListener('mouseleave', () => {
+        node.style.background = isActive ? 'rgba(255,255,255,.12)' : ''
+      })
       node.addEventListener('click', () => {
-        const pickCode = node.dataset.pickcode || ''
-        if (!pickCode) return
-        this.options.onPlaylistPlay(pickCode)
-        this.setPlaylistOpen(false)
+        if (pc) this.options.onPlaylistPlay(pc)
       })
     })
+
+    // Scroll current item into view
+    const activeNode = this.playlistListEl.querySelector(`[data-pickcode="${esc(currentPickCode)}"]`)
+    activeNode?.scrollIntoView({ block: 'center', behavior: 'instant' })
+
+    // Lazy-load covers for visible items using IntersectionObserver
+    this.lazyLoadCovers(items)
+  }
+
+  private lazyLoadCovers(items: OverlayPlaylistItem[]) {
+    if (!this.playlistListEl) return
+    const thumbEls = this.playlistListEl.querySelectorAll<HTMLElement>('.m115-pl-thumb')
+    const loadedSet = new Set<string>()
+
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (!entry.isIntersecting) continue
+        const node = entry.target.closest<HTMLElement>('.m115-pl-item')
+        const idx = parseInt(node?.dataset.index || '-1', 10)
+        const item = items[idx]
+        if (!item || loadedSet.has(item.pickCode)) continue
+        loadedSet.add(item.pickCode)
+        observer.unobserve(entry.target)
+
+        const thumbEl = entry.target as HTMLElement
+        const duration = item.duration || 0
+        if (duration <= 0) return
+
+        void getVideoCovers(item.pickCode, duration, 1).then((covers) => {
+          if (covers.length > 0) {
+            thumbEl.innerHTML = `<img src="${covers[0].imgUrl}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" />`
+          }
+        }).catch(() => {
+          // keep placeholder on error
+        })
+      }
+    }, { root: this.playlistListEl, rootMargin: '200px 0px' })
+
+    thumbEls.forEach(el => observer.observe(el))
   }
 
   private setVisible(visible: boolean) {
@@ -228,6 +253,8 @@ export class PlayerOverlayController {
     this.root.style.cursor = visible || this.playlistOpen ? 'auto' : 'none'
   }
 
+  // ── Header (left side only: back, title, stats, breadcrumbs) ──
+
   private mountHeaderOverlay() {
     this.headerEl?.remove()
 
@@ -240,8 +267,6 @@ export class PlayerOverlayController {
       'z-index:200',
       'display:flex',
       'align-items:flex-start',
-      'justify-content:space-between',
-      'gap:16px',
       'padding:16px 20px 28px',
       'background:linear-gradient(180deg, rgba(0,0,0,.76) 0%, rgba(0,0,0,.32) 58%, rgba(0,0,0,0) 100%)',
       'opacity:0',
@@ -251,7 +276,7 @@ export class PlayerOverlayController {
     ].join(';')
 
     const left = document.createElement('div')
-    left.style.cssText = 'min-width:0;max-width:min(62vw,760px);display:flex;align-items:flex-start;gap:12px;'
+    left.style.cssText = 'min-width:0;max-width:min(72vw,800px);display:flex;align-items:flex-start;gap:12px;'
 
     const back = document.createElement('button')
     back.type = 'button'
@@ -326,6 +351,53 @@ export class PlayerOverlayController {
     left.appendChild(back)
     left.appendChild(info)
     header.appendChild(left)
+
+    // ── Right side: action buttons for current video ──
+    const right = document.createElement('div')
+    right.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;pointer-events:auto;padding-top:2px;'
+
+    const pillGroup = document.createElement('div')
+    pillGroup.style.cssText = 'display:flex;align-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);padding:2px;gap:0;'
+
+    const moveBtn = document.createElement('button')
+    moveBtn.type = 'button'
+    moveBtn.title = '移动视频'
+    moveBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:background .15s,color .15s;'
+    moveBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5H5v14h14v-9"/><path d="M10 14 21 3"/><path d="M15 3h6v6"/></svg>'
+    moveBtn.addEventListener('mouseenter', () => { moveBtn.style.background = 'rgba(255,255,255,.1)'; moveBtn.style.color = '#fff' })
+    moveBtn.addEventListener('mouseleave', () => { moveBtn.style.background = 'transparent'; moveBtn.style.color = 'rgba(255,255,255,.82)' })
+    moveBtn.addEventListener('click', () => this.options.onMoveFile(this.options.meta.fileId, this.options.meta.cid))
+
+    const favBtn = document.createElement('button')
+    favBtn.type = 'button'
+    favBtn.title = '收藏'
+    favBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:background .15s,color .15s;'
+    favBtn.addEventListener('mouseenter', () => { favBtn.style.background = 'rgba(255,255,255,.1)'; favBtn.style.color = '#fff' })
+    favBtn.addEventListener('mouseleave', () => { favBtn.style.background = 'transparent'; favBtn.style.color = this.options.meta.isMarked ? '#ec4899' : 'rgba(255,255,255,.82)' })
+    favBtn.addEventListener('click', async () => {
+      const fileId = this.options.meta.fileId
+      if (!fileId) return
+      const nextMarked = !this.options.meta.isMarked
+      favBtn.style.opacity = '0.4'
+      favBtn.style.pointerEvents = 'none'
+      try {
+        const result = await this.options.onToggleFavorite(fileId, nextMarked)
+        this.options.meta.isMarked = result
+        this.updateFavoriteIcon()
+      } finally {
+        favBtn.style.opacity = ''
+        favBtn.style.pointerEvents = ''
+      }
+    })
+    this.favBtnEl = favBtn
+    this.moveBtnEl = moveBtn
+    this.updateFavoriteIcon()
+
+    pillGroup.appendChild(moveBtn)
+    pillGroup.appendChild(favBtn)
+    right.appendChild(pillGroup)
+    header.appendChild(right)
+
     this.root.appendChild(header)
 
     this.headerEl = header
@@ -333,10 +405,159 @@ export class PlayerOverlayController {
     this.statsEl = stats
     this.breadcrumbsEl = breadcrumbs
 
+    header.classList.add('m115-interactive')
     back.addEventListener('click', this.handleBack)
     header.addEventListener('mouseenter', this.handleOverlayEnter)
     header.addEventListener('mouseleave', this.handleOverlayLeave)
   }
+
+  private updateFavoriteIcon() {
+    if (!this.favBtnEl) return
+    const marked = this.options.meta.isMarked
+    this.favBtnEl.title = marked ? '取消收藏' : '收藏'
+    this.favBtnEl.style.color = marked ? '#ec4899' : 'rgba(255,255,255,.82)'
+    this.favBtnEl.innerHTML = marked
+      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg>'
+      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 20.4-1.4-1.27C5.4 14.36 2 11.28 2 7.5 2 4.42 4.42 2 7.5 2c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 2C19.58 2 22 4.42 22 7.5c0 3.78-3.4 6.86-8.6 11.63z"/></svg>'
+  }
+
+  // ── Playlist toggle tab (right edge, vertically centered) ──
+
+  private mountPlaylistTab() {
+    const tab = document.createElement('div')
+    tab.style.cssText = [
+      'position:absolute',
+      'right:0',
+      'top:50%',
+      'transform:translateY(-50%)',
+      'z-index:210',
+      'display:flex',
+      'align-items:center',
+      'justify-content:center',
+      'width:28px',
+      'height:72px',
+      'border-radius:8px 0 0 8px',
+      'background:rgba(0,0,0,.5)',
+      'border:1px solid rgba(255,255,255,.12)',
+      'border-right:none',
+      'color:rgba(255,255,255,.6)',
+      'cursor:pointer',
+      'transition:background .2s, color .2s, opacity .2s',
+      'pointer-events:auto',
+      'opacity:0.6',
+    ].join(';')
+    tab.title = '播放列表'
+    tab.classList.add('m115-interactive')
+    tab.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>'
+
+    tab.addEventListener('mouseenter', () => {
+      tab.style.background = 'rgba(0,0,0,.7)'
+      tab.style.color = '#fff'
+      tab.style.opacity = '1'
+    })
+    tab.addEventListener('mouseleave', () => {
+      if (!this.playlistOpen) {
+        tab.style.background = 'rgba(0,0,0,.5)'
+        tab.style.color = 'rgba(255,255,255,.6)'
+        tab.style.opacity = '0.6'
+      }
+    })
+    tab.addEventListener('click', this.handlePlaylistToggle)
+
+    this.root.appendChild(tab)
+    this.playlistTabEl = tab
+  }
+
+  // ── Sidebar content (rendered into #playlist-sidebar, outside the player) ──
+
+  private mountSidebarContent() {
+    if (!this.sidebarEl) {
+      // 在构造时可能还没找到，再次尝试
+      this.sidebarEl = document.getElementById('playlist-sidebar')
+    }
+    if (!this.sidebarEl) {
+      console.warn('[115m] #playlist-sidebar not found in DOM')
+      return
+    }
+    console.log('[115m] mountSidebarContent: sidebar found, setting up content')
+
+    this.sidebarEl.innerHTML = ''
+    this.sidebarEl.style.cssText = 'width:0;min-width:0;flex:0 0 0;overflow:hidden;transition:width .25s ease, flex-basis .25s ease;background:#0a0a0a;border-left:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;box-sizing:border-box;height:100%;'
+
+    // Panel header
+    const panelHeader = document.createElement('div')
+    panelHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px;flex-shrink:0;width:100%;box-sizing:border-box;'
+
+    const panelTitle = document.createElement('div')
+    panelTitle.style.cssText = 'font-size:14px;font-weight:600;color:rgba(255,255,255,.9)'
+    panelTitle.textContent = '播放列表'
+
+    const closeBtn = document.createElement('button')
+    closeBtn.type = 'button'
+    closeBtn.title = '关闭'
+    closeBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:6px;background:transparent;color:rgba(255,255,255,.5);cursor:pointer;transition:background .15s,color .15s'
+    closeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
+    closeBtn.addEventListener('mouseenter', () => { closeBtn.style.background = 'rgba(255,255,255,.1)'; closeBtn.style.color = '#fff' })
+    closeBtn.addEventListener('mouseleave', () => { closeBtn.style.background = 'transparent'; closeBtn.style.color = 'rgba(255,255,255,.5)' })
+    closeBtn.addEventListener('click', () => this.setPlaylistOpen(false))
+
+    panelHeader.appendChild(panelTitle)
+    panelHeader.appendChild(closeBtn)
+
+    // List container
+    const listContainer = document.createElement('div')
+    listContainer.style.cssText = 'flex:1;overflow-y:auto;padding:0 8px 12px;width:100%;box-sizing:border-box;'
+
+    // Custom scrollbar
+    const scrollStyle = document.createElement('style')
+    scrollStyle.textContent = `
+      .m115-pl-scroll::-webkit-scrollbar { width: 4px; }
+      .m115-pl-scroll::-webkit-scrollbar-track { background: transparent; }
+      .m115-pl-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }
+      .m115-pl-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
+    `
+    listContainer.classList.add('m115-pl-scroll')
+
+    this.sidebarEl.appendChild(scrollStyle)
+    this.sidebarEl.appendChild(panelHeader)
+    this.sidebarEl.appendChild(listContainer)
+    this.playlistListEl = listContainer
+  }
+
+  private setPlaylistOpen(open: boolean) {
+    this.playlistOpen = open
+    // Expand/collapse the external sidebar — the video area shrinks/grows via flex
+    if (this.sidebarEl) {
+      const width = open ? '360px' : '0px'
+      this.sidebarEl.style.width = width
+      this.sidebarEl.style.minWidth = width
+      this.sidebarEl.style.flex = open ? '0 0 360px' : '0 0 0px'
+
+      const computed = window.getComputedStyle(this.sidebarEl)
+      console.log('[115m] setPlaylistOpen:', {
+        open,
+        sidebarEl: true,
+        inlineWidth: this.sidebarEl.style.width,
+        inlineMinWidth: this.sidebarEl.style.minWidth,
+        inlineFlex: this.sidebarEl.style.flex,
+        computedWidth: computed.width,
+        computedDisplay: computed.display,
+      })
+    }
+    if (this.playlistTabEl) {
+      if (open) {
+        this.playlistTabEl.style.opacity = '0'
+        this.playlistTabEl.style.pointerEvents = 'none'
+      }
+      else {
+        this.playlistTabEl.style.opacity = '0.6'
+        this.playlistTabEl.style.pointerEvents = 'auto'
+      }
+    }
+    this.setVisible(open || this.isPointerInsideOverlay)
+  }
+
+  // ── Event handlers ──
 
   private showTemporarily() {
     this.setVisible(true)
@@ -348,16 +569,6 @@ export class PlayerOverlayController {
         this.setVisible(false)
       }
     }, 1000)
-  }
-
-  private setPlaylistOpen(open: boolean) {
-    this.playlistOpen = open
-    this.playlistMaskEl?.classList.toggle('pointer-events-auto', open)
-    this.playlistMaskEl?.classList.toggle('opacity-100', open)
-    this.playlistPanelEl?.classList.toggle('pointer-events-auto', open)
-    this.playlistPanelEl?.classList.toggle('translate-x-0', open)
-    this.playlistPanelEl?.classList.toggle('translate-x-full', !open)
-    this.setVisible(open || this.isPointerInsideOverlay)
   }
 
   private handleBack = () => {
@@ -385,36 +596,15 @@ export class PlayerOverlayController {
     this.showTemporarily()
   }
 
-  private handleMove = async () => {
-    await this.options.onMove()
-    this.showTemporarily()
-  }
-
-  private handleFavorite = async () => {
-    if (this.favoritePending) return
-    this.favoritePending = true
-    try {
-      const next = !this.options.meta.isMarked
-      const applied = await this.options.onToggleFavorite(next)
-      this.renderFavorite(applied)
-    }
-    finally {
-      this.favoritePending = false
-    }
-  }
-
-  private handlePlaylistButton = async () => {
+  private handlePlaylistToggle = async () => {
     const nextOpen = !this.playlistOpen
+    console.log('[115m] handlePlaylistToggle:', { nextOpen, sidebarEl: !!this.sidebarEl, playlistListEl: !!this.playlistListEl })
     if (nextOpen) {
       const items = await this.options.onPlaylistToggle(true)
+      console.log('[115m] playlist items received:', items.length, items)
       this.renderPlaylist(items)
     }
     this.setPlaylistOpen(nextOpen)
-  }
-
-  private handlePlaylistClose = () => {
-    this.setPlaylistOpen(false)
-    this.showTemporarily()
   }
 }
 
@@ -426,3 +616,6 @@ function escapeHtml(value: string): string {
     .replaceAll('"', '&quot;')
     .replaceAll("'", '&#39;')
 }
+
+// Alias for attribute escaping (same logic)
+const esc = escapeHtml

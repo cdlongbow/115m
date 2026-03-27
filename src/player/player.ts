@@ -12,7 +12,7 @@ import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { renderPlayerError } from './core/dom'
 import { createHlsInstance, isHlsSupported } from './core/hls'
-import { patchArtInfoPanel } from './core/info-panel'
+import type { VideoPlaybackQualityLike } from './core/types'
 import { HoverPreviewController } from './core/hover-preview'
 import { bindPlayerEvents } from './core/events'
 import { PlayerOverlayController, readOverlayMetaFromQuery, type OverlayPlaylistItem } from './core/overlay'
@@ -46,7 +46,8 @@ class PlayerManager {
   private qualityOptions: QualityOption[] = []
   private currentQuality = 0
   private currentQualityLabel = '加载中'
-  private cleanupInfoPanel: (() => void) | null = null
+  private infoMenuTimer: number | null = null
+  private infoMenuEl: HTMLElement | null = null
   private hoverPreview: HoverPreviewController | null = null
   private overlay: PlayerOverlayController | null = null
   private traceId = ''
@@ -200,7 +201,6 @@ class PlayerManager {
       playbackRate: true,
       aspectRatio: true,
       fullscreen: true,
-      fullscreenWeb: false,
       miniProgressBar: true,
       theme: '#1890ff',
       lang: 'zh-cn',
@@ -217,7 +217,9 @@ class PlayerManager {
       },
     })
 
-    this.artplayer.fullscreenWeb = true
+    // Don't use ArtPlayer's fullscreenWeb — it uses position:fixed + moves to body,
+    // which covers #playlist-sidebar. Instead the player fills its flex container naturally.
+    Artplayer.FULLSCREEN_WEB_IN_BODY = false
 
     if (type === 'native') {
       this.currentQuality = 9999
@@ -229,7 +231,7 @@ class PlayerManager {
     void this.fetchBreadcrumbs()
 
     if (this.artplayer) {
-      this.setupInfoPanel()
+      this.setupStatsMenu()
 
       if (this.cleanupKeyboard) {
         this.cleanupKeyboard()
@@ -244,6 +246,14 @@ class PlayerManager {
           this.artplayer!.contextmenu.remove('playbackRate')
           this.artplayer!.contextmenu.remove('aspectRatio')
           this.artplayer!.contextmenu.remove('flip')
+          this.artplayer!.contextmenu.remove('info')
+          this.artplayer!.contextmenu.remove('close')
+          this.artplayer!.contextmenu.add({
+            name: 'videoStats',
+            index: 40,
+            html: this.buildStatsHtml(),
+            mounted: ($el: HTMLElement) => { this.infoMenuEl = $el },
+          })
           this.renderQualityPanel()
           this.updateQualityButton()
         },
@@ -349,8 +359,8 @@ class PlayerManager {
     this.overlay = new PlayerOverlayController({
       art: this.artplayer,
       meta: readOverlayMetaFromQuery(),
-      onMove: async () => await this.moveCurrentFile(),
-      onToggleFavorite: async nextMarked => await this.toggleFavorite(nextMarked),
+      onMoveFile: async (fileId, cid) => await this.moveFile(fileId, cid),
+      onToggleFavorite: async (fileId, nextMarked) => await this.toggleFavorite(fileId, nextMarked),
       onPlaylistToggle: async open => open ? await this.fetchPlaylistItems() : [],
       onPlaylistPlay: (pickCode) => {
         if (pickCode && pickCode !== this.currentPickCode) {
@@ -369,10 +379,38 @@ class PlayerManager {
     this.hoverPreview.setup()
   }
 
-  private setupInfoPanel() {
+  private buildStatsHtml(): string {
+    const video = this.artplayer?.video
+    if (!video) return '统计信息'
+    const w = video.videoWidth
+    const h = video.videoHeight
+    const res = w && h ? `${w}×${h}` : '--'
+    const fps = this.calcFps()
+    return `统计信息 <span style="opacity:.5;margin-left:8px">${res}${fps ? ` · ${fps}fps` : ''}</span>`
+  }
+
+  private calcFps(): string {
+    const video = this.artplayer?.video
+    if (!video) return ''
+    const q = (video.getVideoPlaybackQuality?.() || {}) as VideoPlaybackQualityLike
+    let total = q.totalVideoFrames ?? 0
+    if (!total) {
+      total = (video as HTMLVideoElement & { webkitDecodedFrameCount?: number }).webkitDecodedFrameCount ?? 0
+    }
+    if (total > 0 && video.currentTime > 0) {
+      return (total / video.currentTime).toFixed(1)
+    }
+    return ''
+  }
+
+  private setupStatsMenu() {
     if (!this.artplayer) return
-    this.cleanupInfoPanel?.()
-    this.cleanupInfoPanel = patchArtInfoPanel(this.artplayer, this.isNativeVideo)
+    if (this.infoMenuTimer != null) window.clearInterval(this.infoMenuTimer)
+    this.infoMenuTimer = window.setInterval(() => {
+      if (this.infoMenuEl) {
+        this.infoMenuEl.innerHTML = this.buildStatsHtml()
+      }
+    }, 2000)
   }
 
 
@@ -420,12 +458,12 @@ class PlayerManager {
   }
 
   private async fetchPlaylistItems(): Promise<OverlayPlaylistItem[]> {
-    const cid = new URLSearchParams(window.location.search).get('cid') || ''
-    if (!cid) return []
+    const urlParams = new URLSearchParams(window.location.search)
+    let cid = urlParams.get('cid') || ''
 
     const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
       type: 'FETCH_PLAYLIST',
-      data: { cid },
+      data: { cid, pickCode: this.currentPickCode },
     })
 
     // API 返回的 path 是完整的目录路径，用它更新面包屑
@@ -433,12 +471,20 @@ class PlayerManager {
       this.overlay?.updateBreadcrumbs(res.path)
     }
 
-    return (res?.list || [])
-      .filter(item => !!item.pick_code)
-      .map((item: FileItem) => ({
-        pickCode: item.pick_code,
-        name: item.fn,
-        size: item.fs > 0 ? this.formatFileSize(item.fs) : '',
+    const list = res?.list || []
+    if (list.length === 0) {
+      console.warn('[115m] playlist empty, raw response:', res)
+    }
+    return list
+      .filter((item: any) => !!(item.pc || item.pick_code))
+      .map((item: any) => ({
+        pickCode: item.pc || item.pick_code,
+        fileId: String(item.fid || item.file_id || item.cid || ''),
+        name: item.n || item.fn || '',
+        size: (item.s || item.fs || 0) > 0 ? this.formatFileSize(item.s || item.fs) : '',
+        isMarked: (item.m === 1) || (item.iv === 1),
+        duration: item.play_long || 0,
+        sha: item.sha || '',
       }))
   }
 
@@ -446,12 +492,9 @@ class PlayerManager {
    * 主动通过 API 获取面包屑，不依赖 DOM 提取或 URL 参数
    */
   private async fetchBreadcrumbs(): Promise<void> {
-    const cid = new URLSearchParams(window.location.search).get('cid') || ''
-    if (!cid) return
-
     // 检查 URL 参数中是否已有 path（从文件列表页面传递过来的）
-    const params = new URLSearchParams(window.location.search)
-    const rawPath = params.get('path')
+    const urlParams = new URLSearchParams(window.location.search)
+    const rawPath = urlParams.get('path')
     if (rawPath) {
       try {
         const parsed = JSON.parse(rawPath) as Array<{ cid: string, name: string }>
@@ -463,10 +506,11 @@ class PlayerManager {
       catch { /* ignore */ }
     }
 
-    // URL 没有 path，通过 API 获取
+    // 通过 API 获取（需要 cid 或 pickCode）
+    const cid = urlParams.get('cid') || ''
     const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
       type: 'FETCH_PLAYLIST',
-      data: { cid },
+      data: { cid, pickCode: this.currentPickCode },
     })
 
     if (res?.path && res.path.length > 0) {
@@ -474,10 +518,7 @@ class PlayerManager {
     }
   }
 
-  private async moveCurrentFile(): Promise<void> {
-    const params = new URLSearchParams(window.location.search)
-    const fileId = params.get('fileId') || ''
-    const cid = params.get('cid') || ''
+  private async moveFile(fileId: string, cid: string): Promise<void> {
     if (!fileId || !cid) return
 
     await sendRuntimeMessageSafe({
@@ -490,8 +531,7 @@ class PlayerManager {
     })
   }
 
-  private async toggleFavorite(nextMarked: boolean): Promise<boolean> {
-    const fileId = new URLSearchParams(window.location.search).get('fileId') || ''
+  private async toggleFavorite(fileId: string, nextMarked: boolean): Promise<boolean> {
     if (!fileId) return !nextMarked
 
     const body = `file_id=${encodeURIComponent(fileId)}&star=${nextMarked ? '1' : '0'}`
@@ -544,8 +584,11 @@ class PlayerManager {
     this.overlay = null
     this.hoverPreview?.destroy()
     this.hoverPreview = null
-    this.cleanupInfoPanel?.()
-    this.cleanupInfoPanel = null
+    if (this.infoMenuTimer != null) {
+      window.clearInterval(this.infoMenuTimer)
+      this.infoMenuTimer = null
+    }
+    this.infoMenuEl = null
     if (this.cleanupKeyboard) {
       this.cleanupKeyboard()
       this.cleanupKeyboard = null
