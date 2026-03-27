@@ -7,14 +7,14 @@ import type HlsType from 'hls.js'
 import type { M3u8Item } from '../lib/types'
 import { buildArtplayerQuality, getQualityDisplayName } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
-import { loadPlayHistory, savePlayHistory } from './core/history'
+import { loadPlayHistory } from './core/history'
 import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { applyTopNavFromQuery, renderPlayerError } from './core/dom'
-import { bindKeyboardShortcuts } from './core/keyboard'
 import { createHlsInstance, isHlsSupported } from './core/hls'
 import { patchArtInfoPanel } from './core/info-panel'
 import { HoverPreviewController } from './core/hover-preview'
+import { bindPlayerEvents } from './core/events'
 import {
   applyFallbackToHlsState,
   applySelectedQualityOption,
@@ -43,7 +43,6 @@ class PlayerManager {
   private currentQualityLabel = '加载中'
   private cleanupInfoPanel: (() => void) | null = null
   private hoverPreview: HoverPreviewController | null = null
-  private ultraSwitchAborted = false
   private traceId = ''
   private clickTs = 0
   private initStartTs = 0
@@ -223,52 +222,39 @@ class PlayerManager {
     if (this.artplayer) {
       this.setupInfoPanel()
 
-      this.artplayer.on('ready', () => {
-        this.perf('art-ready', { type })
-        this.renderQualityPanel()
-        this.updateQualityButton()
-      })
-
-      this.artplayer.on('video:timeupdate', () => {
-        savePlayHistory({
-          pickCode: this.currentPickCode,
-          fileName: this.currentPickCode,
-          currentTime: this.artplayer?.currentTime || 0,
-          duration: this.artplayer?.duration || 0,
-          quality: this.currentQualityLabel,
-        })
-      })
-
-      this.artplayer.on('video:loadedmetadata', () => {
-        this.perfMarks.loadedmetadata = performance.now()
-        this.perf('video-loadedmetadata', { type })
-        this.updateQualityByUrl(this.artplayer?.url || '')
-        this.updateQualityButton()
-        this.renderQualityPanel()
-        this.hoverPreview?.updateSize()
-      })
-
-      this.artplayer.on('video:canplay', () => {
-        this.perfMarks.canplay = performance.now()
-        this.perf('video-canplay', { type })
-      })
-
-      this.artplayer.on('video:playing', () => {
-        this.perfMarks.playing = performance.now()
-        this.perf('video-playing', { type })
-        this.reportFirstFrameSummary()
-      })
-
-      this.artplayer.on('error', () => {
-        if (this.isNativeVideo) {
-          void this.fallbackToHls()
-        }
-      })
-
       if (this.cleanupKeyboard) {
         this.cleanupKeyboard()
       }
-      this.cleanupKeyboard = bindKeyboardShortcuts(this.artplayer)
+      this.cleanupKeyboard = bindPlayerEvents({
+        art: this.artplayer,
+        type,
+        pickCode: this.currentPickCode,
+        getQualityLabel: () => this.currentQualityLabel,
+        onPerf: (stage, extra) => this.perf(stage, extra),
+        onReady: () => {
+          this.renderQualityPanel()
+          this.updateQualityButton()
+        },
+        onLoadedmetadata: () => {
+          this.perfMarks.loadedmetadata = performance.now()
+          this.updateQualityByUrl(this.artplayer?.url || '')
+          this.updateQualityButton()
+          this.renderQualityPanel()
+          this.hoverPreview?.updateSize()
+        },
+        onCanplay: () => {
+          this.perfMarks.canplay = performance.now()
+        },
+        onPlaying: () => {
+          this.perfMarks.playing = performance.now()
+          this.reportFirstFrameSummary()
+        },
+        onError: () => {
+          if (this.isNativeVideo) {
+            void this.fallbackToHls()
+          }
+        },
+      })
     }
   }
 
@@ -316,7 +302,6 @@ class PlayerManager {
 
   private async switchQuality(opt: QualityOption) {
     if (!this.artplayer) return
-    this.ultraSwitchAborted = true // 用户手动切换画质，取消自动切换
 
     if (isOriginalPlaceholderOption(opt)) {
       const resolvedUrl = await this.ensureOriginalSourceLoaded()
@@ -408,7 +393,6 @@ class PlayerManager {
   }
 
   destroy() {
-    this.ultraSwitchAborted = true
     this.hoverPreview?.destroy()
     this.hoverPreview = null
     this.cleanupInfoPanel?.()
