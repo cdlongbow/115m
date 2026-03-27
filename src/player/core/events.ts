@@ -71,9 +71,17 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
    * 因为这些容器有大片空白区域，点击空白处应该触发播放/暂停。
    */
   const isInteractiveTarget = (target: EventTarget | null): boolean => {
-    if (!target || !(target instanceof HTMLElement)) return false
+    if (!target || !(target instanceof Element)) return false
     // 按钮、输入框、链接、滑块等具体交互元素
     if (target.closest('button, a, input, [role="button"], .art-setting, .art-contextmenus')) return true
+    // ArtPlayer 音量面板和滑块
+    if (target.closest('.art-volume-panel, .art-volume-slider, .art-volume-handle, .art-volume-indicator')) return true
+    // SVG 图标（音量、全屏、设置等）的父元素是控件容器
+    if (target instanceof SVGElement) {
+      // SVG 图标本身是可点击的控件
+      const parent = target.parentElement
+      if (parent && parent.closest('.art-controls-left, .art-controls-right, .art-controls-center')) return true
+    }
     // 进度条区域（滑块拖拽区域）→ 交互控件
     const progress = art.template.$progress as HTMLElement
     if (progress?.contains(target)) return true

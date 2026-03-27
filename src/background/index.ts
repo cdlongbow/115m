@@ -9,7 +9,31 @@ import type { RuntimeMessage } from '../shared/messages'
 // 安装时初始化
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[115m] Extension installed', details.reason)
+  registerEarlyOverrideScript()
 })
+
+/**
+ * 注册一个极轻量的 content script，在 document_start 阶段同步覆盖 115 视频页面
+ * 脚本放在 public/ 目录下，Vite 原样复制不打包，确保同步执行
+ * 这样能在 115 原生行内脚本执行之前接管页面，避免 "undefined action!" 闪现
+ */
+async function registerEarlyOverrideScript() {
+  try {
+    await chrome.scripting.registerContentScripts([{
+      id: 'video-page-early-override',
+      matches: [
+        'https://115.com/web/lixian/master/video/*',
+        'https://*.115.com/web/lixian/master/video/*',
+      ],
+      js: ['video-page-early.js'],
+      runAt: 'document_start',
+      world: 'ISOLATED' as any,
+    }])
+  }
+  catch (e) {
+    console.warn('[115m] Failed to register early override script:', e)
+  }
+}
 
 // 监听来自 content script 和 player 页面的消息
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
