@@ -202,11 +202,63 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
       const injected = await chrome.scripting.executeScript({
         target: { tabId },
         world: 'MAIN',
-        func: (payload: { fileId: string, parentId: string, cid: string }) => {
+        func: async (payload: { fileId: string, parentId: string, cid: string }) => {
           const win = window as any
+
+          // 1. Dynamically load Core SDK if missing, just like the reference project
+          if (!win.Core) {
+            console.log('[115m] Core SDK missing, injecting scripts dynamically...')
+            const loadScript = (url: string) => new Promise((resolve, reject) => {
+              const s = document.createElement('script')
+              s.src = url
+              s.onload = resolve
+              s.onerror = () => reject(new Error('Failed to load ' + url))
+              document.head.appendChild(s)
+            })
+
+            try {
+              await loadScript('https://cdnres.115.com/site/static/js/jquery.js?_vh=ddb84c1_91')
+              await loadScript('https://cdnassets.115.com/??libs/jquery-1.7.2.js,jquery-extend.js,libs/json2.js,oofUtil.js,paths.js,oofUtil/subscribe.js,commonFrame/urlMaintain.js,ajax/bridge.js?v=1767951162')
+              await loadScript('https://cdnres.115.com/site/static/js/min/util-min.js?_vh=be49060_91')
+              await loadScript('https://cdnres.115.com/site/static/js/wl_disk2014/min/core-min.js?_vh=d376e38_91')
+              
+              // Wait for Core object to be fully attached
+              await new Promise<void>((resolve) => {
+                const check = () => { if (win.Core) resolve(); else setTimeout(check, 50) }
+                check()
+              })
+              console.log('[115m] Core SDK dynamically injected!')
+            } catch (e: any) {
+              return { ok: false, error: 'Failed to inject Core SDK: ' + e?.message }
+            }
+          }
+
           const Core = win.Core
+          const $ = win.$ || win.jQuery
+
           if (!Core?.TreeDG?.Show) {
-            return { ok: false, error: 'Core.TreeDG unavailable' }
+            return { ok: false, error: 'Core.TreeDG not available after loading' }
+          }
+
+          // Ensure dialog CSS is loaded
+          if (!document.querySelector('link[href*="dialog_box.css"]')) {
+            const link = document.createElement('link')
+            link.rel = 'stylesheet'
+            link.href = 'https://cdnres.115.com/site/static/style_v11.2/common/css/dialog_box.css?_vh=f17e241_91'
+            document.head.appendChild(link)
+          }
+
+          // Initialize UDataAPI if not set (required for TreeDG to make AJAX calls)
+          if (!Core.DataAccess?.UDataAPI && $?.ajax) {
+            console.log('[115m] Initializing Core.DataAccess.UDataAPI')
+            if (!Core.DataAccess) Core.DataAccess = {}
+            Core.DataAccess.UDataAPI = {
+              ajax: (settings: any) => {
+                let url = settings.url || ''
+                if (url.startsWith('/')) url = '//webapi.115.com' + url
+                return $.ajax({ ...settings, url, xhrFields: { withCredentials: true } })
+              },
+            }
           }
 
           if (Core.FileConfig) {
@@ -214,23 +266,38 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
             Core.FileConfig.cid = payload.cid || '0'
           }
 
-          Core.TreeDG.Show({
-            list: [{
-              file_type: '1',
-              file_id: payload.fileId,
-              cate_id: payload.parentId || '',
-              area_id: '0',
-            }],
-            type: 'move',
-            has_dir: false,
-          })
+          // Create jQuery-like mock object (Core SDK expects attr() method)
+          const fileAttrs: Record<string, string> = {
+            file_type: '1',
+            file_id: payload.fileId,
+            cate_id: payload.parentId || '',
+            area_id: '0',
+          }
+          const mockJQueryObject = { attr: (key: string) => fileAttrs[key] || '' }
+
+          console.log('[115m] Calling Core.TreeDG.Show with fileId:', payload.fileId)
+          try {
+            Core.TreeDG.Show({
+              list: [mockJQueryObject],
+              type: 'move',
+              has_dir: false,
+            })
+          } catch (e: any) {
+            console.error('[115m] TreeDG.Show error:', e)
+            return { ok: false, error: 'TreeDG.Show threw: ' + e?.message }
+          }
 
           return { ok: true }
         },
         args: [{ fileId, parentId, cid }],
       })
 
-      return injected?.[0]?.result ?? { ok: false, error: 'move executeScript empty' }
+      const result = injected?.[0]?.result as { ok?: boolean } | undefined
+      // Switch to the 115 tab so user can see the dialog
+      if (result?.ok && tabId) {
+        await chrome.tabs.update(tabId, { active: true })
+      }
+      return result ?? { ok: false, error: 'move executeScript empty' }
     }
 
     case 'SET_COOKIE': {

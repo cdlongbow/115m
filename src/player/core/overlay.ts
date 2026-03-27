@@ -358,32 +358,62 @@ export class PlayerOverlayController {
 
     const pillGroup = document.createElement('div')
     pillGroup.style.cssText = 'display:flex;align-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);padding:2px;gap:0;'
-
     const moveBtn = document.createElement('button')
     moveBtn.type = 'button'
     moveBtn.title = '移动视频'
     moveBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:background .15s,color .15s;'
-    moveBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 9V5H5v14h14v-9"/><path d="M10 14 21 3"/><path d="M15 3h6v6"/></svg>'
-    moveBtn.addEventListener('mouseenter', () => { moveBtn.style.background = 'rgba(255,255,255,.1)'; moveBtn.style.color = '#fff' })
-    moveBtn.addEventListener('mouseleave', () => { moveBtn.style.background = 'transparent'; moveBtn.style.color = 'rgba(255,255,255,.82)' })
-    moveBtn.addEventListener('click', () => this.options.onMoveFile(this.options.meta.fileId, this.options.meta.cid))
+    moveBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M5 9l-3 3 3 3"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M2 12h14"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M12 5V2h10v20H12v-3"/></svg>'
+    moveBtn.addEventListener('mouseenter', () => { moveBtn.style.background = 'rgba(255,255,255,.1)' })
+    moveBtn.addEventListener('mouseleave', () => { moveBtn.style.background = 'transparent' })
+    moveBtn.addEventListener('click', async () => {
+      const { fileId, cid } = this.options.meta
+      console.log('[115m] 移动文件:', fileId, cid)
+      if (!fileId) {
+        this.showToast('文件 ID 缺失')
+        return
+      }
+      try {
+        await this.options.onMoveFile(fileId, cid)
+        this.showToast('移动对话框已在 115 标签页打开')
+      } catch (e: any) {
+        const msg = e?.message || ''
+        console.error('[115m] 移动失败:', msg)
+        if (msg.includes('115.com tab')) this.showToast('请先打开 115.com 页面')
+        else if (msg.includes('Core SDK')) this.showToast('请打开 115 网盘文件管理页面')
+        else if (msg.includes('TreeDG')) this.showToast('请打开 115 网盘文件管理页面')
+        else this.showToast('移动失败: ' + msg)
+      }
+    })
 
     const favBtn = document.createElement('button')
     favBtn.type = 'button'
     favBtn.title = '收藏'
-    favBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:background .15s,color .15s;'
-    favBtn.addEventListener('mouseenter', () => { favBtn.style.background = 'rgba(255,255,255,.1)'; favBtn.style.color = '#fff' })
-    favBtn.addEventListener('mouseleave', () => { favBtn.style.background = 'transparent'; favBtn.style.color = this.options.meta.isMarked ? '#ec4899' : 'rgba(255,255,255,.82)' })
+    favBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:all .2s ease;'
+    favBtn.addEventListener('mouseenter', () => { favBtn.style.background = 'rgba(255,255,255,.1)' })
+    favBtn.addEventListener('mouseleave', () => { favBtn.style.background = 'transparent' })
     favBtn.addEventListener('click', async () => {
       const fileId = this.options.meta.fileId
-      if (!fileId) return
+      console.log('[115m] 收藏切换:', { fileId, currentMarked: this.options.meta.isMarked })
+      if (!fileId) {
+        this.showToast('文件 ID 缺失，无法收藏')
+        return
+      }
       const nextMarked = !this.options.meta.isMarked
       favBtn.style.opacity = '0.4'
       favBtn.style.pointerEvents = 'none'
+      favBtn.style.transform = 'scale(0.85)'
       try {
         const result = await this.options.onToggleFavorite(fileId, nextMarked)
         this.options.meta.isMarked = result
         this.updateFavoriteIcon()
+        // Flash animation for feedback
+        favBtn.style.transform = 'scale(1.3)'
+        setTimeout(() => { favBtn.style.transform = '' }, 200)
+        this.showToast(result ? '已收藏 ♥' : '已取消收藏')
+        console.log('[115m] 收藏结果:', result)
+      } catch (e) {
+        console.error('[115m] 收藏失败:', e)
+        this.showToast('操作失败')
       } finally {
         favBtn.style.opacity = ''
         favBtn.style.pointerEvents = ''
@@ -415,10 +445,48 @@ export class PlayerOverlayController {
     if (!this.favBtnEl) return
     const marked = this.options.meta.isMarked
     this.favBtnEl.title = marked ? '取消收藏' : '收藏'
-    this.favBtnEl.style.color = marked ? '#ec4899' : 'rgba(255,255,255,.82)'
+    // Use inline style on path to bypass ArtPlayer `.art-video-player svg { fill }` override
     this.favBtnEl.innerHTML = marked
-      ? '<svg width="18" height="18" viewBox="0 0 24 24" fill="currentColor"><path d="m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg>'
-      : '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m12 20.4-1.4-1.27C5.4 14.36 2 11.28 2 7.5 2 4.42 4.42 2 7.5 2c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 2C19.58 2 22 4.42 22 7.5c0 3.78-3.4 6.86-8.6 11.63z"/></svg>'
+      ? '<svg width="20" height="20" viewBox="0 0 24 24"><path style="fill:#f472b6" d="m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg>'
+      : '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.7);stroke-width:2" d="m12 20.4-1.4-1.27C5.4 14.36 2 11.28 2 7.5 2 4.42 4.42 2 7.5 2c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 2C19.58 2 22 4.42 22 7.5c0 3.78-3.4 6.86-8.6 11.63z"/></svg>'
+  }
+
+  private showToast(text: string) {
+    const existing = this.root.querySelector('.m115-toast')
+    existing?.remove()
+
+    const toast = document.createElement('div')
+    toast.className = 'm115-toast'
+    toast.textContent = text
+    toast.style.cssText = [
+      'position:absolute',
+      'top:60px',
+      'left:50%',
+      'transform:translateX(-50%) translateY(-8px)',
+      'z-index:300',
+      'padding:8px 20px',
+      'border-radius:999px',
+      'background:rgba(0,0,0,.85)',
+      'color:#fff',
+      'font-size:13px',
+      'font-weight:500',
+      'white-space:nowrap',
+      'pointer-events:none',
+      'opacity:0',
+      'transition:opacity .2s ease, transform .2s ease',
+      'backdrop-filter:blur(8px)',
+    ].join(';')
+    this.root.appendChild(toast)
+
+    requestAnimationFrame(() => {
+      toast.style.opacity = '1'
+      toast.style.transform = 'translateX(-50%) translateY(0)'
+    })
+    setTimeout(() => {
+      toast.style.opacity = '0'
+      toast.style.transform = 'translateX(-50%) translateY(-8px)'
+      setTimeout(() => toast.remove(), 200)
+    }, 1800)
   }
 
   // ── Playlist toggle tab (right edge, vertically centered) ──

@@ -519,9 +519,9 @@ class PlayerManager {
   }
 
   private async moveFile(fileId: string, cid: string): Promise<void> {
-    if (!fileId || !cid) return
+    if (!fileId || !cid) throw new Error('fileId/cid missing')
 
-    await sendRuntimeMessageSafe({
+    const res = await sendRuntimeMessageSafe<{ ok?: boolean, error?: string }>({
       type: 'MOVE_FILE',
       data: {
         fileId,
@@ -529,6 +529,10 @@ class PlayerManager {
         cid,
       },
     })
+
+    if (!res?.ok) {
+      throw new Error(res?.error || 'move failed')
+    }
   }
 
   private async toggleFavorite(fileId: string, nextMarked: boolean): Promise<boolean> {
