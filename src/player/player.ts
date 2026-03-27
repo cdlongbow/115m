@@ -260,6 +260,7 @@ class PlayerManager {
         this.updateQualityByUrl(this.artplayer?.url || '')
         this.updateQualityButton()
         this.renderQualityPanel()
+        this.updateHoverPreviewSize()
       })
 
       this.artplayer.on('video:canplay', () => {
@@ -429,6 +430,33 @@ class PlayerManager {
     progress.addEventListener('mouseleave', this.handleProgressMouseLeave)
   }
 
+  private updateHoverPreviewSize() {
+    if (!this.artplayer || !this.hoverPreviewImgEl || !this.hoverPreviewEl) return
+    const video = this.artplayer.video as HTMLVideoElement | undefined
+    if (!video) return
+
+    const vw = video.videoWidth || 0
+    const vh = video.videoHeight || 0
+
+    if (vw > 0 && vh > 0) {
+      if (vh > vw) {
+        // 竖版视频 (Vertical Video)
+        const height = 160
+        const width = Math.round(height * (vw / vh))
+        this.hoverPreviewImgEl.style.width = `${width}px`
+        this.hoverPreviewImgEl.style.height = `${height}px`
+        this.hoverPreviewEl.style.minWidth = `${width + 12}px`
+      } else {
+        // 横版视频 (Horizontal Video)
+        const width = 170
+        const height = Math.round(width * (vh / vw))
+        this.hoverPreviewImgEl.style.width = `${width}px`
+        this.hoverPreviewImgEl.style.height = `${height}px`
+        this.hoverPreviewEl.style.minWidth = `${width + 12}px`
+      }
+    }
+  }
+
   private handleProgressMouseEnter = () => {
     if (!this.thumbnailsLoaded && !this.thumbnailsLoading) {
       void this.loadThumbnails()
@@ -467,8 +495,11 @@ class PlayerManager {
 
     const containerRect = (this.artplayer.template.$player as HTMLElement).getBoundingClientRect()
     const offsetX = event.clientX - containerRect.left
-    const minLeft = 96
-    const maxLeft = Math.max(minLeft, containerRect.width - 96)
+    
+    const previewWidth = this.hoverPreviewEl.offsetWidth || 182
+    const minLeft = previewWidth / 2 + 5
+    const maxLeft = Math.max(minLeft, containerRect.width - minLeft)
+    
     const clamped = clamp(offsetX, minLeft, maxLeft)
     this.hoverPreviewEl.style.left = `${clamped}px`
   }

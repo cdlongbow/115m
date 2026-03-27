@@ -71,7 +71,7 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
     'border:1px solid rgba(255,255,255,.22)',
     'border-radius:8px',
     'padding:6px',
-    'min-width:182px',
+    'min-width:fit-content',
     'box-sizing:border-box',
   ].join(';')
 
