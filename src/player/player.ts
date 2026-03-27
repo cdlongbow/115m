@@ -3,7 +3,7 @@
  */
 
 import Artplayer from 'artplayer'
-import Hls from 'hls.js'
+import type HlsType from 'hls.js'
 import type { M3u8Item } from '../lib/types'
 import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
@@ -13,6 +13,7 @@ import { clamp, findNearestCover, formatTimeLabel, formatVttTime } from './core/
 import { runPlayerSmokeChecks } from './core/smoke'
 import { applyTopNavFromQuery, createHoverPreviewElements, findProgressElement, renderPlayerError } from './core/dom'
 import { bindKeyboardShortcuts } from './core/keyboard'
+import { createHlsInstance, isHlsSupported } from './core/hls'
 
 interface PlayerConfig {
   pickCode: string
@@ -22,7 +23,7 @@ interface PlayerConfig {
 
 class PlayerManager {
   private artplayer: Artplayer | null = null
-  private hlsInstance: Hls | null = null
+  private hlsInstance: HlsType | null = null
   private m3u8List: M3u8Item[] = []
   private currentPickCode: string
   private isNativeVideo = false
@@ -171,14 +172,8 @@ class PlayerManager {
     return list
   }
 
-  private initHls(video: HTMLVideoElement, url: string): Hls {
-    const hls = new Hls({
-      enableWorker: true,
-      lowLatencyMode: true,
-      backBufferLength: 90,
-    })
-    hls.loadSource(url)
-    hls.attachMedia(video)
+  private async initHls(video: HTMLVideoElement, url: string): Promise<HlsType> {
+    const hls = await createHlsInstance(video, url)
     this.hlsInstance = hls
     return hls
   }
@@ -217,8 +212,8 @@ class PlayerManager {
       contextmenu: [],
       customType: {
         m3u8: async (video, url) => {
-          if (this.artplayer && Hls.isSupported()) {
-            this.initHls(video as HTMLVideoElement, url)
+          if (this.artplayer && await isHlsSupported()) {
+            await this.initHls(video as HTMLVideoElement, url)
           }
           else {
             this.showError('您的浏览器不支持 HLS 播放')
