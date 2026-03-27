@@ -8,12 +8,13 @@ import type { M3u8Item } from '../lib/types'
 import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
 import { loadPlayHistory, savePlayHistory } from './core/history'
-import type { QualityOption, VideoPlaybackQualityLike } from './core/types'
-import { clamp, findNearestCover, formatTimeLabel, formatVttTime } from './core/hover-utils'
+import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
-import { applyTopNavFromQuery, createHoverPreviewElements, findProgressElement, renderPlayerError } from './core/dom'
+import { applyTopNavFromQuery, renderPlayerError } from './core/dom'
 import { bindKeyboardShortcuts } from './core/keyboard'
 import { createHlsInstance, isHlsSupported } from './core/hls'
+import { patchArtInfoPanel } from './core/info-panel'
+import { HoverPreviewController } from './core/hover-preview'
 
 interface PlayerConfig {
   pickCode: string
@@ -31,16 +32,9 @@ class PlayerManager {
   private qualityOptions: QualityOption[] = []
   private currentQuality = 0
   private currentQualityLabel = '加载中'
-  private infoFpsTimer: number | null = null
-  private hoverCovers: Array<{ time: number, imgUrl: string }> = []
-  private hoverPreviewEl: HTMLDivElement | null = null
-  private hoverPreviewImgEl: HTMLImageElement | null = null
-  private hoverPreviewTimeEl: HTMLDivElement | null = null
-  private hoverProgressEl: HTMLElement | null = null
-  private hoverBindRetryTimer: number | null = null
+  private cleanupInfoPanel: (() => void) | null = null
+  private hoverPreview: HoverPreviewController | null = null
   private ultraSwitchAborted = false
-  private thumbnailsLoading = false
-  private thumbnailsLoaded = false
   private traceId = ''
   private clickTs = 0
   private initStartTs = 0
@@ -231,7 +225,7 @@ class PlayerManager {
     this.setupProgressHoverPreview()
 
     if (this.artplayer) {
-      this.patchArtInfoPanel()
+      this.setupInfoPanel()
 
       this.artplayer.on('ready', () => {
         this.perf('art-ready', { type })
@@ -255,7 +249,7 @@ class PlayerManager {
         this.updateQualityByUrl(this.artplayer?.url || '')
         this.updateQualityButton()
         this.renderQualityPanel()
-        this.updateHoverPreviewSize()
+        this.hoverPreview?.updateSize()
       })
 
       this.artplayer.on('video:canplay', () => {
@@ -348,155 +342,17 @@ class PlayerManager {
     applyTopNavFromQuery()
   }
 
-  private async loadThumbnails() {
-    if (!this.artplayer) return
-    if (this.thumbnailsLoaded || this.thumbnailsLoading) return
-    this.thumbnailsLoading = true
-    try {
-      const { getVideoCovers } = await import('../lib/videoThumbnail')
-
-      let duration = this.artplayer.duration
-      if (!duration || duration < 5) {
-        await new Promise<void>((resolve) => {
-          this.artplayer!.once('video:loadedmetadata', () => resolve())
-          setTimeout(resolve, 5000)
-        })
-        duration = this.artplayer.duration
-      }
-
-      if (!duration) return
-
-      const covers = await getVideoCovers(this.currentPickCode, duration, 30)
-      if (covers.length === 0 || !this.artplayer) return
-
-      this.hoverCovers = covers
-
-      let vtt = 'WEBVTT\n\n'
-      covers.forEach((c) => {
-        const tDuration = duration / covers.length
-        const startTime = formatVttTime(Math.max(0, c.time - tDuration / 2))
-        const endTime = formatVttTime(Math.min(duration, c.time + tDuration / 2))
-        vtt += `${startTime} --> ${endTime}\n${c.imgUrl}\n\n`
-      })
-
-      const blob = new Blob([vtt], { type: 'text/vtt' })
-      const vttUrl = URL.createObjectURL(blob)
-      this.artplayer.emit('artplayerPluginThumbnail:update', { url: vttUrl })
-      this.thumbnailsLoaded = true
-    }
-    catch {
-      // ignore thumbnail errors
-    }
-    finally {
-      this.thumbnailsLoading = false
-    }
-  }
-
   private setupProgressHoverPreview() {
     if (!this.artplayer) return
-    this.ensureHoverPreviewElements()
-    this.bindProgressHoverEventsWithRetry(0)
+    this.hoverPreview?.destroy()
+    this.hoverPreview = new HoverPreviewController(this.artplayer, this.currentPickCode)
+    this.hoverPreview.setup()
   }
 
-  private ensureHoverPreviewElements() {
-    if (this.hoverPreviewEl || !this.artplayer) return
-
-    const refs = createHoverPreviewElements(this.artplayer)
-    this.hoverPreviewEl = refs.preview
-    this.hoverPreviewImgEl = refs.image
-    this.hoverPreviewTimeEl = refs.time
-  }
-
-  private bindProgressHoverEventsWithRetry(retry: number) {
+  private setupInfoPanel() {
     if (!this.artplayer) return
-    const progress = findProgressElement(this.artplayer)
-    if (!progress) {
-      if (retry >= 20) return
-      this.hoverBindRetryTimer = window.setTimeout(() => {
-        this.bindProgressHoverEventsWithRetry(retry + 1)
-      }, 300)
-      return
-    }
-
-    this.hoverProgressEl = progress
-
-    progress.addEventListener('mousemove', this.handleProgressMouseMove)
-    progress.addEventListener('mouseenter', this.handleProgressMouseEnter)
-    progress.addEventListener('mouseleave', this.handleProgressMouseLeave)
-  }
-
-  private updateHoverPreviewSize() {
-    if (!this.artplayer || !this.hoverPreviewImgEl || !this.hoverPreviewEl) return
-    const video = this.artplayer.video as HTMLVideoElement | undefined
-    if (!video) return
-
-    const vw = video.videoWidth || 0
-    const vh = video.videoHeight || 0
-
-    if (vw > 0 && vh > 0) {
-      if (vh > vw) {
-        // 竖版视频 (Vertical Video)
-        const height = 160
-        const width = Math.round(height * (vw / vh))
-        this.hoverPreviewImgEl.style.width = `${width}px`
-        this.hoverPreviewImgEl.style.height = `${height}px`
-        this.hoverPreviewEl.style.minWidth = `${width + 12}px`
-      } else {
-        // 横版视频 (Horizontal Video)
-        const width = 170
-        const height = Math.round(width * (vh / vw))
-        this.hoverPreviewImgEl.style.width = `${width}px`
-        this.hoverPreviewImgEl.style.height = `${height}px`
-        this.hoverPreviewEl.style.minWidth = `${width + 12}px`
-      }
-    }
-  }
-
-  private handleProgressMouseEnter = () => {
-    if (!this.thumbnailsLoaded && !this.thumbnailsLoading) {
-      void this.loadThumbnails()
-    }
-    if (this.hoverPreviewEl && this.hoverCovers.length > 0) {
-      this.hoverPreviewEl.style.display = 'block'
-    }
-  }
-
-  private handleProgressMouseLeave = () => {
-    if (this.hoverPreviewEl) {
-      this.hoverPreviewEl.style.display = 'none'
-    }
-  }
-
-  private handleProgressMouseMove = (event: MouseEvent) => {
-    if (!this.artplayer || !this.hoverProgressEl || !this.hoverPreviewEl || !this.hoverPreviewImgEl || !this.hoverPreviewTimeEl) {
-      return
-    }
-    if (this.hoverCovers.length === 0 || !this.artplayer.duration) return
-
-    const progressRect = this.hoverProgressEl.getBoundingClientRect()
-    if (progressRect.width <= 0) return
-
-    const raw = (event.clientX - progressRect.left) / progressRect.width
-    const ratio = clamp(raw, 0, 1)
-    const hoverTime = ratio * this.artplayer.duration
-
-    const nearest = findNearestCover(this.hoverCovers, hoverTime)
-    if (!nearest) return
-
-    if (nearest?.imgUrl) {
-      this.hoverPreviewImgEl.src = nearest.imgUrl
-    }
-    this.hoverPreviewTimeEl.textContent = formatTimeLabel(hoverTime)
-
-    const containerRect = (this.artplayer.template.$player as HTMLElement).getBoundingClientRect()
-    const offsetX = event.clientX - containerRect.left
-    
-    const previewWidth = this.hoverPreviewEl.offsetWidth || 182
-    const minLeft = previewWidth / 2 + 5
-    const maxLeft = Math.max(minLeft, containerRect.width - minLeft)
-    
-    const clamped = clamp(offsetX, minLeft, maxLeft)
-    this.hoverPreviewEl.style.left = `${clamped}px`
+    this.cleanupInfoPanel?.()
+    this.cleanupInfoPanel = patchArtInfoPanel(this.artplayer, this.isNativeVideo)
   }
 
 
@@ -548,125 +404,12 @@ class PlayerManager {
     renderPlayerError(message)
   }
 
-  private patchArtInfoPanel() {
-    if (!this.artplayer) return
-
-    const template = this.artplayer.template
-    const info = template.$info
-    const titleNodes = info.querySelectorAll('.art-info-title')
-
-      const map = [
-        '播放器版本：',
-        '视频地址：',
-        '音量：',
-        '当前时间：',
-        '总时长：',
-        '分辨率：',
-      ]
-
-    titleNodes.forEach((node, index) => {
-      const text = map[index]
-      if (text) {
-        node.textContent = text
-      }
-    })
-
-    const urlField = info.querySelector('[data-video="currentSrc"]') as HTMLElement | null
-    if (urlField) {
-      const raw = (urlField.textContent || '').replace(/\s*（[^）]+）\s*$/, '')
-      const isBlob = raw.startsWith('blob:')
-      const sourceMark = isBlob
-        ? (this.isNativeVideo ? '（无损链路）' : '（115原画链路）')
-        : (this.isNativeVideo ? '（无损链路）' : '（115原画链路）')
-      urlField.textContent = `${raw} ${sourceMark}`
-    }
-
-    const closeBtn = info.querySelector('.art-info-close') as HTMLElement | null
-    if (closeBtn) {
-      closeBtn.textContent = '关闭'
-    }
-
-    const panel = info.querySelector('.art-info-panel')
-    if (!panel) return
-
-    let fpsItem = info.querySelector('[data-115m="fps"]') as HTMLElement | null
-    if (!fpsItem) {
-      fpsItem = document.createElement('div')
-      fpsItem.className = 'art-info-item'
-      fpsItem.setAttribute('data-115m', 'fps')
-      fpsItem.innerHTML = '<div class="art-info-title">当前帧率：</div><div class="art-info-content" data-115m-fps>-- FPS</div>'
-      panel.appendChild(fpsItem)
-    }
-
-    const fpsTarget = info.querySelector('[data-115m-fps]') as HTMLElement | null
-    const video = this.artplayer.video as HTMLVideoElement
-
-    const getTotalFrames = () => {
-      const qualityInfo = (video.getVideoPlaybackQuality?.() || {}) as VideoPlaybackQualityLike
-      if (qualityInfo.totalVideoFrames && qualityInfo.totalVideoFrames > 0) {
-        return qualityInfo.totalVideoFrames
-      }
-      const decoded = (video as HTMLVideoElement & { webkitDecodedFrameCount?: number }).webkitDecodedFrameCount
-      if (typeof decoded === 'number' && decoded > 0) {
-        return decoded
-      }
-      return 0
-    }
-
-    let lastTime = performance.now()
-    let lastFrame = getTotalFrames()
-
-    const update = () => {
-      if (!this.artplayer) return
-
-      const total = getTotalFrames()
-      const now = performance.now()
-      const dt = (now - lastTime) / 1000
-      const df = total - lastFrame
-      let fps = dt > 0 ? Math.max(0, df / dt) : 0
-
-      if (fps <= 0 && total > 0 && video.currentTime > 0) {
-        fps = total / video.currentTime
-      }
-
-      if (fpsTarget) {
-        fpsTarget.textContent = `${fps.toFixed(1)} FPS`
-      }
-      lastTime = now
-      lastFrame = total
-    }
-
-    update()
-    if (this.infoFpsTimer) {
-      window.clearInterval(this.infoFpsTimer)
-    }
-    this.infoFpsTimer = window.setInterval(update, 1000)
-  }
-
   destroy() {
     this.ultraSwitchAborted = true
-    if (this.hoverBindRetryTimer) {
-      window.clearTimeout(this.hoverBindRetryTimer)
-      this.hoverBindRetryTimer = null
-    }
-    if (this.hoverProgressEl) {
-      this.hoverProgressEl.removeEventListener('mousemove', this.handleProgressMouseMove)
-      this.hoverProgressEl.removeEventListener('mouseenter', this.handleProgressMouseEnter)
-      this.hoverProgressEl.removeEventListener('mouseleave', this.handleProgressMouseLeave)
-      this.hoverProgressEl = null
-    }
-    if (this.hoverPreviewEl) {
-      this.hoverPreviewEl.remove()
-      this.hoverPreviewEl = null
-      this.hoverPreviewImgEl = null
-      this.hoverPreviewTimeEl = null
-    }
-    this.hoverCovers = []
-
-    if (this.infoFpsTimer) {
-      window.clearInterval(this.infoFpsTimer)
-      this.infoFpsTimer = null
-    }
+    this.hoverPreview?.destroy()
+    this.hoverPreview = null
+    this.cleanupInfoPanel?.()
+    this.cleanupInfoPanel = null
     if (this.cleanupKeyboard) {
       this.cleanupKeyboard()
       this.cleanupKeyboard = null
