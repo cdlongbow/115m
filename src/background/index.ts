@@ -115,21 +115,87 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
 
     case 'FETCH_PLAYLIST': {
       try {
-        const result = await drive115.getPlaylist(message.data.cid)
+        // 必须在 115.com 标签页主世界中 fetch，否则没有 cookie
+        const tabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
+        const tabId = tabs[0]?.id
+        if (!tabId) return { error: 'no 115.com tab found', list: [], path: [] }
+
+        let { cid, pickCode } = message.data
+
+        // 如果没有 cid，先通过 files/video API 获取 parent_id
+        if (!cid && pickCode) {
+          const videoInfoUrl = `https://webapi.115.com/files/video?pick_code=${pickCode}`
+          const videoInjected = await chrome.scripting.executeScript({
+            target: { tabId },
+            world: 'MAIN',
+            func: async (url: string) => {
+              try {
+                const res = await fetch(url, { credentials: 'include' })
+                return await res.json()
+              }
+              catch (e) {
+                return { state: false, error: String(e) }
+              }
+            },
+            args: [videoInfoUrl],
+          })
+          const videoResult = videoInjected?.[0]?.result as any
+          if (videoResult?.state && videoResult?.data) {
+            cid = videoResult.data.parent_id || ''
+          }
+          if (!cid) {
+            console.warn('[115m] FETCH_PLAYLIST: could not get parent_id from video info', videoResult)
+            return { error: 'no cid available', list: [], path: [] }
+          }
+        }
+
+        if (!cid) return { error: 'no cid provided', list: [], path: [] }
+        const params = new URLSearchParams({
+          aid: '1', cid, offset: '0', limit: '1150',
+          show_dir: '0', nf: '', qid: '0', type: '4',
+          source: '', format: 'json', star: '', is_q: '',
+          is_share: '', r_all: '1', o: 'file_name',
+          asc: '1', cur: '1', natsort: '1',
+        })
+        const apiUrl = `https://webapi.115.com/files?${params}`
+
+        const injected = await chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: async (url: string) => {
+            try {
+              const res = await fetch(url, { credentials: 'include' })
+              return await res.json()
+            }
+            catch (e) {
+              return { state: false, error: String(e) }
+            }
+          },
+          args: [apiUrl],
+        })
+
+        const result = injected?.[0]?.result as any
+        if (!result?.state) {
+          return { error: result?.error || 'API error', list: [], path: [] }
+        }
         return {
-          list: result.data?.list ?? [],
+          list: result.data ?? [],
           path: result.path ?? [],
         }
       }
       catch (e) {
-        return { error: String(e) }
+        return { error: String(e), list: [], path: [] }
       }
     }
 
     case 'MOVE_FILE': {
-      const tabId = sender?.tab?.id
+      let tabId = sender?.tab?.id
       if (!tabId) {
-        return { error: 'missing sender tab' }
+        const tabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
+        tabId = tabs[0]?.id
+      }
+      if (!tabId) {
+        return { ok: false, error: 'no 115.com tab found' }
       }
 
       const { fileId, parentId, cid } = message.data

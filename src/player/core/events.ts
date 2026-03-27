@@ -85,8 +85,8 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
     // 进度条区域（滑块拖拽区域）→ 交互控件
     const progress = art.template.$progress as HTMLElement
     if (progress?.contains(target)) return true
-    // 播放列表面板
-    if (target.closest('#playlist-panel, #playlist-mask')) return true
+    // 播放列表面板及自定义覆盖层元素
+    if (target.closest('#playlist-panel, #playlist-mask, .m115-interactive')) return true
     return false
   }
 
@@ -114,12 +114,27 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
     event.stopImmediatePropagation()
   }
 
+  // Toggle contextmenu: first right-click → ArtPlayer menu, second → browser menu
+  const handleContextmenu = (event: MouseEvent) => {
+    if (art.contextmenu.show) {
+      // ArtPlayer menu is visible → close it and let browser default through
+      art.contextmenu.show = false
+    } else {
+      // ArtPlayer menu is hidden → block browser menu, ArtPlayer will handle it
+      return
+    }
+    // Stop ArtPlayer's own handler from re-opening the menu
+    event.stopImmediatePropagation()
+  }
+
+  root.addEventListener('contextmenu', handleContextmenu, true)
   root.addEventListener('click', handleRootClick, true)
   root.addEventListener('dblclick', handleRootDoubleClick, true)
 
   const cleanupKeyboard = bindKeyboardShortcuts(art)
 
   return () => {
+    root.removeEventListener('contextmenu', handleContextmenu, true)
     root.removeEventListener('click', handleRootClick, true)
     root.removeEventListener('dblclick', handleRootDoubleClick, true)
     cleanupKeyboard()

@@ -55,7 +55,7 @@ export interface MsgMainWorldFetch {
 
 export interface MsgFetchPlaylist {
   type: 'FETCH_PLAYLIST'
-  data: { cid: string }
+  data: { cid: string, pickCode?: string }
 }
 
 export interface MsgMoveFile {
