@@ -5,7 +5,7 @@
 import Artplayer from 'artplayer'
 import type HlsType from 'hls.js'
 import type { M3u8Item } from '../lib/types'
-import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
+import { buildArtplayerQuality, getQualityDisplayName } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
 import { loadPlayHistory, savePlayHistory } from './core/history'
 import type { QualityOption } from './core/types'
@@ -15,6 +15,15 @@ import { bindKeyboardShortcuts } from './core/keyboard'
 import { createHlsInstance, isHlsSupported } from './core/hls'
 import { patchArtInfoPanel } from './core/info-panel'
 import { HoverPreviewController } from './core/hover-preview'
+import {
+  applyFallbackToHlsState,
+  applySelectedQualityOption,
+  isOriginalPlaceholderOption,
+  type PlaybackState,
+  refreshPlaybackQualityState,
+  resolveOriginalPlaceholderUrl,
+  syncPlaybackStateByUrl,
+} from './core/playback-state'
 
 interface PlayerConfig {
   pickCode: string
@@ -128,14 +137,7 @@ class PlayerManager {
       }
 
       const currentUrl = this.artplayer?.url || ''
-      this.qualityOptions = buildQualityOptions(
-        currentUrl,
-        this.ultraUrl,
-        this.m3u8List,
-        this.currentQuality,
-        this.currentQualityLabel,
-      )
-      this.updateQualityByUrl(currentUrl)
+      this.refreshQualityState(currentUrl)
       this.renderQualityPanel()
       this.updateQualityButton()
 
@@ -176,13 +178,7 @@ class PlayerManager {
     const container = document.getElementById('artplayer-app')
     if (!container) throw new Error('找不到播放器容器')
 
-    this.qualityOptions = buildQualityOptions(
-      videoUrl,
-      this.ultraUrl,
-      this.m3u8List,
-      this.currentQuality,
-      this.currentQualityLabel,
-    )
+    this.refreshQualityState(videoUrl)
 
     this.artplayer = new Artplayer({
       container: container as HTMLDivElement,
@@ -278,12 +274,26 @@ class PlayerManager {
 
 
   private updateQualityByUrl(url: string) {
-    const hit = this.qualityOptions.find(opt => opt.url === url)
-    if (hit) {
-      this.currentQuality = hit.quality
-      this.currentQualityLabel = hit.label
-      this.isNativeVideo = !!this.ultraUrl && hit.url === this.ultraUrl
+    this.applyPlaybackStatePatch(syncPlaybackStateByUrl(this.getPlaybackState(), url))
+  }
+
+  private refreshQualityState(currentUrl: string) {
+    this.applyPlaybackStatePatch(refreshPlaybackQualityState(this.getPlaybackState(), currentUrl))
+  }
+
+  private getPlaybackState(): PlaybackState {
+    return {
+      ultraUrl: this.ultraUrl,
+      m3u8List: this.m3u8List,
+      qualityOptions: this.qualityOptions,
+      currentQuality: this.currentQuality,
+      currentQualityLabel: this.currentQualityLabel,
+      isNativeVideo: this.isNativeVideo,
     }
+  }
+
+  private applyPlaybackStatePatch(state: Partial<PlaybackState>) {
+    Object.assign(this, state)
   }
 
   private updateQualityButton() {
@@ -308,7 +318,7 @@ class PlayerManager {
     if (!this.artplayer) return
     this.ultraSwitchAborted = true // 用户手动切换画质，取消自动切换
 
-    if (opt.url === ORIGINAL_PLACEHOLDER_URL) {
+    if (isOriginalPlaceholderOption(opt)) {
       const resolvedUrl = await this.ensureOriginalSourceLoaded()
       if (!resolvedUrl) {
         this.showError('115原画加载失败，请稍后重试')
@@ -322,9 +332,7 @@ class PlayerManager {
     const currentTime = this.artplayer.currentTime || 0
     const wasPlaying = !this.artplayer.video.paused
 
-    this.currentQuality = opt.quality
-    this.currentQualityLabel = opt.label
-    this.isNativeVideo = !!this.ultraUrl && opt.url === this.ultraUrl
+    this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
     this.updateQualityButton()
     this.renderQualityPanel()
 
@@ -371,13 +379,15 @@ class PlayerManager {
       return
     }
 
-    const bestQuality = this.m3u8List[0]
-    this.isNativeVideo = false
-    this.currentQuality = bestQuality.quality
-    this.currentQualityLabel = getQualityDisplayName(bestQuality.quality, true)
+    const { url: bestQualityUrl, patch } = applyFallbackToHlsState(this.getPlaybackState())
+    this.applyPlaybackStatePatch(patch)
+    if (!bestQualityUrl) {
+      this.showError('播放失败，无可用的视频源')
+      return
+    }
     this.updateQualityButton()
     this.renderQualityPanel()
-    this.artplayer.switchUrl(bestQuality.url)
+    this.artplayer.switchUrl(bestQualityUrl)
   }
 
   private async ensureOriginalSourceLoaded(): Promise<string | null> {
@@ -386,17 +396,10 @@ class PlayerManager {
     }
     if (this.m3u8List.length === 0) return null
 
-    const original = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
     const currentUrl = this.artplayer?.url || ''
-    this.qualityOptions = buildQualityOptions(
-      currentUrl,
-      this.ultraUrl,
-      this.m3u8List,
-      this.currentQuality,
-      this.currentQualityLabel,
-    )
+    this.refreshQualityState(currentUrl)
     this.renderQualityPanel()
-    return original?.url || null
+    return resolveOriginalPlaceholderUrl(this.getPlaybackState())
   }
 
 
