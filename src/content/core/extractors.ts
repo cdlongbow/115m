@@ -1,4 +1,4 @@
-import type { BreadcrumbItem, FileInfo } from './types'
+import type { FileInfo } from './core/types'
 import { parseDuration } from './utils'
 
 function readAttr(item: HTMLElement, names: string[]): string {
@@ -7,46 +7,6 @@ function readAttr(item: HTMLElement, names: string[]): string {
     if (value) return value
   }
   return ''
-}
-
-function extractBreadcrumbs(doc: Document): BreadcrumbItem[] {
-  const docs: Document[] = []
-  try {
-    if (window.top?.document) {
-      docs.push(window.top.document)
-    }
-  }
-  catch {
-    // ignore cross-frame access issues
-  }
-  docs.push(doc)
-
-  for (const currentDoc of docs) {
-    const container = currentDoc.querySelector('.top-file-path .file-path') as HTMLElement | null
-    if (!container) continue
-
-    const nodes = Array.from(container.querySelectorAll('a.folder, a')) as HTMLAnchorElement[]
-    const items = nodes
-      .map((node) => {
-        const cid = node.getAttribute('cid') || ''
-        const name = node.getAttribute('cate_name')
-          || node.getAttribute('titletext')
-          || node.querySelector('span')?.textContent?.trim()
-          || node.textContent?.replace('›', '').trim()
-          || ''
-
-        return cid && name ? { cid, name } : null
-      })
-      .filter((item): item is BreadcrumbItem => !!item)
-      .filter(item => item.cid !== '0')
-
-    if (items.length > 0) {
-      return items
-    }
-  }
-
-  const currentCid = new URLSearchParams(window.location.search).get('cid') || ''
-  return currentCid ? [{ cid: currentCid, name: '当前目录' }] : []
 }
 
 export function isPlayIntentTarget(target: HTMLElement): boolean {
@@ -75,6 +35,5 @@ export function extractFileInfo(item: HTMLElement): FileInfo | null {
     parentId: parentId || undefined,
     fileSize: fileSize || undefined,
     isMarked,
-    breadcrumbs: extractBreadcrumbs(item.ownerDocument),
   }
 }

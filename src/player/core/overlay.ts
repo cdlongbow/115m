@@ -161,6 +161,12 @@ export class PlayerOverlayController {
     document.title = title
   }
 
+  updateBreadcrumbs(items: OverlayPathItem[]) {
+    if (!items || items.length === 0) return
+    this.options.meta.path = items
+    this.renderBreadcrumbs(items)
+  }
+
   private renderBreadcrumbs(items: OverlayPathItem[]) {
     if (!this.breadcrumbsEl) return
     if (items.length === 0) {

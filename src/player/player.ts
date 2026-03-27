@@ -226,6 +226,7 @@ class PlayerManager {
 
     this.setupTopNav()
     this.setupProgressHoverPreview()
+    void this.fetchBreadcrumbs()
 
     if (this.artplayer) {
       this.setupInfoPanel()
@@ -427,6 +428,11 @@ class PlayerManager {
       data: { cid },
     })
 
+    // API 返回的 path 是完整的目录路径，用它更新面包屑
+    if (res?.path && res.path.length > 0) {
+      this.overlay?.updateBreadcrumbs(res.path)
+    }
+
     return (res?.list || [])
       .filter(item => !!item.pick_code)
       .map((item: FileItem) => ({
@@ -434,6 +440,38 @@ class PlayerManager {
         name: item.fn,
         size: item.fs > 0 ? this.formatFileSize(item.fs) : '',
       }))
+  }
+
+  /**
+   * 主动通过 API 获取面包屑，不依赖 DOM 提取或 URL 参数
+   */
+  private async fetchBreadcrumbs(): Promise<void> {
+    const cid = new URLSearchParams(window.location.search).get('cid') || ''
+    if (!cid) return
+
+    // 检查 URL 参数中是否已有 path（从文件列表页面传递过来的）
+    const params = new URLSearchParams(window.location.search)
+    const rawPath = params.get('path')
+    if (rawPath) {
+      try {
+        const parsed = JSON.parse(rawPath) as Array<{ cid: string, name: string }>
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          this.overlay?.updateBreadcrumbs(parsed)
+          return
+        }
+      }
+      catch { /* ignore */ }
+    }
+
+    // URL 没有 path，通过 API 获取
+    const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
+      type: 'FETCH_PLAYLIST',
+      data: { cid },
+    })
+
+    if (res?.path && res.path.length > 0) {
+      this.overlay?.updateBreadcrumbs(res.path)
+    }
   }
 
   private async moveCurrentFile(): Promise<void> {

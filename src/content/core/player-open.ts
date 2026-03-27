@@ -5,7 +5,6 @@ import { sendRuntimeMessageSafe } from './runtime'
 export async function openPlayer(file: FileInfo) {
   const now = Date.now()
   const traceId = `${file.pickCode}-${now}`
-  const breadcrumbs = file.breadcrumbs || []
 
   const params = new URLSearchParams({
     pick_code: file.pickCode,
@@ -19,7 +18,6 @@ export async function openPlayer(file: FileInfo) {
   if (file.parentId) params.set('cid', file.parentId)
   if (file.fileSize) params.set('fileSize', file.fileSize)
   if (typeof file.isMarked === 'boolean') params.set('marked', file.isMarked ? '1' : '0')
-  if (breadcrumbs.length) params.set('path', JSON.stringify(breadcrumbs))
 
   const url = `${NORMAL_URL}/web/lixian/master/video/?${params.toString()}`
 
