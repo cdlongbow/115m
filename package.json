@@ -1,10 +1,11 @@
 {
   "name": "115m-extension",
-  "version": "1.0.25",
+  "version": "1.0.26",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vite build",
+    "test": "vitest run",
     "zip": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"$v=(Get-Content package.json -Raw | ConvertFrom-Json).version; if (!(Test-Path release)) { New-Item -ItemType Directory -Path release | Out-Null }; $out='release/115m-extension-v' + $v + '.zip'; Compress-Archive -Path 'dist/*' -DestinationPath $out -Force\""
   },
   "dependencies": {
@@ -24,6 +25,7 @@
     "@types/node": "^25.5.0",
     "tailwindcss": "^4.1.7",
     "typescript": "^5.7.3",
-    "vite": "^5.4.21"
+    "vite": "^5.4.21",
+    "vitest": "^2.1.9"
   }
 }

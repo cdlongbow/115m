@@ -15,10 +15,12 @@
 
 ```bash
 pnpm install
+pnpm test
 pnpm build
 pnpm zip
 ```
 
+- `pnpm test`：验证核心播放逻辑没有被重构改坏
 - `pnpm build`：开发后验证是否可用
 - `pnpm zip`：打包发布用
 

@@ -78,11 +78,13 @@ export function buildArtplayerQuality(
   currentUrl: string,
   currentQualityLabel: string,
 ): { html: string, url: string, default: boolean }[] {
+  const placeholderSelected = currentQualityLabel === '115原画'
+
   return qualityOptions.map(opt => ({
     html: opt.label,
     url: opt.url,
     default: opt.url === ORIGINAL_PLACEHOLDER_URL
-      ? currentQualityLabel === '115原画'
-      : currentUrl === opt.url,
+      ? placeholderSelected
+      : (!placeholderSelected && currentUrl === opt.url),
   }))
 }
