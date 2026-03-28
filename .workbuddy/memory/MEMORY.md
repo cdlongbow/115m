@@ -75,6 +75,9 @@
 - 使用 `/files/video` API（GET 请求），返回的 `is_mark` 字段是字符串类型 `'1'` 或 `'0'`
 - 添加 `MAIN_WORLD_GET` 消息类型，用于执行 GET 请求（原来的 `MAIN_WORLD_FETCH` 只支持 POST）
 
+## 待排查问题
+- 切换到"115原画"时提示"播放失败，无可用的视频源"
+
 ## 构建命令
 pnpm build
 pnpm zip

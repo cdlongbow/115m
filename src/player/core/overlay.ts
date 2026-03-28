@@ -80,6 +80,7 @@ export class PlayerOverlayController {
   private moveBtnEl: HTMLButtonElement | null = null
   private visibleTimer: number | null = null
   private isPointerInsideOverlay = false
+  private isPointerOnProgress = false
   private playlistOpen = false
   private playlistItems: OverlayPlaylistItem[] = []
 
@@ -103,6 +104,11 @@ export class PlayerOverlayController {
     this.controlsEl.addEventListener('mouseenter', this.handleOverlayEnter)
     this.controlsEl.addEventListener('mouseleave', this.handleOverlayLeave)
     this.controlsEl.style.transition = 'opacity .2s ease'
+    // 鼠标在进度条上时也保持控件不隐藏（查看预览图需要）
+    if (this.progressEl) {
+      this.progressEl.addEventListener('mouseenter', this.handleProgressEnter)
+      this.progressEl.addEventListener('mouseleave', this.handleProgressLeave)
+    }
     this.root.addEventListener('mousemove', this.handleMouseMove)
     this.root.addEventListener('mouseenter', this.handleMouseMove)
     this.root.addEventListener('mouseleave', this.handleMouseLeave)
@@ -640,7 +646,7 @@ export class PlayerOverlayController {
       window.clearTimeout(this.visibleTimer)
     }
     this.visibleTimer = window.setTimeout(() => {
-      if (!this.isPointerInsideOverlay && !this.playlistOpen) {
+      if (!this.isPointerInsideOverlay && !this.playlistOpen && !this.isPointerOnProgress) {
         this.setVisible(false)
       }
     }, 1000)
@@ -656,7 +662,7 @@ export class PlayerOverlayController {
   }
 
   private handleMouseLeave = () => {
-    if (!this.playlistOpen && !this.isPointerInsideOverlay) {
+    if (!this.playlistOpen && !this.isPointerInsideOverlay && !this.isPointerOnProgress) {
       this.setVisible(false)
     }
   }
@@ -668,6 +674,21 @@ export class PlayerOverlayController {
 
   private handleOverlayLeave = () => {
     this.isPointerInsideOverlay = false
+    this.showTemporarily()
+  }
+
+  private handleProgressEnter = () => {
+    this.isPointerOnProgress = true
+    this.setVisible(true)
+    // 鼠标进入进度条时取消隐藏定时器
+    if (this.visibleTimer) {
+      window.clearTimeout(this.visibleTimer)
+      this.visibleTimer = null
+    }
+  }
+
+  private handleProgressLeave = () => {
+    this.isPointerOnProgress = false
     this.showTemporarily()
   }
 
