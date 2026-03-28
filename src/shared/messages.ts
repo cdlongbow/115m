@@ -72,6 +72,10 @@ export interface MsgMoveFile {
   }
 }
 
+export interface MsgPing {
+  type: 'PING'
+}
+
 export interface MsgFetchPlaylistResponse {
   list?: FileItem[]
   path?: Array<{ cid: string, name: string }>
@@ -89,3 +93,4 @@ export type RuntimeMessage =
   | MsgMainWorldGet
   | MsgFetchPlaylist
   | MsgMoveFile
+  | MsgPing

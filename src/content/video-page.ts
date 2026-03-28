@@ -1,6 +1,8 @@
 // 页面已被 video-page-early.js（public/）在 document_start 阶段同步接管
 // 这里不再重复 document.write，避免二次覆盖导致的竞态问题
 
+console.log('[115m] video-page.ts loading...')
+
 function clearNativeVideoRequests() {
   try {
     const entries = performance.getEntriesByType('resource') as PerformanceResourceTiming[]
@@ -14,9 +16,11 @@ function clearNativeVideoRequests() {
 }
 
 async function init() {
+  console.log('[115m] video-page.ts init() called')
   if (window.top !== window) return
   if (!/\/web\/lixian\/master\/video\//.test(window.location.pathname)) return
 
+  console.log('[115m] video-page.ts init() passed checks')
   clearNativeVideoRequests()
 
   const params = new URLSearchParams(window.location.search)

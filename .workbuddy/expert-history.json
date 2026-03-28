@@ -8,10 +8,19 @@
         "profession": "高级开发工程师",
         "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/SeniorDeveloper/SeniorDeveloper.png",
         "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/SeniorDeveloper/SeniorDeveloper_zh.md",
-        "usedAt": 1774676433472,
+        "usedAt": 1774687989214,
+        "industryId": "02-Engineering"
+      },
+      {
+        "expertId": "AutonomousOptimizationArchitect",
+        "name": "Dan",
+        "profession": "自主优化架构师",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/AutonomousOptimizationArchitect/AutonomousOptimizationArchitect.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/AutonomousOptimizationArchitect/AutonomousOptimizationArchitect_zh.md",
+        "usedAt": 1774680791904,
         "industryId": "02-Engineering"
       }
     ]
   },
-  "lastUpdated": 1774680379103
+  "lastUpdated": 1774688949157
 }

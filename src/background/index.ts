@@ -3,12 +3,20 @@
  * 精简版：仅保留必要的消息代理功能
  */
 
-import { drive115 } from '../lib'
 import type { RuntimeMessage } from '../shared/messages'
+
+console.log('[115m] Service Worker starting...')
 
 // 安装时初始化
 chrome.runtime.onInstalled.addListener((details) => {
   console.log('[115m] Extension installed', details.reason)
+  registerEarlyOverrideScript()
+})
+
+// 浏览器启动时，确保 early script 已注册
+// registerContentScripts 注册的脚本应该是持久的，但为保险起见重新注册
+chrome.runtime.onStartup.addListener(() => {
+  console.log('[115m] Browser startup')
   registerEarlyOverrideScript()
 })
 
@@ -48,6 +56,10 @@ let lastOpenTabMeta: { url: string, ts: number } | null = null
 
 async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.MessageSender): Promise<any> {
   switch (message.type) {
+    case 'PING': {
+      return { pong: true }
+    }
+
     case 'MAIN_WORLD_FETCH': {
       // 通过 executeScript 在页面主世界执行 fetch
       // 确保 Origin: https://115.com，和原项目一致
@@ -148,6 +160,8 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
 
     case 'FETCH_M3U8': {
       try {
+        // 动态导入，避免 ESM loader 延迟
+        const { drive115 } = await import('../lib')
         const list = await drive115.getM3u8(message.data.pickCode)
         return { list }
       } catch (e) {
