@@ -1,8 +1,14 @@
 import { getVideoCovers } from '../../lib/videoThumbnail'
 import type { FileInfo } from './types'
-import { Scheduler } from './utils'
+import {
+  Scheduler,
+  TaskCancelledError,
+  createVisibilityObserver,
+  createScrollStopDetector,
+  findScrollContainer,
+} from './utils'
 
-const coverScheduler = new Scheduler(2)
+const coverScheduler = new Scheduler(3)
 
 interface CoverItem {
   imgUrl: string
@@ -103,6 +109,21 @@ function getLightboxController(doc: Document): LightboxController {
   return created
 }
 
+/** 预览图加载状态 */
+interface PreviewState {
+  isLoading: boolean
+  isLoaded: boolean
+  error: boolean
+  cancelTask?: () => void
+  visibilityObserver?: { destroy: () => void }
+  scrollObserver?: { destroy: () => void }
+}
+
+const previewStates = new WeakMap<HTMLElement, PreviewState>()
+
+/**
+ * 渲染预览图（带可见性检测和滚动优化）
+ */
 export function renderPreview(item: HTMLElement, file: FileInfo) {
   if (item.querySelector('.m115-cover-container')) return
 
@@ -116,42 +137,139 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
   container.appendChild(skeleton)
   item.appendChild(container)
 
-  void coverScheduler.add(async () => {
-    try {
-      const covers = await getVideoCovers(file.pickCode, file.duration, 5)
-      if (!covers.length) {
-        container.innerHTML = '<div class="m115-cover-empty">暂无预览图</div>'
-        return
-      }
+  const state: PreviewState = {
+    isLoading: false,
+    isLoaded: false,
+    error: false,
+  }
+  previewStates.set(item, state)
 
-      const row = document.createElement('div')
-      row.className = 'm115-cover-loaded'
-      const lightbox = getLightboxController(item.ownerDocument)
+  /** 加载预览图 */
+  const loadCovers = async () => {
+    if (state.isLoading || state.isLoaded || state.error) return
 
-      covers.forEach((cover, index) => {
-        const thumb = document.createElement('span')
-        thumb.className = 'm115-cover-thumb'
+    state.isLoading = true
 
-        const img = document.createElement('img')
-        img.className = 'm115-cover-img'
-        img.src = cover.imgUrl
-        img.alt = `预览 ${Math.floor(cover.time)}s`
+    const { promise, cancel } = coverScheduler.add(async () => {
+      try {
+        const covers = await getVideoCovers(file.pickCode, file.duration, 5)
+        if (!covers.length) {
+          container.innerHTML = '<div class="m115-cover-empty">暂无预览图</div>'
+          return
+        }
 
-        thumb.addEventListener('click', (event) => {
-          event.preventDefault()
-          event.stopPropagation()
-          lightbox.open(covers, index)
+        const row = document.createElement('div')
+        row.className = 'm115-cover-loaded'
+        const lightbox = getLightboxController(item.ownerDocument)
+
+        covers.forEach((cover, index) => {
+          const thumb = document.createElement('span')
+          thumb.className = 'm115-cover-thumb'
+
+          const img = document.createElement('img')
+          img.className = 'm115-cover-img'
+          img.src = cover.imgUrl
+          img.alt = `预览 ${Math.floor(cover.time)}s`
+
+          thumb.addEventListener('click', (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            lightbox.open(covers, index)
+          })
+
+          thumb.appendChild(img)
+          row.appendChild(thumb)
         })
 
-        thumb.appendChild(img)
-        row.appendChild(thumb)
-      })
+        container.innerHTML = ''
+        container.appendChild(row)
+        state.isLoaded = true
+      } catch (e) {
+        if (e instanceof TaskCancelledError) {
+          return
+        }
+        container.innerHTML = '<div class="m115-cover-error">预览图加载失败</div>'
+        state.error = true
+      } finally {
+        state.isLoading = false
+      }
+    })
 
-      container.innerHTML = ''
-      container.appendChild(row)
+    state.cancelTask = cancel
+    await promise
+  }
+
+  /** 取消加载 */
+  const cancelLoad = () => {
+    if (state.cancelTask) {
+      state.cancelTask()
+      state.cancelTask = undefined
     }
-    catch {
-      container.innerHTML = '<div class="m115-cover-error">预览图加载失败</div>'
+    state.isLoading = false
+  }
+
+  /** 滚动停止后加载 */
+  let scrollStopTimer: number | undefined
+  const scheduleLoadAfterScrollStop = () => {
+    if (scrollStopTimer) {
+      clearTimeout(scrollStopTimer)
+    }
+    scrollStopTimer = window.setTimeout(() => {
+      loadCovers()
+    }, 200)
+  }
+
+  // 查找滚动容器
+  const scrollTarget = findScrollContainer(item)
+
+  // 创建可见性检测器
+  state.visibilityObserver = createVisibilityObserver(
+    container,
+    () => {
+      // 可见时，等待滚动停止后加载
+      if (!state.isLoaded && !state.error) {
+        scheduleLoadAfterScrollStop()
+      }
+    },
+    () => {
+      // 不可见时，取消加载
+      cancelLoad()
+    }
+  )
+
+  // 创建滚动检测器
+  state.scrollObserver = createScrollStopDetector(scrollTarget, () => {
+    // 滚动停止后，如果元素可见且未加载，则加载
+    if (!state.isLoaded && !state.error && !state.isLoading) {
+      const rect = container.getBoundingClientRect()
+      const isVisible = rect.bottom > 0 && rect.top < window.innerHeight
+      if (isVisible) {
+        loadCovers()
+      }
     }
   })
+
+  // 清理函数（元素移除时调用）
+  const cleanup = () => {
+    state.visibilityObserver?.destroy()
+    state.scrollObserver?.destroy()
+    cancelLoad()
+  }
+
+  // 使用 MutationObserver 监听元素移除
+  const mutationObserver = new MutationObserver((mutations) => {
+    for (const mutation of mutations) {
+      for (const removedNode of mutation.removedNodes) {
+        if (removedNode === item || item.contains(removedNode)) {
+          cleanup()
+          mutationObserver.disconnect()
+          return
+        }
+      }
+    }
+  })
+
+  if (item.parentElement) {
+    mutationObserver.observe(item.parentElement, { childList: true, subtree: true })
+  }
 }
