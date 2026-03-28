@@ -33,6 +33,7 @@ export interface PlayerOverlayOptions {
   onToggleFavorite: (fileId: string, nextMarked: boolean) => Promise<boolean>
   onPlaylistToggle: (open: boolean) => Promise<OverlayPlaylistItem[]>
   onPlaylistPlay: (pickCode: string) => void
+  onRefreshBreadcrumbs?: () => void
   getCurrentPickCode: () => string
 }
 
@@ -113,6 +114,9 @@ export class PlayerOverlayController {
     this.root.addEventListener('mouseenter', this.handleMouseMove)
     this.root.addEventListener('mouseleave', this.handleMouseLeave)
 
+    // 监听来自 background 的移动成功消息（通过 tabs.sendMessage）
+    chrome.runtime.onMessage.addListener(this.handleRuntimeMessage)
+
     this.titleEl && (this.titleEl.textContent = this.options.meta.title)
     document.title = this.options.meta.title
 
@@ -130,6 +134,7 @@ export class PlayerOverlayController {
       window.clearTimeout(this.visibleTimer)
       this.visibleTimer = null
     }
+    chrome.runtime.onMessage.removeListener(this.handleRuntimeMessage)
     this.root.removeEventListener('mousemove', this.handleMouseMove)
     this.root.removeEventListener('mouseenter', this.handleMouseMove)
     this.root.removeEventListener('mouseleave', this.handleMouseLeave)
@@ -701,6 +706,13 @@ export class PlayerOverlayController {
       this.renderPlaylist(items)
     }
     this.setPlaylistOpen(nextOpen)
+  }
+
+  private handleRuntimeMessage = (message: any) => {
+    if (message?.type === 'MOVE_SUCCESS_REFRESH') {
+      this.options.onRefreshBreadcrumbs?.()
+      this.showToast('文件已移动')
+    }
   }
 }
 

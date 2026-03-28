@@ -122,9 +122,21 @@ class PlayerManager {
 
       // 并行获取无损源和 HLS 源，为降级做准备
       const [ultraSource, m3u8List] = await Promise.all([
-        fetchUltraSource(this.currentPickCode).catch(() => null),
-        fetchM3u8WithRetry(this.currentPickCode).catch(() => null),
+        fetchUltraSource(this.currentPickCode).catch((e) => {
+          console.warn('[115m] fetchUltraSource failed:', e)
+          return null
+        }),
+        fetchM3u8WithRetry(this.currentPickCode).catch((e) => {
+          console.warn('[115m] fetchM3u8WithRetry failed:', e)
+          return null
+        }),
       ])
+
+      console.log('[115m] Source fetch result:', {
+        ultraOk: !!ultraSource,
+        m3u8Ok: !!m3u8List,
+        m3u8Count: m3u8List?.length || 0,
+      })
 
       const ultraUrl = ultraSource?.url || null
       if (ultraSource?.ultraUrl) {
@@ -383,6 +395,7 @@ class PlayerManager {
           this.navigateToVideo(pickCode)
         }
       },
+      onRefreshBreadcrumbs: () => this.refreshBreadcrumbs(),
       getCurrentPickCode: () => this.currentPickCode,
     })
     this.overlay.init()
@@ -495,9 +508,19 @@ class PlayerManager {
 
   private async ensureOriginalSourceLoaded(): Promise<string | null> {
     if (this.m3u8List.length === 0) {
-      this.m3u8List = await fetchM3u8WithRetry(this.currentPickCode).catch(() => this.m3u8List)
+      try {
+        const list = await fetchM3u8WithRetry(this.currentPickCode)
+        if (list && list.length > 0) {
+          this.m3u8List = list
+        }
+      } catch (e) {
+        console.error('[115m] fetchM3u8WithRetry error:', e)
+      }
     }
-    if (this.m3u8List.length === 0) return null
+
+    if (this.m3u8List.length === 0) {
+      return null
+    }
 
     const currentUrl = this.artplayer?.url || ''
     this.refreshQualityState(currentUrl)
@@ -564,6 +587,21 @@ class PlayerManager {
     const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
       type: 'FETCH_PLAYLIST',
       data: { cid, pickCode: this.currentPickCode },
+    })
+
+    if (res?.path && res.path.length > 0) {
+      this.overlay?.updateBreadcrumbs(res.path)
+    }
+  }
+
+  /**
+   * 刷新面包屑（移动文件后调用）
+   */
+  private async refreshBreadcrumbs(): Promise<void> {
+    // 强制通过 API 获取最新路径
+    const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
+      type: 'FETCH_PLAYLIST',
+      data: { cid: '', pickCode: this.currentPickCode },
     })
 
     if (res?.path && res.path.length > 0) {

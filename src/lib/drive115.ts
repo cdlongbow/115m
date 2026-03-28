@@ -117,8 +117,13 @@ export class Drive115 {
       if (res && res.state === false) {
         if (res.code === 911) {
           console.warn('[Drive115] 需要人机验证')
-          // 跳转验证页
-          window.open(`${VOD_URL}/?pickcode=${pickcode}`, '_blank')
+          // 跳转验证页（兼容 Service Worker 环境）
+          const verifyUrl = `${VOD_URL}/?pickcode=${pickcode}`
+          if (typeof chrome !== 'undefined' && chrome.tabs) {
+            chrome.tabs.create({ url: verifyUrl }).catch(() => {})
+          } else if (typeof window !== 'undefined') {
+            window.open(verifyUrl, '_blank')
+          }
         }
         throw new Error(`获取 m3u8 失败: ${res.error}`)
       }

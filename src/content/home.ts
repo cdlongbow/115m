@@ -165,6 +165,11 @@ else {
   init()
 }
 
+// 监听来自 TreeDG callback 的移动成功事件
+window.addEventListener('115m-move-success', () => {
+  chrome.runtime.sendMessage({ type: 'MOVE_SUCCESS_REFRESH' }).catch(() => {})
+})
+
 window.addEventListener('beforeunload', () => {
   controller?.destroy()
   controller = null

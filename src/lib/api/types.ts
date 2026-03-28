@@ -75,12 +75,24 @@ export interface FileItem {
 
 /**
  * 文件视频信息响应
+ * 注意：115 API 返回的数据在顶层，没有 data 包装层
  */
 export interface FilesVideoRes {
   state: boolean
-  data?: {
-    video_info?: {
-      [key: string]: string
-    }
+  parent_id: string
+  file_id: string
+  is_mark: string
+  file_name?: string
+  file_size?: string
+  pick_code?: string
+  sha1?: string
+  width?: string
+  height?: string
+  video_url?: string
+  audio_list?: string
+  definition_list?: any
+  definition_index?: any
+  video_info?: {
+    [key: string]: string
   }
 }

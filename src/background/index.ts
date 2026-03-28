@@ -158,14 +158,56 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
       return { success: true }
     }
 
+    case 'MOVE_SUCCESS_REFRESH': {
+      // 收到移动成功消息后，广播给所有播放器页面
+      const tabs = await chrome.tabs.query({ url: '*://*.115.com/web/lixian/master/video/*' })
+      for (const tab of tabs) {
+        if (tab.id) {
+          chrome.tabs.sendMessage(tab.id, { type: 'MOVE_SUCCESS_REFRESH' }).catch(() => {})
+        }
+      }
+      return { success: true }
+    }
+
     case 'FETCH_M3U8': {
       try {
-        // 动态导入，避免 ESM loader 延迟
-        const { drive115 } = await import('../lib')
-        const list = await drive115.getM3u8(message.data.pickCode)
-        return { list }
-      } catch (e) {
-        return { error: String(e) }
+        // 直接使用 fetch，避免动态导入在 Service Worker 中的问题
+        const pickCode = message.data.pickCode
+        const url = `https://115.com/api/video/m3u8/${pickCode}.m3u8`
+
+        const res = await fetch(url, {
+          credentials: 'include',
+          headers: { 'Accept': '*/*' },
+        })
+        const htmlText = await res.text()
+
+        // 解析 M3U8
+        const lines = htmlText.split('\n')
+        const m3u8List: Array<{ name: string; quality: number; url: string }> = []
+
+        const qualityCodeMap: Record<string, number> = {
+          '3G': 360, 'SD': 480, 'HD': 720, 'UD': 1080, 'BD': 2160, 'YH': 9999,
+        }
+
+        lines.forEach((line, index) => {
+          if (line.includes('NAME="') && line.match(/#EXT-X-STREAM-INF/)) {
+            const name = line.match(/NAME="([^"]*)"/)?.[1] ?? ''
+            const m3u8Url = lines[index + 1]?.trim()
+            if (m3u8Url) {
+              const fullUrl = m3u8Url.startsWith('http') ? m3u8Url : `https://115.com${m3u8Url}`
+              m3u8List.push({
+                name,
+                quality: qualityCodeMap[name] ?? 0,
+                url: fullUrl,
+              })
+            }
+          }
+        })
+
+        m3u8List.sort((a, b) => b.quality - a.quality)
+        return { list: m3u8List }
+      } catch (e: any) {
+        return { error: e?.message || String(e) }
       }
     }
 
@@ -180,7 +222,7 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
 
         // 如果没有 cid，先通过 files/video API 获取 parent_id
         if (!cid && pickCode) {
-          const videoInfoUrl = `https://webapi.115.com/files/video?pick_code=${pickCode}`
+          const videoInfoUrl = `https://webapi.115.com/files/video?pickcode=${pickCode}&share_id=0&local=1`
           const videoInjected = await chrome.scripting.executeScript({
             target: { tabId },
             world: 'MAIN',
@@ -196,11 +238,12 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
             args: [videoInfoUrl],
           })
           const videoResult = videoInjected?.[0]?.result as any
-          if (videoResult?.state && videoResult?.data) {
-            cid = videoResult.data.parent_id || ''
+          // API 返回的数据结构：state 在顶层，parent_id 也在顶层（没有 data 包装层）
+          if (videoResult?.state) {
+            cid = videoResult.parent_id || videoResult.data?.parent_id || ''
           }
           if (!cid) {
-            console.warn('[115m] FETCH_PLAYLIST: could not get parent_id from video info', videoResult)
+            console.warn('[115m] FETCH_PLAYLIST: could not get parent_id from video info')
             return { error: 'no cid available', list: [], path: [] }
           }
         }
@@ -337,6 +380,22 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
               list: [mockJQueryObject],
               type: 'move',
               has_dir: false,
+              callback: (result: any) => {
+                console.log('[115m] TreeDG callback triggered, result:', result)
+                // 移动成功后通知播放器页面刷新面包屑
+                if (result !== false) {
+                  console.log('[115m] Move success, dispatching event')
+                  // 在主世界中无法直接调用 chrome.runtime.sendMessage
+                  // 使用自定义 DOM 事件传递
+                  window.dispatchEvent(new CustomEvent('115m-move-success'))
+                  // 同时发送消息给 runtime（尝试）
+                  try {
+                    chrome.runtime.sendMessage({ type: 'MOVE_SUCCESS_REFRESH' })
+                  } catch (e) {
+                    console.log('[115m] chrome.runtime.sendMessage failed in MAIN world:', e)
+                  }
+                }
+              },
             })
           } catch (e: any) {
             console.error('[115m] TreeDG.Show error:', e)
