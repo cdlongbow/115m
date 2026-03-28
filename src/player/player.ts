@@ -116,18 +116,6 @@ class PlayerManager {
       }
       await ensureServiceWorkerReady()
 
-      // 检测 115 登录态
-      const isLoggedIn = await this.check115LoginStatus()
-      if (!isLoggedIn) {
-        if (loadingTextEl) {
-          loadingTextEl.textContent = '请先登录 115 网盘'
-        }
-        this.showError('请先登录 115 网盘', '点击此处跳转登录', () => {
-          window.open('https://115.com/', '_blank')
-        })
-        return
-      }
-
       if (loadingTextEl) {
         loadingTextEl.textContent = '正在获取无损播放源...'
       }
@@ -551,31 +539,6 @@ class PlayerManager {
         duration: item.play_long || 0,
         sha: item.sha || '',
       }))
-  }
-
-  /**
-   * 检测 115 登录态
-   * 通过请求一个简单的 API 来判断是否已登录
-   */
-  private async check115LoginStatus(): Promise<boolean> {
-    try {
-      // 使用 files/video API 检测登录态
-      const result = await sendRuntimeMessageSafe<{
-        is_mark?: string
-        file_name?: string
-        error?: string
-      }>({
-        type: 'MAIN_WORLD_GET',
-        data: {
-          url: `https://webapi.115.com/files/video?pick_code=${this.currentPickCode}`,
-        },
-      })
-      // 如果返回了 file_name，说明已登录
-      return !!result?.file_name
-    }
-    catch {
-      return false
-    }
   }
 
   /**

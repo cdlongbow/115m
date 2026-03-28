@@ -79,6 +79,10 @@
 pnpm build
 pnpm zip
 
+## v1.1.1 修复 (2026-03-28)
+- **浏览器重启后播放器不加载**：`video-page-early.js` 用 `document.write` 覆盖页面后，manifest 注册的 content script 不会自动注入
+- 解决方案：在 `video-page-early.js` 中动态加载 content script 模块，通过 `.vite/manifest.json` 获取正确的文件路径
+
 ## 性能优化 (v1.1.0)
 - 帧解码从串行改为并行（5帧同时解码）
 - 调度并发数从 2 提升到 3
