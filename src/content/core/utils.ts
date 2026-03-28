@@ -12,7 +12,7 @@ export class Scheduler {
   private running = 0
   private queue: Array<() => void> = []
 
-  constructor(private readonly limit = 2) {}
+  constructor(private readonly limit = 3) {}
 
   async add<T>(task: () => Promise<T>): Promise<T> {
     if (this.running >= this.limit) {

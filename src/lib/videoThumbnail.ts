@@ -33,6 +33,57 @@ function calculateTimes(duration: number, count = 5): number[] {
   )
 }
 
+/**
+ * 生成单个视频封面（并行解码用）
+ */
+async function generateSingleCover(
+  clipper: M3U8ClipperNew,
+  time: number
+): Promise<VideoThumbnail | null> {
+  try {
+    const result = await clipper.seek(time, true)
+    if (!result) return null
+
+    const resize = getImageResize(
+      result.videoFrame.displayWidth,
+      result.videoFrame.displayHeight,
+      MAX_WIDTH,
+      MAX_HEIGHT
+    )
+    const canvas = new OffscreenCanvas(resize.width, resize.height)
+    const ctx = canvas.getContext('2d')
+
+    if (!ctx) {
+      result.videoFrame.close()
+      return null
+    }
+
+    ctx.drawImage(
+      await createImageBitmap(result.videoFrame, {
+        resizeQuality: 'pixelated',
+        resizeWidth: resize.width,
+        resizeHeight: resize.height,
+      }),
+      0, 0, resize.width, resize.height
+    )
+
+    const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 })
+    const blobUrl = URL.createObjectURL(blob)
+
+    result.videoFrame.close()
+
+    return {
+      imgUrl: blobUrl,
+      width: resize.width,
+      height: resize.height,
+      time,
+    }
+  } catch (e) {
+    console.warn('[115m] seek error for time', time, e)
+    return null
+  }
+}
+
 export async function getVideoCovers(pickCode: string, duration: number, coverNum = 5): Promise<VideoThumbnail[]> {
   console.log('[115m] getVideoCovers 开始:', { pickCode, duration, coverNum })
 
@@ -78,47 +129,9 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
   const times = calculateTimes(duration, coverNum)
   console.log('[115m] 截取时间点:', times)
 
-  const results: VideoThumbnail[] = []
-
-  for (const t of times) {
-    try {
-      console.log('[115m] 正在 seek:', t, 's')
-      const result = await clipper.seek(t, true)
-      if (result) {
-        const resize = getImageResize(result.videoFrame.displayWidth, result.videoFrame.displayHeight, MAX_WIDTH, MAX_HEIGHT)
-        const canvas = new OffscreenCanvas(resize.width, resize.height)
-        const ctx = canvas.getContext('2d')
-
-        if (ctx) {
-          ctx.drawImage(
-            await createImageBitmap(result.videoFrame, {
-              resizeQuality: 'pixelated', 
-              resizeWidth: resize.width, 
-              resizeHeight: resize.height
-            }), 
-            0, 0, resize.width, resize.height
-          )
-          const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 })
-          const base64Url = await new Promise<string>((resolve) => {
-            const reader = new FileReader()
-            reader.onloadend = () => resolve(reader.result as string)
-            reader.readAsDataURL(blob)
-          })
-
-          results.push({
-            imgUrl: base64Url,
-            width: resize.width,
-            height: resize.height,
-            time: t
-          })
-          console.log('[115m] 封面截取成功:', t, 's, 尺寸:', resize.width, 'x', resize.height)
-        }
-        result.videoFrame.close()
-      }
-    } catch (e) {
-      console.warn('[115m] seek error for time', t, e)
-    }
-  }
+  // 并行解码所有帧
+  const promises = times.map(time => generateSingleCover(clipper, time))
+  const results = (await Promise.all(promises)).filter((r): r is VideoThumbnail => r !== null)
 
   clipper.destroy()
   console.log('[115m] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
@@ -127,7 +140,20 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
     memoryCoverCache.set(CACHE_KEY, results)
     try {
       if (storageArea) {
-        await storageArea.set({ [CACHE_KEY]: results })
+        // Blob URL 无法序列化到 storage，需要转换为 base64
+        const storableResults = await Promise.all(
+          results.map(async (r) => {
+            const response = await fetch(r.imgUrl)
+            const blob = await response.blob()
+            const base64 = await new Promise<string>((resolve) => {
+              const reader = new FileReader()
+              reader.onloadend = () => resolve(reader.result as string)
+              reader.readAsDataURL(blob)
+            })
+            return { ...r, imgUrl: base64 }
+          })
+        )
+        await storageArea.set({ [CACHE_KEY]: storableResults })
         console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
       }
     } catch (e) {
