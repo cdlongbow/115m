@@ -169,6 +169,8 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
       return { success: true }
     }
 
+
+
     case 'FETCH_M3U8': {
       try {
         // 直接使用 fetch，避免动态导入在 Service Worker 中的问题

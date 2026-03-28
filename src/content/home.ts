@@ -1,6 +1,7 @@
 import homeCss from './home.css?inline'
 import { extractFileInfo } from './core/extractors'
 import { openPlayer } from './core/player-open'
+
 import { renderPreview } from './core/preview'
 import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
 

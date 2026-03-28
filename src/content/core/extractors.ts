@@ -1,4 +1,4 @@
-import type { FileInfo } from './core/types'
+import type { FileInfo } from './types'
 import { parseDuration } from './utils'
 
 function readAttr(item: HTMLElement, names: string[]): string {

@@ -82,6 +82,10 @@ export interface MsgFetchPlaylistResponse {
   error?: string
 }
 
+export interface MsgMoveSuccessRefresh {
+  type: 'MOVE_SUCCESS_REFRESH'
+}
+
 export type RuntimeMessage =
   | MsgSetCookie
   | MsgDownload
@@ -94,3 +98,4 @@ export type RuntimeMessage =
   | MsgFetchPlaylist
   | MsgMoveFile
   | MsgPing
+  | MsgMoveSuccessRefresh

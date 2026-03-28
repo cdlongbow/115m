@@ -7,9 +7,9 @@ console.log('[115m] player.ts loading...')
 import Artplayer from 'artplayer'
 import type HlsType from 'hls.js'
 import type { M3u8Item } from '../lib/types'
-import { buildArtplayerQuality, getQualityDisplayName } from './core/quality'
+import { buildArtplayerQuality, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
-import { loadPlayHistory } from './core/history'
+import { loadPlayHistory, loadQualityPreference, saveQualityPreference } from './core/history'
 import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { renderPlayerError } from './core/dom'
@@ -57,6 +57,7 @@ class PlayerManager {
   private initStartTs = 0
   private perfMarks: Partial<Record<'init' | 'ultraReady' | 'loadedmetadata' | 'canplay' | 'playing', number>> = {}
   private firstPlayingReported = false
+  private _initUrl = ''
   private cleanupKeyboard: (() => void) | null = null
 
   constructor(config: PlayerConfig) {
@@ -116,26 +117,44 @@ class PlayerManager {
       }
       await ensureServiceWorkerReady()
 
+      // 1. 先读取画质偏好（纯本地 localStorage，瞬间完成）
+      const qualityPref = await loadQualityPreference(this.currentPickCode)
+      console.log('[115m] init qualityPref:', this.currentPickCode, qualityPref)
+      const wantsHls = qualityPref && qualityPref.label !== '无损'
+      const wantsUltra = !qualityPref || qualityPref.label === '无损'
+
+      // 2. 按需获取源：HLS 总是获取（用于画质列表），无损仅在需要时获取
       if (loadingTextEl) {
-        loadingTextEl.textContent = '正在获取无损播放源...'
+        loadingTextEl.textContent = '正在获取播放源...'
       }
 
-      // 并行获取无损源和 HLS 源，为降级做准备
-      const [ultraSource, m3u8List] = await Promise.all([
-        fetchUltraSource(this.currentPickCode).catch((e) => {
-          console.warn('[115m] fetchUltraSource failed:', e)
-          return null
-        }),
-        fetchM3u8WithRetry(this.currentPickCode).catch((e) => {
+      const sourcesPromise: Promise<[any, M3u8Item[]]> = (() => {
+        const m3u8Promise = fetchM3u8WithRetry(this.currentPickCode).catch((e) => {
           console.warn('[115m] fetchM3u8WithRetry failed:', e)
-          return null
-        }),
-      ])
+          return null as unknown as M3u8Item[]
+        })
+
+        if (wantsUltra) {
+          // 需要无损：并行获取
+          const ultraPromise = fetchUltraSource(this.currentPickCode).catch((e) => {
+            console.warn('[115m] fetchUltraSource failed:', e)
+            return null
+          })
+          return Promise.all([ultraPromise, m3u8Promise])
+        }
+        else {
+          // 不需要无损：只获取 HLS，无损设为 null
+          return m3u8Promise.then(m3u8List => [null, m3u8List])
+        }
+      })()
+
+      const [ultraSource, m3u8List] = await sourcesPromise
 
       console.log('[115m] Source fetch result:', {
         ultraOk: !!ultraSource,
         m3u8Ok: !!m3u8List,
         m3u8Count: m3u8List?.length || 0,
+        qualityPref,
       })
 
       const ultraUrl = ultraSource?.url || null
@@ -149,24 +168,29 @@ class PlayerManager {
       this.perfMarks.ultraReady = performance.now()
       this.perf('ultra-source-ready', { ok: !!ultraUrl, m3u8Count: this.m3u8List.length })
 
-      if (ultraUrl) {
-        // 默认无损播放
-        this.isNativeVideo = true
-        this.currentQuality = 9999
-        this.currentQualityLabel = '无损'
-        this.createArtplayer(ultraUrl, 'native')
-        this.perf('create-player-native')
-      }
-      else if (this.m3u8List.length > 0) {
-        // Ultra 不可用，降级到 HLS
-        this.isNativeVideo = false
-        this.currentQuality = this.m3u8List[0].quality
-        this.currentQualityLabel = getQualityDisplayName(this.m3u8List[0].quality, true)
-        this.createArtplayer(this.m3u8List[0].url, 'hls')
-        this.perf('create-player-hls-fallback')
+      // 先构建画质选项列表
+      this.qualityOptions = this.buildQualityOptions(ultraUrl)
+
+      if (wantsHls) {
+        // 用户偏好非无损画质，直接用 HLS
+        const m3u8Match = this.m3u8List.find(
+          item => item.quality === qualityPref!.quality,
+        )
+        if (m3u8Match) {
+          this.isNativeVideo = false
+          this.currentQuality = m3u8Match.quality
+          this.currentQualityLabel = qualityPref!.label
+          this.createArtplayer(m3u8Match.url, 'hls')
+          this.perf('create-player-hls-pref')
+        }
+        else {
+          // 偏好的画质不可用，用 HLS 列表中最高画质
+          this.initWithDefaultQuality(ultraUrl)
+        }
       }
       else {
-        throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
+        // 无偏好记录 或 偏好无损
+        this.initWithDefaultQuality(ultraUrl)
       }
 
       const currentUrl = this.artplayer?.url || ''
@@ -201,6 +225,77 @@ class PlayerManager {
     return list
   }
 
+  /**
+   * 构建画质选项列表
+   */
+  private buildQualityOptions(ultraUrl: string | null): QualityOption[] {
+    const options: QualityOption[] = []
+
+    if (ultraUrl) {
+      options.push({ label: '无损', quality: 9999, url: ultraUrl })
+    }
+
+    // 找 115 原画（m3u8 中 quality=9999 的）或取最高画质
+    const original = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
+    if (original) {
+      options.push({ label: '115原画', quality: 9999, url: original.url })
+    }
+    else if (ultraUrl) {
+      options.push({ label: '115原画', quality: 9999, url: ORIGINAL_PLACEHOLDER_URL })
+    }
+
+    // 添加其他画质选项
+    const existingQualities = new Set(options.map(o => o.quality))
+    for (const item of this.m3u8List) {
+      if (!existingQualities.has(item.quality)) {
+        options.push({
+          label: getQualityDisplayName(item.quality, true),
+          quality: item.quality,
+          url: item.url,
+        })
+        existingQualities.add(item.quality)
+      }
+    }
+
+    // 去重（按 URL）
+    const dedup = new Map<string, QualityOption>()
+    options.forEach(opt => {
+      if (!dedup.has(opt.url)) dedup.set(opt.url, opt)
+    })
+
+    return Array.from(dedup.values()).sort((a, b) => {
+      const rank = (label: string, quality: number) => {
+        if (label === '无损') return 10000
+        if (label === '115原画') return 9999
+        return quality
+      }
+      return rank(b.label, b.quality) - rank(a.label, a.quality)
+    })
+  }
+
+  /**
+   * 默认画质初始化逻辑（无损优先，降级 HLS）
+   */
+  private initWithDefaultQuality(ultraUrl: string | null) {
+    if (ultraUrl) {
+      this.isNativeVideo = true
+      this.currentQuality = 9999
+      this.currentQualityLabel = '无损'
+      this.createArtplayer(ultraUrl, 'native')
+      this.perf('create-player-native')
+    }
+    else if (this.m3u8List.length > 0) {
+      this.isNativeVideo = false
+      this.currentQuality = this.m3u8List[0].quality
+      this.currentQualityLabel = getQualityDisplayName(this.m3u8List[0].quality, true)
+      this.createArtplayer(this.m3u8List[0].url, 'hls')
+      this.perf('create-player-hls-fallback')
+    }
+    else {
+      throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
+    }
+  }
+
   private async initHls(video: HTMLVideoElement, url: string): Promise<HlsType> {
     const hls = await createHlsInstance(video, url)
     this.hlsInstance = hls
@@ -210,6 +305,9 @@ class PlayerManager {
   private createArtplayer(videoUrl: string, type: 'native' | 'hls') {
     const container = document.getElementById('artplayer-app')
     if (!container) throw new Error('找不到播放器容器')
+
+    // 记录初始 URL，用于区分初始化和用户手动切换
+    this._initUrl = videoUrl
 
     this.refreshQualityState(videoUrl)
 
@@ -234,6 +332,35 @@ class PlayerManager {
       contextmenu: [],
       customType: {
         m3u8: async (video, url) => {
+          if (url === ORIGINAL_PLACEHOLDER_URL) {
+            saveQualityPreference(this.currentPickCode, '115原画', 9999)
+            // 立即更新内部状态，以便后续 UI 同步正常工作
+            const opt = this.qualityOptions.find(o => o.url === url)
+            if (opt) {
+              this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
+              this.updateQualityButton()
+              this.renderQualityPanel()
+            }
+
+            const resolvedUrl = await this.ensureOriginalSourceLoaded()
+            if (!resolvedUrl) {
+              this.showError('115原画加载失败，请稍后重试')
+              return
+            }
+            url = resolvedUrl
+          }
+          else {
+            const opt = this.qualityOptions.find(o => o.url === url)
+            if (opt && this.perfMarks.loadedmetadata) {
+              // 只有在非首次加载的切换时才记录（通过 loadedmetadata 标记判断）
+              saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
+              // 更新应用状态并同步UI
+              this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
+              this.updateQualityButton()
+              this.renderQualityPanel()
+            }
+          }
+
           if (this.artplayer && await isHlsSupported()) {
             await this.initHls(video as HTMLVideoElement, url)
           }
@@ -247,6 +374,17 @@ class PlayerManager {
     // Don't use ArtPlayer's fullscreenWeb — it uses position:fixed + moves to body,
     // which covers #playlist-sidebar. Instead the player fills its flex container naturally.
     Artplayer.FULLSCREEN_WEB_IN_BODY = false
+
+    this.artplayer.on('restart', (url) => {
+      if (typeof url !== 'string' || url === ORIGINAL_PLACEHOLDER_URL) return
+      const opt = this.qualityOptions.find(o => o.url === url)
+      if (opt && this.perfMarks.loadedmetadata) {
+        saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
+        this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
+        this.updateQualityButton()
+        this.renderQualityPanel()
+      }
+    })
 
     if (type === 'native') {
       this.currentQuality = 9999
@@ -369,6 +507,9 @@ class PlayerManager {
     this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
     this.updateQualityButton()
     this.renderQualityPanel()
+
+    // 记住用户手动选择的画质
+    saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
 
     this.artplayer.switchUrl(opt.url)
     this.artplayer.once('video:loadedmetadata', () => {

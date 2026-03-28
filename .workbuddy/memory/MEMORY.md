@@ -98,6 +98,7 @@ pnpm zip
 - 版号文件：package.json + manifest.json 同步更新
 - 用户要求：正向反馈或完成功能时，主动升版号、更新文档、提交 git
 - 用户要求：每次修改代码后，主动执行 `pnpm build` 构建并确认结果
+- 画质记忆（按视频）优先在播放器页使用 `localStorage` 保存 `pickCode -> { label, quality }`；不要优先依赖 Service Worker runtime 消息链做偏好存取，冷启动时不稳定
 
 
 ## 新增功能 (v1.0.29)

@@ -96,12 +96,12 @@ export class Scheduler {
 
     try {
       const result = await taskItem.execute()
-      if (taskItem.status !== TaskStatus.Cancelled) {
+      if ((taskItem.status as TaskStatus) !== TaskStatus.Cancelled) {
         taskItem.status = TaskStatus.Completed
         ;(taskItem.resolve as (value: unknown) => void)(result)
       }
     } catch (error) {
-      if (taskItem.status !== TaskStatus.Cancelled) {
+      if ((taskItem.status as TaskStatus) !== TaskStatus.Cancelled) {
         ;(taskItem.reject as (reason: Error) => void)(error as Error)
       }
     } finally {

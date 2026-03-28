@@ -33,11 +33,11 @@ export async function sendRuntimeMessageSafe<T = unknown>(
   for (let i = 0; i <= retries; i++) {
     try {
       const result = await chrome.runtime.sendMessage(message) as T
-      if (result !== undefined && result !== null) {
+      if (result !== undefined) {
         return result
       }
-      // result 为 null/undefined 也重试
-      console.warn('[115m] sendMessage got null, retrying...', i)
+      // result 为 undefined 时重试（可能由于 Service Worker 尚未就绪导致没有响应）
+      console.warn('[115m] sendMessage got undefined, retrying...', i)
     }
     catch (e) {
       console.warn('[115m] sendMessage error, retrying...', i, e)
