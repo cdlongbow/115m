@@ -145,6 +145,11 @@ export class PlayerOverlayController {
     this.renderBreadcrumbs(items)
   }
 
+  updateFavoriteStatus(isMarked: boolean) {
+    this.options.meta.isMarked = isMarked
+    this.updateFavoriteIcon()
+  }
+
   private renderBreadcrumbs(items: OverlayPathItem[]) {
     if (!this.breadcrumbsEl) return
     if (items.length === 0) {
@@ -421,6 +426,8 @@ export class PlayerOverlayController {
     })
     this.favBtnEl = favBtn
     this.moveBtnEl = moveBtn
+    // 初始状态设为未收藏，避免闪烁（等 API 返回后更新）
+    this.options.meta.isMarked = false
     this.updateFavoriteIcon()
 
     pillGroup.appendChild(moveBtn)

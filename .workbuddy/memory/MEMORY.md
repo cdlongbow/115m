@@ -46,6 +46,35 @@
 - `src/player/player.ts`: `fetchPlaylistItems()` 和 `fetchBreadcrumbs()` 都传入 `pickCode` 作为降级方案
 - `src/player/core/overlay.ts`: `mountSidebarContent` 增加二次查找 sidebar 的 fallback，添加调试日志
 
+### 无损播放失败不降级 (v1.0.33)
+**根因**: 初始化时只获取无损源或 HLS 源之一，不会同时获取。当无损源返回 URL 但实际无效（如过期、需特殊认证），播放失败时 `m3u8List` 为空，导致无法降级。
+
+**修复**:
+- `src/player/player.ts`: `init()` 改用 `Promise.all` 并行获取无损源和 HLS 源，确保 `m3u8List` 始终可用
+- `fallbackToHls()` 增加详细日志，便于排查降级流程
+- `ensureOriginalSourceLoaded()` 逻辑正确，能在用户手动切换"115原画"时重新获取 m3u8
+
+### 设置面板点击触发播放/暂停 (v1.0.33)
+**根因**: `isInteractiveTarget` 缺少 ArtPlayer 设置面板的选择器。
+**修复**: 添加 `.art-settings, .art-setting-item, .art-settings-body` 选择器。
+
+### 画质切换点击触发播放/暂停 (v1.0.33)
+**根因**: `isInteractiveTarget` 使用了错误的 CSS 选择器 `.art-quality`，ArtPlayer 实际使用的是 `.art-selector` 组件。
+**修复**: 改为 `.art-selector, .art-selector-item, .art-qualitys, .art-quality-item` 选择器（兼容不同版本）。
+
+### 其他潜在交互问题预防 (v1.0.33)
+**检查**: 查阅 ArtPlayer CSS 源码，补充了所有可能的交互组件选择器：
+- 设置面板：`.art-settings, .art-setting, .art-setting-item, .art-setting-inner, .art-setting-body, .art-setting-radio, .art-radio-item, .art-setting-range, .art-setting-checkbox`
+- 通知/信息：`.art-notice, .art-info, .art-info-item, .art-info-close`
+
+### 收藏状态不准确 (v1.0.33)
+**根因**: 收藏状态从 URL 参数获取，而 URL 参数来自文件列表页 DOM 提取。用户取消收藏后，115 页面 DOM 可能没有更新，再次打开视频时状态还是旧的。
+**修复**: 
+- `src/player/player.ts`: 添加 `fetchFileFavoriteStatus()` 方法，通过 API 获取最新收藏状态
+- `src/player/core/overlay.ts`: 添加 `updateFavoriteStatus()` 方法，异步更新收藏图标
+- 使用 `/files/video` API（GET 请求），返回的 `is_mark` 字段是字符串类型 `'1'` 或 `'0'`
+- 添加 `MAIN_WORLD_GET` 消息类型，用于执行 GET 请求（原来的 `MAIN_WORLD_FETCH` 只支持 POST）
+
 ## 构建命令
 pnpm build
 pnpm zip

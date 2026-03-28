@@ -111,13 +111,22 @@ class PlayerManager {
         loadingTextEl.textContent = '正在获取无损播放源...'
       }
 
-      const ultraSource = await fetchUltraSource(this.currentPickCode).catch(() => null)
+      // 并行获取无损源和 HLS 源，为降级做准备
+      const [ultraSource, m3u8List] = await Promise.all([
+        fetchUltraSource(this.currentPickCode).catch(() => null),
+        fetchM3u8WithRetry(this.currentPickCode).catch(() => null),
+      ])
+
       const ultraUrl = ultraSource?.url || null
       if (ultraSource?.ultraUrl) {
         this.ultraUrl = ultraSource.ultraUrl
       }
+      if (m3u8List && m3u8List.length > 0) {
+        this.m3u8List = m3u8List
+      }
+
       this.perfMarks.ultraReady = performance.now()
-      this.perf('ultra-source-ready', { ok: !!ultraUrl })
+      this.perf('ultra-source-ready', { ok: !!ultraUrl, m3u8Count: this.m3u8List.length })
 
       if (ultraUrl) {
         // 默认无损播放
@@ -127,19 +136,16 @@ class PlayerManager {
         this.createArtplayer(ultraUrl, 'native')
         this.perf('create-player-native')
       }
-      else {
+      else if (this.m3u8List.length > 0) {
         // Ultra 不可用，降级到 HLS
-        const m3u8List = await this.fetchM3u8WithRetry().catch(() => null)
-        if (m3u8List && m3u8List.length > 0) {
-          this.isNativeVideo = false
-          this.currentQuality = m3u8List[0].quality
-          this.currentQualityLabel = getQualityDisplayName(m3u8List[0].quality, true)
-          this.createArtplayer(m3u8List[0].url, 'hls')
-          this.perf('create-player-hls-fallback')
-        }
-        else {
-          throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
-        }
+        this.isNativeVideo = false
+        this.currentQuality = this.m3u8List[0].quality
+        this.currentQualityLabel = getQualityDisplayName(this.m3u8List[0].quality, true)
+        this.createArtplayer(this.m3u8List[0].url, 'hls')
+        this.perf('create-player-hls-fallback')
+      }
+      else {
+        throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
       }
 
       const currentUrl = this.artplayer?.url || ''
@@ -356,9 +362,10 @@ class PlayerManager {
   private setupTopNav() {
     if (!this.artplayer) return
     this.overlay?.destroy()
+    const meta = readOverlayMetaFromQuery()
     this.overlay = new PlayerOverlayController({
       art: this.artplayer,
-      meta: readOverlayMetaFromQuery(),
+      meta,
       onMoveFile: async (fileId, cid) => await this.moveFile(fileId, cid),
       onToggleFavorite: async (fileId, nextMarked) => await this.toggleFavorite(fileId, nextMarked),
       onPlaylistToggle: async open => open ? await this.fetchPlaylistItems() : [],
@@ -370,6 +377,30 @@ class PlayerManager {
       getCurrentPickCode: () => this.currentPickCode,
     })
     this.overlay.init()
+    // 异步获取最新的收藏状态
+    if (meta.fileId) {
+      void this.fetchFileFavoriteStatus(meta.fileId)
+    }
+  }
+
+  private async fetchFileFavoriteStatus(fileId: string): Promise<void> {
+    try {
+      // 使用 /files/video API 获取文件信息（包含 is_mark 字段）
+      // 注意：这个 API 使用 GET 请求，参数放在 URL 中
+      const url = `${WEB_API_URL}/files/video?pickcode=${encodeURIComponent(this.currentPickCode)}&share_id=0&local=1`
+      const res = await sendRuntimeMessageSafe<{ ok?: boolean, text?: string }>({
+        type: 'MAIN_WORLD_GET',
+        data: { url },
+      })
+
+      if (res?.ok && res.text) {
+        const parsed = JSON.parse(res.text) as { is_mark?: string }
+        // is_mark 是字符串 '1'（已收藏）或 '0'（未收藏）
+        this.overlay?.updateFavoriteStatus(parsed.is_mark === '1')
+      }
+    } catch (e) {
+      console.warn('[115m] fetchFileFavoriteStatus failed:', e)
+    }
   }
 
   private setupProgressHoverPreview() {
@@ -415,16 +446,27 @@ class PlayerManager {
 
 
   private async fallbackToHls() {
+    console.log('[115m] fallbackToHls triggered, current m3u8List length:', this.m3u8List.length)
+    
     if (!this.artplayer) {
       this.showError('播放失败，无可用的视频源')
       return
     }
 
+    // 确保有 m3u8 列表
     if (this.m3u8List.length === 0) {
-      this.m3u8List = await fetchM3u8WithRetry(this.currentPickCode).catch(() => this.m3u8List)
+      console.log('[115m] m3u8List empty, fetching...')
+      const fetched = await fetchM3u8WithRetry(this.currentPickCode).catch((e) => {
+        console.error('[115m] fetchM3u8WithRetry failed:', e)
+        return null
+      })
+      if (fetched && fetched.length > 0) {
+        this.m3u8List = fetched
+      }
     }
 
     if (this.m3u8List.length === 0) {
+      console.error('[115m] fallbackToHls: no m3u8 sources available')
       this.showError('播放失败，无可用的视频源')
       return
     }
@@ -435,6 +477,8 @@ class PlayerManager {
       this.showError('播放失败，无可用的视频源')
       return
     }
+    
+    console.log('[115m] fallbackToHls: switching to', bestQualityUrl.substring(0, 80) + '...')
     this.updateQualityButton()
     this.renderQualityPanel()
     this.artplayer.switchUrl(bestQualityUrl)
@@ -539,6 +583,7 @@ class PlayerManager {
     if (!fileId) return !nextMarked
 
     const body = `file_id=${encodeURIComponent(fileId)}&star=${nextMarked ? '1' : '0'}`
+
     const res = await sendRuntimeMessageSafe<{ ok?: boolean, text?: string }>({
       type: 'MAIN_WORLD_FETCH',
       data: {
@@ -549,7 +594,9 @@ class PlayerManager {
 
     try {
       const parsed = res?.text ? JSON.parse(res.text) as { state?: boolean } : null
-      if (res?.ok && parsed?.state !== false) {
+
+      // API 返回 { state: true } 表示成功
+      if (res?.ok && parsed?.state === true) {
         const params = new URLSearchParams(window.location.search)
         params.set('marked', nextMarked ? '1' : '0')
         window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)

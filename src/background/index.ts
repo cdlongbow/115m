@@ -94,6 +94,48 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
       }
     }
 
+    case 'MAIN_WORLD_GET': {
+      // 通过 executeScript 在页面主世界执行 GET 请求
+      let tabId = sender?.tab?.id
+      if (!tabId) {
+        const tabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
+        tabId = tabs[0]?.id
+      }
+      if (!tabId) {
+        return { ok: false, error: 'no 115.com tab found' }
+      }
+
+      try {
+        const injected = await chrome.scripting.executeScript({
+          target: { tabId },
+          world: 'MAIN',
+          func: async (url: string) => {
+            try {
+              const res = await fetch(url, {
+                method: 'GET',
+                credentials: 'include',
+              })
+              const text = await res.text()
+              return { ok: res.ok, status: res.status, text }
+            }
+            catch (error) {
+              return { ok: false, status: 0, text: '', error: String(error) }
+            }
+          },
+          args: [message.data.url],
+        })
+
+        const result = injected?.[0]?.result as { ok: boolean, text: string, error?: string } | undefined
+        if (!result) {
+          return { ok: false, error: 'executeScript returned empty' }
+        }
+        return result
+      }
+      catch (error) {
+        return { ok: false, error: String(error) }
+      }
+    }
+
     case 'OPEN_TAB': {
       const now = Date.now()
       if (lastOpenTabMeta && lastOpenTabMeta.url === message.url && now - lastOpenTabMeta.ts < 2500) {

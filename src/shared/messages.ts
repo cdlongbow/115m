@@ -53,6 +53,11 @@ export interface MsgMainWorldFetch {
   data: { url: string, body: string }
 }
 
+export interface MsgMainWorldGet {
+  type: 'MAIN_WORLD_GET'
+  data: { url: string }
+}
+
 export interface MsgFetchPlaylist {
   type: 'FETCH_PLAYLIST'
   data: { cid: string, pickCode?: string }
@@ -81,5 +86,6 @@ export type RuntimeMessage =
   | MsgOpenTab
   | MsgFetchM3u8
   | MsgMainWorldFetch
+  | MsgMainWorldGet
   | MsgFetchPlaylist
   | MsgMoveFile

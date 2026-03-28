@@ -73,9 +73,17 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
   const isInteractiveTarget = (target: EventTarget | null): boolean => {
     if (!target || !(target instanceof Element)) return false
     // 按钮、输入框、链接、滑块等具体交互元素
-    if (target.closest('button, a, input, [role="button"], .art-setting, .art-contextmenus')) return true
+    if (target.closest('button, a, input, [role="button"]')) return true
+    // ArtPlayer 设置面板（播放速度、画面比例、画面旋转等）
+    if (target.closest('.art-settings, .art-setting, .art-setting-item, .art-setting-inner, .art-setting-body, .art-setting-radio, .art-radio-item, .art-setting-range, .art-setting-checkbox')) return true
+    // ArtPlayer 画质/字幕选择面板（两种类名都兼容）
+    if (target.closest('.art-selector, .art-selector-item, .art-qualitys, .art-quality-item')) return true
+    // ArtPlayer 通知提示、信息面板
+    if (target.closest('.art-notice, .art-info, .art-info-item, .art-info-close')) return true
     // ArtPlayer 音量面板和滑块
     if (target.closest('.art-volume-panel, .art-volume-slider, .art-volume-handle, .art-volume-indicator')) return true
+    // ArtPlayer 右键菜单
+    if (target.closest('.art-contextmenus, .art-contextmenu')) return true
     // SVG 图标（音量、全屏、设置等）的父元素是控件容器
     if (target instanceof SVGElement) {
       // SVG 图标本身是可点击的控件
@@ -96,6 +104,14 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
    */
   const handleRootClick = (event: MouseEvent) => {
     const target = event.target
+    
+    // 如果右键菜单正在显示，点击任意位置都关闭菜单，不触发播放/暂停
+    if (art.contextmenu.show) {
+      art.contextmenu.show = false
+      event.stopImmediatePropagation()
+      return
+    }
+    
     // 交互控件区域 → 不处理，让 ArtPlayer 自己处理
     if (isInteractiveTarget(target)) return
     // 其他所有区域（包括 video、poster、mask、controls 空白处、header 空白处）→ toggle 播放
