@@ -160,10 +160,40 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
 
     case 'MOVE_SUCCESS_REFRESH': {
       // 收到移动成功消息后，广播给所有播放器页面
-      const tabs = await chrome.tabs.query({ url: '*://*.115.com/web/lixian/master/video/*' })
-      for (const tab of tabs) {
+      const playerTabs = await chrome.tabs.query({ url: '*://*.115.com/web/lixian/master/video/*' })
+      for (const tab of playerTabs) {
         if (tab.id) {
           chrome.tabs.sendMessage(tab.id, { type: 'MOVE_SUCCESS_REFRESH' }).catch(() => {})
+        }
+      }
+
+      // 同步刷新所有115网盘列表页面（非播放器页面）
+      const allTabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
+      for (const tab of allTabs) {
+        if (tab.id && !playerTabs.some(pt => pt.id === tab.id)) {
+          // 在115主世界中触发刷新列表，不影响面包屑导航
+          try {
+            await chrome.scripting.executeScript({
+              target: { tabId: tab.id },
+              world: 'MAIN',
+              func: () => {
+                try {
+                  // 寻找包含文件列表的 iframe (wangpan)
+                  const frame = document.querySelector('iframe[name="wangpan"]') as HTMLIFrameElement | null;
+                  const win = frame ? (frame.contentWindow as any) : (window as any);
+                  if (win && win.Core && win.Core.FileConfig && win.Core.FileConfig.DataAPI && win.Core.FileConfig.DataAPI.Refresh) {
+                    win.Core.FileConfig.DataAPI.Refresh();
+                  } else if ((window as any).Core && (window as any).Core.FileConfig && (window as any).Core.FileConfig.DataAPI && (window as any).Core.FileConfig.DataAPI.Refresh) {
+                    (window as any).Core.FileConfig.DataAPI.Refresh();
+                  }
+                } catch (e) {
+                  console.log('[115m] trigger refresh failed:', e);
+                }
+              }
+            });
+          } catch (e) {
+            console.log('[115m] executeScript refresh failed:', e);
+          }
         }
       }
       return { success: true }
