@@ -7,7 +7,7 @@ console.log('[115m] player.ts loading...')
 import Artplayer from 'artplayer'
 import type HlsType from 'hls.js'
 import type { M3u8Item } from '../lib/types'
-import { buildArtplayerQuality, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
+import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
 import { loadPlayHistory, loadQualityPreference, saveQualityPreference } from './core/history'
 import type { QualityOption } from './core/types'
@@ -121,34 +121,23 @@ class PlayerManager {
       const qualityPref = await loadQualityPreference(this.currentPickCode)
       console.log('[115m] init qualityPref:', this.currentPickCode, qualityPref)
       const wantsHls = qualityPref && qualityPref.label !== '无损'
-      const wantsUltra = !qualityPref || qualityPref.label === '无损'
 
-      // 2. 按需获取源：HLS 总是获取（用于画质列表），无损仅在需要时获取
+      // 2. 获取播放源（总是并行获取 HLS 和无损源，以确保画质列表完整）
       if (loadingTextEl) {
         loadingTextEl.textContent = '正在获取播放源...'
       }
 
-      const sourcesPromise: Promise<[any, M3u8Item[]]> = (() => {
-        const m3u8Promise = fetchM3u8WithRetry(this.currentPickCode).catch((e) => {
-          console.warn('[115m] fetchM3u8WithRetry failed:', e)
-          return null as unknown as M3u8Item[]
-        })
+      const m3u8Promise = fetchM3u8WithRetry(this.currentPickCode).catch((e) => {
+        console.warn('[115m] fetchM3u8WithRetry failed:', e)
+        return null as unknown as M3u8Item[]
+      })
 
-        if (wantsUltra) {
-          // 需要无损：并行获取
-          const ultraPromise = fetchUltraSource(this.currentPickCode).catch((e) => {
-            console.warn('[115m] fetchUltraSource failed:', e)
-            return null
-          })
-          return Promise.all([ultraPromise, m3u8Promise])
-        }
-        else {
-          // 不需要无损：只获取 HLS，无损设为 null
-          return m3u8Promise.then(m3u8List => [null, m3u8List])
-        }
-      })()
+      const ultraPromise = fetchUltraSource(this.currentPickCode).catch((e) => {
+        console.warn('[115m] fetchUltraSource failed:', e)
+        return null
+      })
 
-      const [ultraSource, m3u8List] = await sourcesPromise
+      const [ultraSource, m3u8List] = await Promise.all([ultraPromise, m3u8Promise])
 
       console.log('[115m] Source fetch result:', {
         ultraOk: !!ultraSource,
@@ -156,7 +145,6 @@ class PlayerManager {
         m3u8Count: m3u8List?.length || 0,
         qualityPref,
       })
-
       const ultraUrl = ultraSource?.url || null
       if (ultraSource?.ultraUrl) {
         this.ultraUrl = ultraSource.ultraUrl
@@ -169,27 +157,49 @@ class PlayerManager {
       this.perf('ultra-source-ready', { ok: !!ultraUrl, m3u8Count: this.m3u8List.length })
 
       // 先构建画质选项列表
-      this.qualityOptions = this.buildQualityOptions(ultraUrl)
+      this.qualityOptions = buildQualityOptions(
+        '', // 初始化时还没有播放器 URL
+        ultraUrl,
+        this.m3u8List,
+        this.currentQuality,
+        this.currentQualityLabel,
+      )
 
-      if (wantsHls) {
-        // 用户偏好非无损画质，直接用 HLS
-        const m3u8Match = this.m3u8List.find(
-          item => item.quality === qualityPref!.quality,
-        )
-        if (m3u8Match) {
-          this.isNativeVideo = false
-          this.currentQuality = m3u8Match.quality
-          this.currentQualityLabel = qualityPref!.label
-          this.createArtplayer(m3u8Match.url, 'hls')
-          this.perf('create-player-hls-pref')
+      if (qualityPref) {
+        console.log('[115m] init applying qualityPref:', qualityPref)
+        if (qualityPref.label === '无损' && ultraUrl) {
+          // 偏好无损
+          this.isNativeVideo = true
+          this.currentQuality = 9999
+          this.currentQualityLabel = '无损'
+          this.createArtplayer(ultraUrl, 'native')
+          this.perf('create-player-ultra-pref')
         }
         else {
-          // 偏好的画质不可用，用 HLS 列表中最高画质
-          this.initWithDefaultQuality(ultraUrl)
+          // 偏好 HLS 画质（115原画、1080P等）
+          let m3u8Match: M3u8Item | undefined
+          if (qualityPref.label === '115原画') {
+            m3u8Match = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
+          }
+          else {
+            m3u8Match = this.m3u8List.find(item => item.quality === qualityPref.quality)
+          }
+
+          if (m3u8Match) {
+            this.isNativeVideo = false
+            this.currentQuality = m3u8Match.quality
+            this.currentQualityLabel = qualityPref.label
+            this.createArtplayer(m3u8Match.url, 'hls')
+            this.perf('create-player-hls-pref', { label: qualityPref.label })
+          }
+          else {
+            console.warn('[115m] qualityPref match failed, fallback to default', qualityPref)
+            this.initWithDefaultQuality(ultraUrl)
+          }
         }
       }
       else {
-        // 无偏好记录 或 偏好无损
+        // 无偏好记录
         this.initWithDefaultQuality(ultraUrl)
       }
 
@@ -225,53 +235,6 @@ class PlayerManager {
     return list
   }
 
-  /**
-   * 构建画质选项列表
-   */
-  private buildQualityOptions(ultraUrl: string | null): QualityOption[] {
-    const options: QualityOption[] = []
-
-    if (ultraUrl) {
-      options.push({ label: '无损', quality: 9999, url: ultraUrl })
-    }
-
-    // 找 115 原画（m3u8 中 quality=9999 的）或取最高画质
-    const original = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
-    if (original) {
-      options.push({ label: '115原画', quality: 9999, url: original.url })
-    }
-    else if (ultraUrl) {
-      options.push({ label: '115原画', quality: 9999, url: ORIGINAL_PLACEHOLDER_URL })
-    }
-
-    // 添加其他画质选项
-    const existingQualities = new Set(options.map(o => o.quality))
-    for (const item of this.m3u8List) {
-      if (!existingQualities.has(item.quality)) {
-        options.push({
-          label: getQualityDisplayName(item.quality, true),
-          quality: item.quality,
-          url: item.url,
-        })
-        existingQualities.add(item.quality)
-      }
-    }
-
-    // 去重（按 URL）
-    const dedup = new Map<string, QualityOption>()
-    options.forEach(opt => {
-      if (!dedup.has(opt.url)) dedup.set(opt.url, opt)
-    })
-
-    return Array.from(dedup.values()).sort((a, b) => {
-      const rank = (label: string, quality: number) => {
-        if (label === '无损') return 10000
-        if (label === '115原画') return 9999
-        return quality
-      }
-      return rank(b.label, b.quality) - rank(a.label, a.quality)
-    })
-  }
 
   /**
    * 默认画质初始化逻辑（无损优先，降级 HLS）
@@ -351,10 +314,11 @@ class PlayerManager {
           }
           else {
             const opt = this.qualityOptions.find(o => o.url === url)
-            if (opt && this.perfMarks.loadedmetadata) {
-              // 只有在非首次加载的切换时才记录（通过 loadedmetadata 标记判断）
-              saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
-              // 更新应用状态并同步UI
+            if (opt) {
+              // 只要是手动切换（非首次加载且已就绪），就记录偏好
+              if (this.perfMarks.loadedmetadata) {
+                saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
+              }
               this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
               this.updateQualityButton()
               this.renderQualityPanel()
@@ -379,6 +343,18 @@ class PlayerManager {
       if (typeof url !== 'string' || url === ORIGINAL_PLACEHOLDER_URL) return
       const opt = this.qualityOptions.find(o => o.url === url)
       if (opt && this.perfMarks.loadedmetadata) {
+        saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
+        this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
+        this.updateQualityButton()
+        this.renderQualityPanel()
+      }
+    })
+
+    // 监听画质插件的切换事件（更可靠地捕获手动选择）
+    this.artplayer.on('quality' as any, (opt: any) => {
+      // 仅在初始加载完成（loadedmetadata 有值）后的切换才认定为手动选择，并记录偏好
+      if (opt && opt.label && this.perfMarks.loadedmetadata) {
+        console.log('[115m] Artplayer quality manual switch:', opt.label)
         saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
         this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
         this.updateQualityButton()

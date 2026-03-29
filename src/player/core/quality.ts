@@ -48,6 +48,19 @@ export function buildQualityOptions(
     })
   }
 
+  // 添加 HLS 列表中的其他画质
+  const existingQualities = new Set(options.map(o => o.quality))
+  m3u8List.forEach((item) => {
+    if (!existingQualities.has(item.quality)) {
+      options.push({
+        label: getQualityDisplayName(item.quality, true),
+        quality: item.quality,
+        url: item.url,
+      })
+      existingQualities.add(item.quality)
+    }
+  })
+
   if (options.length === 0 && currentUrl) {
     options.push({
       label: currentQualityLabel,
@@ -78,13 +91,10 @@ export function buildArtplayerQuality(
   currentUrl: string,
   currentQualityLabel: string,
 ): { html: string, url: string, default: boolean }[] {
-  const placeholderSelected = currentQualityLabel === '115原画'
-
+  // 优先通过当前的画质标签来匹配默认项，这是最准确的（尤其是在 115原画 和 无损 之间区分）
   return qualityOptions.map(opt => ({
     html: opt.label,
     url: opt.url,
-    default: opt.url === ORIGINAL_PLACEHOLDER_URL
-      ? placeholderSelected
-      : (!placeholderSelected && currentUrl === opt.url),
+    default: opt.label === currentQualityLabel,
   }))
 }

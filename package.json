@@ -1,6 +1,7 @@
 {
-  "name": "115m-extension",
-  "version": "1.1.4",
+  "manifest_version": 3,
+  "name": "115m",
+  "version": "1.1.5",
   "private": true,
   "type": "module",
   "scripts": {
