@@ -79,6 +79,13 @@ function createLightboxController(doc: Document): LightboxController {
     close()
   })
 
+  lightbox.addEventListener('click', (event) => {
+    // 点击灯箱背景区域（图片以外）也关闭
+    if (event.target === lightbox) {
+      close()
+    }
+  })
+
   lightbox.addEventListener('wheel', (event) => {
     event.preventDefault()
     if (wheelLock) return
