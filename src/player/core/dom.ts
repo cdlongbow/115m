@@ -71,7 +71,7 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
     'transform:translateX(-50%)',
     'display:none',
     'pointer-events:none',
-    'z-index:5',
+    'z-index:70',
     'background:rgba(0,0,0,.78)',
     'border:1px solid rgba(255,255,255,.22)',
     'border-radius:8px',

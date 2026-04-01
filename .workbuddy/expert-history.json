@@ -8,7 +8,7 @@
         "profession": "高级开发工程师",
         "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/SeniorDeveloper/SeniorDeveloper.png",
         "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/SeniorDeveloper/SeniorDeveloper_zh.md",
-        "usedAt": 1774705181680,
+        "usedAt": 1774858831423,
         "industryId": "02-Engineering"
       },
       {
@@ -20,7 +20,18 @@
         "usedAt": 1774680791904,
         "industryId": "02-Engineering"
       }
+    ],
+    "af0fd2cec5bb46f6869fe85af1aacbf6": [
+      {
+        "expertId": "SeniorDeveloper",
+        "name": "Will",
+        "profession": "高级开发工程师",
+        "avatarUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/avatars/02-Engineering/SeniorDeveloper/SeniorDeveloper.png",
+        "promptUrl": "https://acc-1258344699.cos.accelerate.myqcloud.com/workbuddy/experts/experts/02-Engineering/SeniorDeveloper/SeniorDeveloper_zh.md",
+        "usedAt": 1774859836347,
+        "industryId": "02-Engineering"
+      }
     ]
   },
-  "lastUpdated": 1774709422190
+  "lastUpdated": 1774860082251
 }
