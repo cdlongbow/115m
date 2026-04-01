@@ -390,13 +390,10 @@ export class PlayerOverlayController {
       }
       try {
         await this.options.onMoveFile(fileId, cid)
-        this.showToast('移动对话框已在 115 标签页打开')
       } catch (e: any) {
         const msg = e?.message || ''
         console.error('[115m] 移动失败:', msg)
-        if (msg.includes('115.com tab')) this.showToast('请先打开 115.com 页面')
-        else if (msg.includes('Core SDK')) this.showToast('请打开 115 网盘文件管理页面')
-        else if (msg.includes('TreeDG')) this.showToast('请打开 115 网盘文件管理页面')
+        if (msg.includes('User canceled')) { /* user closed dialog, no toast needed */ }
         else this.showToast('移动失败: ' + msg)
       }
     })

@@ -18,6 +18,7 @@ import type { VideoPlaybackQualityLike } from './core/types'
 import { HoverPreviewController } from './core/hover-preview'
 import { bindPlayerEvents } from './core/events'
 import { PlayerOverlayController, readOverlayMetaFromQuery, type OverlayPlaylistItem } from './core/overlay'
+import { MoveDialog } from './core/move-dialog'
 import {
   applyFallbackToHlsState,
   applySelectedQualityOption,
@@ -727,20 +728,14 @@ class PlayerManager {
   }
 
   private async moveFile(fileId: string, cid: string): Promise<void> {
-    if (!fileId || !cid) throw new Error('fileId/cid missing')
+    if (!fileId) throw new Error('fileId missing')
 
-    const res = await sendRuntimeMessageSafe<{ ok?: boolean, error?: string }>({
-      type: 'MOVE_FILE',
-      data: {
-        fileId,
-        parentId: cid,
-        cid,
-      },
-    })
-
-    if (!res?.ok) {
-      throw new Error(res?.error || 'move failed')
-    }
+    const dialog = new MoveDialog(
+      fileId,
+      cid || '0',
+      () => this.refreshBreadcrumbs(),
+    )
+    await dialog.show()
   }
 
   private async toggleFavorite(fileId: string, nextMarked: boolean): Promise<boolean> {
