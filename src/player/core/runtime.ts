@@ -1,4 +1,38 @@
 /**
+ * 检测是否为扩展上下文失效错误（扩展更新/重载后旧页面的连接会断开）
+ */
+function isContextInvalidated(e: unknown): boolean {
+  return e instanceof Error && /Extension context invalidated/i.test(e.message)
+}
+
+/**
+ * 扩展上下文失效时，提示用户刷新页面
+ */
+function showContextInvalidatedTip() {
+  // 避免重复提示
+  if (document.getElementById('ext-invalidated-tip')) return
+  const tip = document.createElement('div')
+  tip.id = 'ext-invalidated-tip'
+  tip.style.cssText = [
+    'position:fixed',
+    'top:20px',
+    'left:50%',
+    'transform:translateX(-50%)',
+    'z-index:999999',
+    'background:rgba(0,0,0,.85)',
+    'color:#fff',
+    'padding:12px 24px',
+    'border-radius:8px',
+    'font-size:14px',
+    'cursor:pointer',
+    'box-shadow:0 4px 20px rgba(0,0,0,.5)',
+  ].join(';')
+  tip.textContent = '扩展已更新，点击刷新页面'
+  tip.addEventListener('click', () => location.reload())
+  document.body.appendChild(tip)
+}
+
+/**
  * 确保 Service Worker 已就绪
  * 浏览器重启后 SW 可能处于冷启动状态，需要等待它完全加载
  * 通过发送一个简单的 ping 消息来唤醒 SW
@@ -12,6 +46,11 @@ export async function ensureServiceWorkerReady(maxRetries = 5, delay = 500): Pro
       if (result) return
     }
     catch (e) {
+      if (isContextInvalidated(e)) {
+        console.warn('[115m] Extension context invalidated, please reload page')
+        showContextInvalidatedTip()
+        return
+      }
       console.warn('[115m] ensureServiceWorkerReady: PING error, retrying...', i, e)
     }
     if (i < maxRetries - 1) {
@@ -40,6 +79,11 @@ export async function sendRuntimeMessageSafe<T = unknown>(
       console.warn('[115m] sendMessage got undefined, retrying...', i)
     }
     catch (e) {
+      if (isContextInvalidated(e)) {
+        console.warn('[115m] Extension context invalidated, stop retrying')
+        showContextInvalidatedTip()
+        return null
+      }
       console.warn('[115m] sendMessage error, retrying...', i, e)
     }
     if (i < retries) {
