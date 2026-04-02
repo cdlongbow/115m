@@ -2,14 +2,13 @@
  * 115 Drive API 核心 - 从原项目移植，适配扩展环境
  */
 import {
-  NORMAL_URL, WEB_API_URL, VOD_URL, APS_URL, DL_URL,
+  NORMAL_URL, WEB_API_URL, VOD_URL, DL_URL,
 } from './constants'
 import type { M3u8Item } from './types'
 import { parseM3u8Text } from './m3u8-parser'
 import type {
   DownloadResult,
   FilesDownloadRes, VideoM3u8Res,
-  FilesRes, FilesVideoRes,
 } from './api/types'
 
 export class Drive115Error extends Error {
@@ -29,30 +28,13 @@ class Request {
     })
   }
 
-  async post(url: string, options?: RequestInit): Promise<Response> {
-    return fetch(url, {
-      method: 'POST',
-      credentials: 'include',
-      ...options,
-    })
-  }
-
   async getJson<T>(url: string): Promise<T> {
     const res = await this.get(url)
-    return res.json()
-  }
-
-  async postJson<T>(url: string, data: string): Promise<T> {
-    const res = await this.post(url, {
-      headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-      body: data,
-    })
     return res.json()
   }
 }
 
 const request = new Request()
-
 
 /**
  * 115 Drive 核心类
@@ -78,7 +60,6 @@ export class Drive115 {
 
     return { url: { url: res.file_url } }
   }
-
 
   /**
    * 获取 M3U8 根 URL
@@ -111,7 +92,6 @@ export class Drive115 {
       if (res && res.state === false) {
         if (res.code === 911) {
           console.warn('[Drive115] 需要人机验证')
-          // 跳转验证页（兼容 Service Worker 环境）
           const verifyUrl = `${VOD_URL}/?pickcode=${pickcode}`
           if (typeof chrome !== 'undefined' && chrome.tabs) {
             chrome.tabs.create({ url: verifyUrl }).catch(() => {})
@@ -132,65 +112,6 @@ export class Drive115 {
   async getM3u8(pickcode: string): Promise<M3u8Item[]> {
     const url = this.getM3u8Url(pickcode)
     return this.getM3u8Info(url, pickcode)
-  }
-
-  /**
-   * 获取文件列表
-   */
-  async getFiles(params: Record<string, string | number>): Promise<FilesRes> {
-    try {
-      const query = new URLSearchParams(params as Record<string, string>).toString()
-      const res = await this.req.getJson<FilesRes>(
-        `${WEB_API_URL}/files?${query}`,
-      )
-      if (res.state) return res
-      throw new Error('获取文件列表失败')
-    }
-    catch {
-      // 降级到旧接口
-      const query = new URLSearchParams(params as Record<string, string>).toString()
-      const res = await this.req.getJson<FilesRes>(
-        `${APS_URL}/natsort/files.php?${query}`,
-      )
-      if (res.state) return res
-      throw new Error(`获取文件列表失败: ${JSON.stringify(res)}`)
-    }
-  }
-
-  /**
-   * 获取播放列表
-   */
-  async getPlaylist(cid: string, offset = 0) {
-    return this.getFiles({
-      aid: 1,
-      cid,
-      offset,
-      limit: 1150,
-      show_dir: 0,
-      nf: '',
-      qid: 0,
-      type: 4,
-      source: '',
-      format: 'json',
-      star: '',
-      is_q: '',
-      is_share: '',
-      r_all: 1,
-      o: 'file_name',
-      asc: 1,
-      cur: 1,
-      natsort: 1,
-    })
-  }
-
-  /**
-   * 获取视频文件信息
-   */
-  async getFilesVideo(params: Record<string, string>) {
-    const query = new URLSearchParams(params).toString()
-    return this.req.getJson<FilesVideoRes>(
-      `${WEB_API_URL}/files/video?${query}`,
-    )
   }
 
   /**
