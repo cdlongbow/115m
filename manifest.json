@@ -49,6 +49,11 @@
       "matches": ["https://dl.115cdn.net/video/token*"],
       "js": ["src/content/video-token.ts"],
       "run_at": "document_start"
+    },
+    {
+      "matches": ["https://115vod.com/*"],
+      "js": ["src/content/vod-fullscreen.ts"],
+      "run_at": "document_end"
     }
   ],
   "action": {
