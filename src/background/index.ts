@@ -55,6 +55,61 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
 
 let lastOpenTabMeta: { url: string, ts: number } | null = null
 
+/**
+ * 在 115.com 页面的主世界中执行 fetch 请求
+ * 统一处理 tab 查找、executeScript 注入和错误处理
+ * @param body - 有值时发 POST，否则发 GET
+ */
+async function executeInMainWorld(
+  sender: chrome.runtime.MessageSender | undefined,
+  url: string,
+  body?: string,
+): Promise<{ ok: boolean, text: string, error?: string }> {
+  let tabId = sender?.tab?.id
+  if (!tabId) {
+    const tabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
+    tabId = tabs[0]?.id
+  }
+  if (!tabId) {
+    return { ok: false, text: '', error: 'no 115.com tab found' }
+  }
+
+  try {
+    const injected = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: async (fetchUrl: string, fetchBody: string | undefined) => {
+        try {
+          const options: RequestInit = {
+            method: fetchBody !== undefined ? 'POST' : 'GET',
+            credentials: 'include',
+          }
+          if (fetchBody !== undefined) {
+            options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' }
+            options.body = fetchBody
+          }
+          const res = await fetch(fetchUrl, options)
+          const text = await res.text()
+          return { ok: res.ok, status: res.status, text }
+        }
+        catch (error) {
+          return { ok: false, status: 0, text: '', error: String(error) }
+        }
+      },
+      args: [url, body],
+    })
+
+    const result = injected?.[0]?.result as { ok: boolean, text: string, error?: string } | undefined
+    if (!result) {
+      return { ok: false, text: '', error: 'executeScript returned empty' }
+    }
+    return result
+  }
+  catch (error) {
+    return { ok: false, text: '', error: String(error) }
+  }
+}
+
 async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.MessageSender): Promise<any> {
   switch (message.type) {
     case 'PING': {
@@ -62,91 +117,11 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
     }
 
     case 'MAIN_WORLD_FETCH': {
-      // 通过 executeScript 在页面主世界执行 fetch
-      // 确保 Origin: https://115.com，和原项目一致
-      let tabId = sender?.tab?.id
-      if (!tabId) {
-        // 没有 sender tab，找一个 115.com 的 tab
-        const tabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
-        tabId = tabs[0]?.id
-      }
-      if (!tabId) {
-        return { ok: false, error: 'no 115.com tab found' }
-      }
-
-      try {
-        const injected = await chrome.scripting.executeScript({
-          target: { tabId },
-          world: 'MAIN',
-          func: async (url: string, body: string) => {
-            try {
-              const res = await fetch(url, {
-                method: 'POST',
-                credentials: 'include',
-                headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
-                body,
-              })
-              const text = await res.text()
-              return { ok: res.ok, status: res.status, text }
-            }
-            catch (error) {
-              return { ok: false, status: 0, text: '', error: String(error) }
-            }
-          },
-          args: [message.data.url, message.data.body],
-        })
-
-        const result = injected?.[0]?.result as { ok: boolean, text: string, error?: string } | undefined
-        if (!result) {
-          return { ok: false, error: 'executeScript returned empty' }
-        }
-        return result
-      }
-      catch (error) {
-        return { ok: false, error: String(error) }
-      }
+      return executeInMainWorld(sender, message.data.url, message.data.body)
     }
 
     case 'MAIN_WORLD_GET': {
-      // 通过 executeScript 在页面主世界执行 GET 请求
-      let tabId = sender?.tab?.id
-      if (!tabId) {
-        const tabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
-        tabId = tabs[0]?.id
-      }
-      if (!tabId) {
-        return { ok: false, error: 'no 115.com tab found' }
-      }
-
-      try {
-        const injected = await chrome.scripting.executeScript({
-          target: { tabId },
-          world: 'MAIN',
-          func: async (url: string) => {
-            try {
-              const res = await fetch(url, {
-                method: 'GET',
-                credentials: 'include',
-              })
-              const text = await res.text()
-              return { ok: res.ok, status: res.status, text }
-            }
-            catch (error) {
-              return { ok: false, status: 0, text: '', error: String(error) }
-            }
-          },
-          args: [message.data.url],
-        })
-
-        const result = injected?.[0]?.result as { ok: boolean, text: string, error?: string } | undefined
-        if (!result) {
-          return { ok: false, error: 'executeScript returned empty' }
-        }
-        return result
-      }
-      catch (error) {
-        return { ok: false, error: String(error) }
-      }
+      return executeInMainWorld(sender, message.data.url)
     }
 
     case 'OPEN_TAB': {
