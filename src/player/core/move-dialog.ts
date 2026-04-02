@@ -212,7 +212,7 @@ const ICON_CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" s
 async function apiFetchFolders(cid: string): Promise<{ folders: FolderItem[], path: BreadcrumbItem[] }> {
   const params = new URLSearchParams({
     aid: '1', cid, offset: '0', limit: '500',
-    show_dir: '1', nf: '1', qid: '0', type: '0',
+    show_dir: '1', qid: '0', type: '0',
     source: '', format: 'json', star: '', is_q: '',
     is_share: '', o: 'file_name', asc: '1', cur: '1',
     natsort: '1',
@@ -230,9 +230,9 @@ async function apiFetchFolders(cid: string): Promise<{ folders: FolderItem[], pa
     const json = JSON.parse(res.text)
     if (!json.state) return { folders: [], path: [] }
 
-    // nf=1 已让 API 只返回文件夹，只需检查 cid 存在且排除文件（有 sha 的是文件）
+    // 客户端过滤：文件有 sha（文件哈希），文件夹没有
     const folders: FolderItem[] = (json.data ?? [])
-      .filter((item: any) => item.cid !== undefined && !item.sha)
+      .filter((item: any) => item.cid !== undefined && !item.sha && !item.ico)
       .map((item: any) => ({
         cid: String(item.cid),
         name: item.n || '',

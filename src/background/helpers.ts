@@ -29,17 +29,21 @@ export async function executeInMainWorld(
     return { ok: false, text: '', error: 'no 115.com tab found' }
   }
 
+  // 显式传 '' 表示无 body（避免 undefined 在 Chrome structured clone 中变成 null）
+  const safeBody = body ?? ''
+
   try {
     const injected = await chrome.scripting.executeScript({
       target: { tabId },
       world: 'MAIN',
-      func: async (fetchUrl: string, fetchBody: string | undefined) => {
+      func: async (fetchUrl: string, fetchBody: string) => {
         try {
+          const isPost = fetchBody.length > 0
           const options: RequestInit = {
-            method: fetchBody !== undefined ? 'POST' : 'GET',
+            method: isPost ? 'POST' : 'GET',
             credentials: 'include',
           }
-          if (fetchBody !== undefined) {
+          if (isPost) {
             options.headers = { 'Content-Type': 'application/x-www-form-urlencoded' }
             options.body = fetchBody
           }
@@ -51,7 +55,7 @@ export async function executeInMainWorld(
           return { ok: false, status: 0, text: '', error: String(error) }
         }
       },
-      args: [url, body],
+      args: [url, safeBody],
     })
 
     const result = injected?.[0]?.result as { ok: boolean, text: string, error?: string } | undefined
