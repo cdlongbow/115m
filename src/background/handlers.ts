@@ -3,7 +3,7 @@
  */
 import type {
   MsgFetchM3u8, MsgFetchPlaylist, MsgMoveFile,
-  MsgMoveSuccessRefresh,
+  MsgMoveSuccessRefresh, MsgTranscode,
 } from '../shared/messages'
 import { parseM3u8Text } from '../lib/m3u8-parser'
 import { find115TabId } from './helpers'
@@ -262,3 +262,94 @@ export async function handleMoveSuccessRefresh() {
   }
   return { success: true }
 }
+
+// ─── TRANSCODE_ACCELERATE ───
+export async function handleTranscode(message: MsgTranscode) {
+  try {
+    const { pickCode } = message.data
+
+    // Step 1: 在 115.com 页面上下文获取 SHA1（同域无 CORS 问题）
+    const tabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
+    const tabId = tabs[0]?.id
+    if (!tabId) return { ok: false, error: '未找到 115.com 页面' }
+
+    const videoInfoUrl = `https://webapi.115.com/files/video?pickcode=${pickCode}&share_id=0&local=1`
+    const injected = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: async (url: string) => {
+        try {
+          const res = await fetch(url, { credentials: 'include' })
+          return await res.json()
+        } catch (e) {
+          return { state: false, error: String(e) }
+        }
+      },
+      args: [videoInfoUrl],
+    })
+
+    const videoResult = injected?.[0]?.result as any
+    if (!videoResult?.state) {
+      return { ok: false, error: '获取视频信息失败' }
+    }
+
+    const sha1 = videoResult.sha1
+    if (!sha1) return { ok: false, error: '无法获取 SHA1' }
+
+    // Step 2: Trigger VIP transcode push via ac=push API
+    const pushFormData = new URLSearchParams()
+    pushFormData.append('op', 'vip_push')
+    pushFormData.append('pickcode', pickCode)
+    pushFormData.append('sha1', sha1)
+
+    const pushUrl = 'https://115vod.com/site/?ct=play&ac=push'
+    console.log(`[115m] Triggering push:`, pushUrl, pushFormData.toString())
+    
+    // Add missing headers that 115vod might verify
+    const pushHeaders = {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+      'Origin': 'https://115vod.com',
+      'Referer': `https://115vod.com/?pickcode=${pickCode}&share_id=0`,
+      'X-Requested-With': 'XMLHttpRequest'
+    }
+
+    const pushRes = await fetch(pushUrl, {
+      method: 'POST',
+      credentials: 'include',
+      headers: pushHeaders,
+      body: pushFormData.toString(),
+    })
+    
+    // Parse result
+    const pushResult = await pushRes.json().catch(() => null)
+    console.log('[115m] vip_push result:', pushResult)
+
+    if (!pushResult || !pushResult.state) {
+      console.warn('[115m] vip_push failed or returned false state:', pushResult)
+      // We don't strictly throw here, we can still try check_transcode_job, but it will probably fail.
+    }
+
+    // Step 3: Check job status with priority=1 query param (wait, HAR showed priority=100 query, priority=1 body)
+    const transcodeUrl = `https://115vod.com/transcode/api/1.0/web/1.0/trans_code/check_transcode_job?sha1=${sha1}&priority=100`
+    const transcodeRes = await fetch(transcodeUrl, {
+      method: 'POST',
+      credentials: 'include',
+      headers: { 
+        'Content-Type': 'application/json',
+        'Origin': 'https://115vod.com',
+        'Referer': `https://115vod.com/?pickcode=${pickCode}&share_id=0`,
+        'X-Requested-With': 'XMLHttpRequest'
+      },
+      body: JSON.stringify({ fid: sha1, priority: 1 }),
+    })
+
+    const result = await transcodeRes.json()
+    console.log('[115m] transcode check result:', result)
+    return { ok: true, data: result, pushResult }
+  } catch (e: any) {
+    console.error('[115m] transcode error:', e)
+    return { ok: false, error: e?.message || String(e) }
+  }
+}
+

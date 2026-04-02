@@ -1,5 +1,6 @@
 import { getVideoCovers } from '../../lib/videoThumbnail'
 import type { FileInfo } from './types'
+import { sendRuntimeMessageSafe } from './runtime'
 import {
   Scheduler,
   TaskCancelledError,
@@ -159,9 +160,16 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
 
     const { promise, cancel } = coverScheduler.add(async () => {
       try {
+        if (file.duration === 0) {
+          showTranscodeButton(container, file.pickCode)
+          state.isLoaded = true
+          return
+        }
+
         const covers = await getVideoCovers(file.pickCode, file.duration, 5)
         if (!covers.length) {
-          container.innerHTML = '<div class="m115-cover-empty">暂无预览图</div>'
+          showTranscodeButton(container, file.pickCode)
+          state.isLoaded = true
           return
         }
 
@@ -195,7 +203,7 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
         if (e instanceof TaskCancelledError) {
           return
         }
-        container.innerHTML = '<div class="m115-cover-error">预览图加载失败</div>'
+        showTranscodeButton(container, file.pickCode)
         state.error = true
       } finally {
         state.isLoading = false
@@ -279,4 +287,68 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
   if (item.parentElement) {
     mutationObserver.observe(item.parentElement, { childList: true, subtree: true })
   }
+}
+
+/**
+ * 已触发过加速的 pickCode 集合（避免重复请求）
+ */
+const acceleratedSet = new Set<string>()
+
+/**
+ * 在预览区域自动触发 VIP 加速转码并显示状态
+ */
+function showTranscodeButton(container: HTMLElement, pickCode: string) {
+  container.innerHTML = ''
+
+  const wrapper = document.createElement('div')
+  wrapper.className = 'm115-transcode-area'
+
+  const label = document.createElement('span')
+  label.className = 'm115-transcode-label'
+  label.textContent = 'VIP 自动加速转码中...'
+
+  wrapper.appendChild(label)
+  container.appendChild(wrapper)
+
+  const lsKey = 'm115_tc_' + pickCode
+
+  // 避免跨页面/跨刷新重复触发
+  if (acceleratedSet.has(pickCode) || localStorage.getItem(lsKey)) {
+    label.textContent = '✓ VIP 加速转码中'
+    label.style.color = '#52c41a'
+    return
+  }
+  acceleratedSet.add(pickCode)
+
+  // 自动触发加速请求
+  sendRuntimeMessageSafe<{ ok?: boolean, error?: string, data?: any, pushResult?: any }>({
+    type: 'TRANSCODE_ACCELERATE',
+    data: { pickCode },
+  }).then(res => {
+    if (res?.ok) {
+      if (res.pushResult && res.pushResult.state) {
+        label.textContent = '✓ VIP 成功加入加速队列'
+        label.style.color = '#52c41a'
+      } else if (res.pushResult && !res.pushResult.state) {
+        label.textContent = `! 队列拒绝: ${res.pushResult.msg || '未知'}`
+        label.style.color = '#faad14'
+      } else {
+        label.textContent = '✓ VIP 自动加速转码请求发出'
+        label.style.color = '#52c41a'
+      }
+      try {
+        localStorage.setItem(lsKey, '1')
+      } catch (e) {
+        // ignore storage errors
+      }
+    } else {
+      label.textContent = res?.error || '加速请求失败'
+      label.style.color = '#ff4d4f'
+      acceleratedSet.delete(pickCode)  // 允许重试
+    }
+  }).catch(() => {
+    label.textContent = '加速请求异常'
+    label.style.color = '#ff4d4f'
+    acceleratedSet.delete(pickCode)
+  })
 }

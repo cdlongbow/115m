@@ -145,7 +145,7 @@ class HomeController {
       this.bindItemPlay(item)
       injectActionButtons(item, file)
 
-      if (file.duration > 0) {
+      if (file.isVideo) {
         renderPreview(item, file)
       }
     })

@@ -76,6 +76,11 @@ export interface MsgPing {
   type: 'PING'
 }
 
+export interface MsgTranscode {
+  type: 'TRANSCODE_ACCELERATE'
+  data: { pickCode: string }
+}
+
 export interface MsgFetchPlaylistResponse {
   list?: FileItem[]
   path?: Array<{ cid: string, name: string }>
@@ -99,3 +104,4 @@ export type RuntimeMessage =
   | MsgMoveFile
   | MsgPing
   | MsgMoveSuccessRefresh
+  | MsgTranscode
