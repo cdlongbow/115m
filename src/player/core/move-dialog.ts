@@ -215,7 +215,7 @@ async function apiFetchFolders(cid: string): Promise<{ folders: FolderItem[], pa
     show_dir: '1', nf: '1', qid: '0', type: '0',
     source: '', format: 'json', star: '', is_q: '',
     is_share: '', o: 'file_name', asc: '1', cur: '1',
-    natsort: '1', fc_mix: '0',
+    natsort: '1',
   })
   const url = `https://webapi.115.com/files?${params}`
 
@@ -230,12 +230,9 @@ async function apiFetchFolders(cid: string): Promise<{ folders: FolderItem[], pa
     const json = JSON.parse(res.text)
     if (!json.state) return { folders: [], path: [] }
 
+    // nf=1 已让 API 只返回文件夹，只需检查 cid 存在且排除文件（有 sha 的是文件）
     const folders: FolderItem[] = (json.data ?? [])
-      .filter((item: any) => item.fid === undefined || item.fc !== undefined)  // folders only
-      .filter((item: any) => {
-        // A folder item has cid and no file extension indicators
-        return item.cid !== undefined
-      })
+      .filter((item: any) => item.cid !== undefined && !item.sha)
       .map((item: any) => ({
         cid: String(item.cid),
         name: item.n || '',
