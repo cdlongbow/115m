@@ -1,4 +1,5 @@
 import { sendRuntimeMessageSafe } from './runtime'
+import { escapeHtml } from '../../shared/utils'
 
 // ─── Types ───
 interface FolderItem {
@@ -778,8 +779,6 @@ export class MoveDialog {
   }
 
   private escapeHtml(str: string): string {
-    const div = document.createElement('div')
-    div.textContent = str
-    return div.innerHTML
+    return escapeHtml(str)
   }
 }

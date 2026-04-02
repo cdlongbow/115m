@@ -1,5 +1,6 @@
 import type Artplayer from 'artplayer'
 import { getVideoCovers } from '../../lib/videoThumbnail'
+import { escapeHtml } from '../../shared/utils'
 
 export interface OverlayPathItem {
   cid: string
@@ -713,14 +714,6 @@ export class PlayerOverlayController {
   }
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replaceAll('&', '&amp;')
-    .replaceAll('<', '&lt;')
-    .replaceAll('>', '&gt;')
-    .replaceAll('"', '&quot;')
-    .replaceAll("'", '&#39;')
-}
 
 // Alias for attribute escaping (same logic)
 const esc = escapeHtml
