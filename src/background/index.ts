@@ -4,6 +4,7 @@
  */
 
 import type { RuntimeMessage } from '../shared/messages'
+import { parseM3u8Text } from '../lib/m3u8-parser'
 
 console.log('[115m] Service Worker starting...')
 
@@ -203,7 +204,6 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
 
     case 'FETCH_M3U8': {
       try {
-        // 直接使用 fetch，避免动态导入在 Service Worker 中的问题
         const pickCode = message.data.pickCode
         const url = `https://115.com/api/video/m3u8/${pickCode}.m3u8`
 
@@ -213,30 +213,7 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
         })
         const htmlText = await res.text()
 
-        // 解析 M3U8
-        const lines = htmlText.split('\n')
-        const m3u8List: Array<{ name: string; quality: number; url: string }> = []
-
-        const qualityCodeMap: Record<string, number> = {
-          '3G': 360, 'SD': 480, 'HD': 720, 'UD': 1080, 'BD': 2160, 'YH': 9999,
-        }
-
-        lines.forEach((line, index) => {
-          if (line.includes('NAME="') && line.match(/#EXT-X-STREAM-INF/)) {
-            const name = line.match(/NAME="([^"]*)"/)?.[1] ?? ''
-            const m3u8Url = lines[index + 1]?.trim()
-            if (m3u8Url) {
-              const fullUrl = m3u8Url.startsWith('http') ? m3u8Url : `https://115.com${m3u8Url}`
-              m3u8List.push({
-                name,
-                quality: qualityCodeMap[name] ?? 0,
-                url: fullUrl,
-              })
-            }
-          }
-        })
-
-        m3u8List.sort((a, b) => b.quality - a.quality)
+        const m3u8List = parseM3u8Text(htmlText)
         return { list: m3u8List }
       } catch (e: any) {
         return { error: e?.message || String(e) }

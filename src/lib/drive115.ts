@@ -4,8 +4,8 @@
 import {
   NORMAL_URL, WEB_API_URL, VOD_URL, APS_URL, DL_URL,
 } from './constants'
-import { qualityCodeMap } from './types'
 import type { M3u8Item } from './types'
+import { parseM3u8Text } from './m3u8-parser'
 import type {
   DownloadResult,
   FilesDownloadRes, VideoM3u8Res,
@@ -52,13 +52,7 @@ class Request {
 }
 
 const request = new Request()
-/**
- * 获取 URL 的绝对路径
- */
-function getXUrl(url: string): string {
-  if (url.startsWith('http')) return url
-  return `${NORMAL_URL}${url}`
-}
+
 
 /**
  * 115 Drive 核心类
@@ -129,26 +123,7 @@ export class Drive115 {
       }
     }
 
-    const lines = htmlText.split('\n')
-    const m3u8List: M3u8Item[] = []
-
-    lines.forEach((line, index) => {
-      if (line.includes('NAME="')) {
-        if (line.match(/#EXT-X-STREAM-INF/)) {
-          const name = line.match(/NAME="([^"]*)"/)?.[1] ?? ''
-          const url = lines[index + 1]?.trim()
-          m3u8List.push({
-            name,
-            quality: qualityCodeMap[name] ?? 0,
-            url: getXUrl(url),
-          })
-        }
-      }
-    })
-
-    // 按画质从高到低排序
-    m3u8List.sort((a, b) => b.quality - a.quality)
-    return m3u8List
+    return parseM3u8Text(htmlText)
   }
 
   /**
