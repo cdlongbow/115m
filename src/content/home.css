@@ -176,3 +176,17 @@
   color: #ff4d4f;
   background: #fff2f0;
 }
+
+/* ====== 操作栏扩展按钮（与 115 原生风格一致） ====== */
+.file-opr .m115-ext-btn {
+  cursor: pointer;
+  white-space: nowrap;
+}
+
+/* 在扩展按钮后追加分隔符 "|" */
+.file-opr .m115-ext-btn::after {
+  content: '|';
+  margin: 0 5px;
+  color: #ccc;
+  pointer-events: none;
+}

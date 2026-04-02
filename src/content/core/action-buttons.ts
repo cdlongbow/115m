@@ -4,27 +4,34 @@ import { sendRuntimeMessageSafe } from './runtime'
 import { crypto115 } from '../../lib/crypto'
 
 /**
- * 在文件列表项的操作区域注入扩展按钮（PotPlayer）
+ * 在文件列表项的操作区域注入扩展按钮（115播放 + PotPlayer）
  */
 export function injectActionButtons(item: HTMLElement, file: FileInfo) {
   const oprNode = item.querySelector('.file-opr') as HTMLElement | null
   if (!oprNode) return
   if (oprNode.querySelector('.m115-ext-btn')) return
 
-  const btnContainer = document.createElement('span')
-  btnContainer.className = 'm115-ext-btns'
-  btnContainer.style.cssText = 'display:flex;align-items:center;gap:6px;margin-left:6px;'
+  // 「115播放」按钮 —— 调用 115 原生播放器
+  const vodBtn = createNativeActionLink('115播放', '使用 115 原生播放器播放', (e) => {
+    e.preventDefault()
+    e.stopPropagation()
+    e.stopImmediatePropagation()
+    const vodUrl = `https://115vod.com/?pickcode=${file.pickCode}&share_id=0`
+    window.open(vodUrl, '_blank')
+  })
 
-  const potBtn = createActionLink('PotPlayer', '使用 PotPlayer 播放', async (e) => {
+  // 「PotPlayer」按钮
+  const potBtn = createNativeActionLink('PotPlayer', '使用 PotPlayer 播放', async (e) => {
     e.preventDefault()
     e.stopPropagation()
     e.stopImmediatePropagation()
     void openPotPlayer(file, potBtn)
   })
-  potBtn.querySelector('span')!.style.color = '#1890ff'
 
-  btnContainer.appendChild(potBtn)
-  oprNode.prepend(btnContainer)
+  // 插入到操作栏最前面，保持原生一行风格
+  const firstChild = oprNode.firstChild
+  oprNode.insertBefore(potBtn, firstChild)
+  oprNode.insertBefore(vodBtn, potBtn)
 }
 
 function createActionLink(
@@ -50,6 +57,29 @@ function createActionLink(
   span.style.pointerEvents = 'none'
   a.appendChild(span)
   a.addEventListener('mousedown', onClick as EventListener)
+  return a
+}
+
+/**
+ * 创建与 115 原生操作栏风格一致的按钮
+ * 115 原生结构: <a href="javascript:;" ...>文字</a> | <a ...>...</a>
+ */
+function createNativeActionLink(
+  text: string,
+  title: string,
+  onClick: (e: MouseEvent) => void,
+): HTMLAnchorElement {
+  const a = document.createElement('a')
+  a.href = 'javascript:void(0)'
+  a.className = 'm115-ext-btn'
+  a.title = title
+  a.textContent = text
+  a.addEventListener('click', (e) => {
+    onClick(e)
+  })
+  a.addEventListener('mousedown', (e) => {
+    e.stopPropagation()
+  })
   return a
 }
 

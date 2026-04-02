@@ -1,6 +1,7 @@
 import homeCss from './home.css?inline'
 import { extractFileInfo } from './core/extractors'
 import { openPlayer } from './core/player-open'
+import { injectActionButtons } from './core/action-buttons'
 
 import { renderPreview } from './core/preview'
 import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
@@ -142,6 +143,7 @@ class HomeController {
       if (!file || !file.isVideo) return
 
       this.bindItemPlay(item)
+      injectActionButtons(item, file)
 
       if (file.duration > 0) {
         renderPreview(item, file)
