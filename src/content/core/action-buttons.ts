@@ -1,18 +1,23 @@
 import type { FileInfo } from './types'
-import { PRO_API_URL } from '../../lib/constants'
-import { sendRuntimeMessageSafe } from './runtime'
-import { crypto115 } from '../../lib/crypto'
 
 /**
- * 在文件列表项的操作区域注入扩展按钮（115播放 + PotPlayer）
+ * 在文件列表项的操作区域注入「115播放」按钮
  */
 export function injectActionButtons(item: HTMLElement, file: FileInfo) {
   const oprNode = item.querySelector('.file-opr') as HTMLElement | null
   if (!oprNode) return
-  if (oprNode.querySelector('.m115-ext-btn')) return
+  if (oprNode.querySelector('.m115-vod-btn')) return
 
-  // 「115播放」按钮 —— 调用 115 原生播放器
-  const vodBtn = createNativeActionLink('115播放', '使用 115 原生播放器播放', (e) => {
+  const btn = document.createElement('a')
+  btn.href = 'javascript:void(0)'
+  btn.className = 'm115-vod-btn'
+  btn.title = '使用 115 原生播放器播放'
+
+  const span = document.createElement('span')
+  span.textContent = '115播放'
+  btn.appendChild(span)
+
+  btn.addEventListener('click', (e) => {
     e.preventDefault()
     e.stopPropagation()
     e.stopImmediatePropagation()
@@ -20,185 +25,10 @@ export function injectActionButtons(item: HTMLElement, file: FileInfo) {
     window.open(vodUrl, '_blank')
   })
 
-  // 「PotPlayer」按钮
-  const potBtn = createNativeActionLink('PotPlayer', '使用 PotPlayer 播放', async (e) => {
-    e.preventDefault()
-    e.stopPropagation()
-    e.stopImmediatePropagation()
-    void openPotPlayer(file, potBtn)
-  })
-
-  // 插入到操作栏最前面，保持原生一行风格
-  const firstChild = oprNode.firstChild
-  oprNode.insertBefore(potBtn, firstChild)
-  oprNode.insertBefore(vodBtn, potBtn)
-}
-
-function createActionLink(
-  text: string,
-  title: string,
-  onClick: (e: MouseEvent) => void,
-): HTMLAnchorElement {
-  const a = document.createElement('a')
-  a.href = 'javascript:void(0)'
-  a.className = 'm115-ext-btn'
-  a.title = title
-  a.style.cssText = `
-    cursor: pointer;
-    display: inline-flex;
-    align-items: center;
-    position: relative;
-    z-index: 1000;
-    font-size: 12px;
-    white-space: nowrap;
-  `
-  const span = document.createElement('span')
-  span.textContent = text
-  span.style.pointerEvents = 'none'
-  a.appendChild(span)
-  a.addEventListener('mousedown', onClick as EventListener)
-  return a
-}
-
-/**
- * 创建与 115 原生操作栏风格一致的按钮
- * 115 原生结构: <a href="javascript:;" ...>文字</a> | <a ...>...</a>
- */
-function createNativeActionLink(
-  text: string,
-  title: string,
-  onClick: (e: MouseEvent) => void,
-): HTMLAnchorElement {
-  const a = document.createElement('a')
-  a.href = 'javascript:void(0)'
-  a.className = 'm115-ext-btn'
-  a.title = title
-  a.textContent = text
-  a.addEventListener('click', (e) => {
-    onClick(e)
-  })
-  a.addEventListener('mousedown', (e) => {
+  btn.addEventListener('mousedown', (e) => {
     e.stopPropagation()
   })
-  return a
-}
 
-/**
- * 用 PotPlayer 播放 115 视频
- *
- * 方案：利用 PotPlayer 的内置 http 代理能力
- * 1. 通过 Pro API 获取下载 URL 和 auth_cookie
- * 2. 通过 chrome.cookies.set 将 cookie 设置到浏览器（.115cdn.net 域）
- * 3. 下载 cookie.txt 文件（Netscape 格式），配合 PotPlayer 的代理功能使用
- *
- * 如果以上都失败，降级为直接 potplayer://（不带 header，可能播不了）
- */
-async function openPotPlayer(file: FileInfo, btn: HTMLAnchorElement) {
-  const span = btn.querySelector('span')!
-  const originalText = span.textContent!
-
-  try {
-    span.textContent = '获取中...'
-    const pickCode = file.pickCode
-    let downloadUrl = ''
-    let cookieStr = ''
-
-    // === 通过 Pro API 获取下载地址和 auth_cookie ===
-    try {
-      const tm = Math.floor(Date.now() / 1000).toString()
-      const src = JSON.stringify({ pickcode: pickCode })
-      const encoded = crypto115.m115_encode(src, tm)
-      const body = `data=${encodeURIComponent(encoded.data)}`
-      const apiUrl = `${PRO_API_URL}/app/chrome/downurl?t=${tm}`
-
-      const res = await sendRuntimeMessageSafe<{ ok?: boolean, text?: string }>({
-        type: 'MAIN_WORLD_FETCH',
-        data: { url: apiUrl, body },
-      })
-
-      if (res?.ok && res?.text) {
-        const parsed = JSON.parse(res.text) as { state: boolean, data: string }
-        if (parsed.state) {
-          const decoded = JSON.parse(crypto115.m115_decode(parsed.data, encoded.key))
-          const first = Object.values(decoded)[0] as {
-            url?: {
-              url?: string
-              auth_cookie?: {
-                name: string
-                value: string
-                path: string
-                expire: string
-              }
-            }
-          }
-
-          if (first?.url?.url) {
-            downloadUrl = first.url.url
-            if (first?.url?.auth_cookie) {
-              cookieStr = `${first.url.auth_cookie.name}=${first.url.auth_cookie.value}`
-            }
-          }
-        }
-      }
-    }
-    catch (e) {
-      console.warn('[115m] Pro API failed:', e)
-    }
-
-    // === 降级到 WebAPI（URL 可能不需要 cookie） ===
-    if (!downloadUrl) {
-      const webApiUrl = `https://webapi.115.com/files/download?pickcode=${pickCode}`
-      const res = await sendRuntimeMessageSafe<{ ok?: boolean, text?: string }>({
-        type: 'MAIN_WORLD_GET',
-        data: { url: webApiUrl },
-      })
-
-      if (res?.ok && res?.text) {
-        const parsed = JSON.parse(res.text) as { state: boolean, file_url?: string }
-        if (parsed.state && parsed.file_url) {
-          downloadUrl = parsed.file_url
-        }
-      }
-    }
-
-    if (!downloadUrl) {
-      alert('获取播放地址失败，可能需要人机验证')
-      return
-    }
-
-    // === 设置 cookie 到浏览器（确保浏览器能直接访问 CDN） ===
-    if (cookieStr) {
-      try {
-        // 通过 MAIN_WORLD_FETCH 在页面上下文中设置 cookie
-        // cookie 需要设到 .115cdn.net 域，content script 无法直接设置其他域的 cookie
-        // 但我们可以通过 document.cookie 尝试（跨域可能失败，不影响后续流程）
-        await sendRuntimeMessageSafe({
-          type: 'MAIN_WORLD_FETCH',
-          data: {
-            url: `https://webapi.115.com/bridge?_=${Date.now()}`,
-            body: '',
-          },
-        })
-      }
-      catch { /* 忽略 */ }
-    }
-
-    // === 方案 A: 通过 /header 参数传 Cookie 给 PotPlayer ===
-    // potplayer:// 协议通过注册表调用 PotPlayer.exe，/header 参数会被传递
-    // 格式: potplayer://URL /header="Cookie: xxx"
-    if (cookieStr) {
-      const header = `Cookie: ${cookieStr}\r\nUser-Agent: ${navigator.userAgent}`
-      // 注意：/header 参数的值需要用双引号包裹，且整个 potplayer URL 不能有额外编码
-      const potUrl = `potplayer://${downloadUrl} /header="${header}"`
-      window.open(potUrl, '_self')
-      return
-    }
-
-    // === 方案 B: 没有 cookie，直接传 URL（WebAPI 降级链接可能直接可用） ===
-    window.open(`potplayer://${downloadUrl}`, '_self')
-  }
-  catch (e) {
-    span.textContent = originalText
-    alert(`PotPlayer 拉起失败: ${e instanceof Error ? e.message : String(e)}`)
-  }
+  // 插入到操作栏最前面
+  oprNode.insertBefore(btn, oprNode.firstChild)
 }

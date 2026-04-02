@@ -177,14 +177,30 @@
   background: #fff2f0;
 }
 
-/* ====== 操作栏扩展按钮（与 115 原生风格一致） ====== */
-.file-opr .m115-ext-btn {
-  cursor: pointer;
-  white-space: nowrap;
+/* ====== 操作栏「115播放」按钮 ====== */
+.file-opr .m115-vod-btn {
+  cursor: pointer !important;
+  white-space: nowrap !important;
+  display: inline !important;
+  visibility: visible !important;
+  font-size: inherit !important;
+  color: inherit !important;
+  text-decoration: none !important;
 }
 
-/* 在扩展按钮后追加分隔符 "|" */
-.file-opr .m115-ext-btn::after {
+.file-opr .m115-vod-btn span {
+  display: inline !important;
+  visibility: visible !important;
+  font-size: inherit !important;
+  color: inherit !important;
+}
+
+.file-opr .m115-vod-btn:hover span {
+  color: #1890ff !important;
+}
+
+/* 分隔符 */
+.file-opr .m115-vod-btn::after {
   content: '|';
   margin: 0 5px;
   color: #ccc;
