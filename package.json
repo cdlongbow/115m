@@ -1,12 +1,12 @@
 {
-  "name": "115m-extension",
+  "name": "115m",
   "version": "1.2.4",
   "private": true,
   "type": "module",
   "scripts": {
     "build": "vite build",
     "test": "vitest run",
-    "zip": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"$v=(Get-Content package.json -Raw | ConvertFrom-Json).version; if (!(Test-Path release)) { New-Item -ItemType Directory -Path release | Out-Null }; $out='release/115m-extension-v' + $v + '.zip'; Compress-Archive -Path 'dist/*' -DestinationPath $out -Force\""
+    "zip": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"$v=(Get-Content package.json -Raw | ConvertFrom-Json).version; if (!(Test-Path release)) { New-Item -ItemType Directory -Path release | Out-Null }; $out='release/115m-v' + $v + '.zip'; Compress-Archive -Path 'dist/*' -DestinationPath $out -Force\""
   },
   "dependencies": {
     "@cbingbing/demuxer": "^2.4.1",
