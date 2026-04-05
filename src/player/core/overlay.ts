@@ -245,7 +245,7 @@ export class PlayerOverlayController {
 
         void getVideoCovers(item.pickCode, duration, 1).then((covers) => {
           if (covers.length > 0) {
-            thumbEl.innerHTML = `<img src="${covers[0].imgUrl}" alt="" style="width:100%;height:100%;object-fit:cover;display:block" />`
+            thumbEl.innerHTML = `<img src="${covers[0].imgUrl}" alt="" style="width:100%;height:100%;object-fit:contain;object-position:center;display:block" />`
           }
         }).catch(() => {
           // keep placeholder on error
