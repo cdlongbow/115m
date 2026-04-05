@@ -1,6 +1,7 @@
 import type Artplayer from 'artplayer'
 import { savePlayHistory } from './history'
 import { bindKeyboardShortcuts } from './keyboard'
+import { INTERACTIVE_SELECTOR } from './ui-layer'
 
 export interface BindPlayerEventsOptions {
   art: Artplayer
@@ -101,7 +102,7 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
     const progress = art.template.$progress as HTMLElement
     if (progress?.contains(target)) return true
     // 播放列表面板及自定义覆盖层元素
-    if (target.closest('#playlist-panel, #playlist-mask, .m115-interactive')) return true
+    if (target.closest(INTERACTIVE_SELECTOR)) return true
     return false
   }
 

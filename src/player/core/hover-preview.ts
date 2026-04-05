@@ -199,6 +199,11 @@ export class HoverPreviewController {
     // 取消隐藏定时器（鼠标还在播放器区域内）
     this.cancelHide()
 
+    if (this.isFloatingMenuOpen()) {
+      this.hidePreview()
+      return
+    }
+
     // 检查鼠标是否在进度条附近的垂直区域内（容差：进度条下方 10px ~ 上方 80px）
     if (!this.progressEl) return
 
@@ -256,11 +261,37 @@ export class HoverPreviewController {
     }
   }
 
+  private isFloatingMenuOpen() {
+    const root = this.art.template.$player as HTMLElement
+    const selectors = [
+      '.art-settings',
+      '.art-setting',
+      '.art-setting-body',
+      '.art-selector',
+      '.art-selector-list',
+      '.art-control-selector:hover',
+      '.art-qualitys',
+      '.art-contextmenus',
+    ]
+
+    return selectors.some((selector) => {
+      const nodes = root.querySelectorAll<HTMLElement>(selector)
+      return Array.from(nodes).some((node) => {
+        const style = window.getComputedStyle(node)
+        return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
+      })
+    })
+  }
+
   private updatePreviewPosition(event: MouseEvent) {
     if (!this.progressEl || !this.previewEl || !this.previewImgEl || !this.previewTimeEl) {
       return
     }
     if (this.covers.length === 0 || !this.art.duration) return
+    if (this.isFloatingMenuOpen()) {
+      this.hidePreview()
+      return
+    }
 
     const progressRect = this.progressEl.getBoundingClientRect()
     if (progressRect.width <= 0) return

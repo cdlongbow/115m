@@ -40,6 +40,7 @@ interface PlayerConfig {
 }
 
 class PlayerManager {
+  private static readonly QUALITY_SETTING_NAME = 'm115-quality-setting'
   private artplayer: Artplayer | null = null
   private hlsInstance: HlsType | null = null
   private m3u8List: M3u8Item[] = []
@@ -210,7 +211,6 @@ class PlayerManager {
       const currentUrl = this.artplayer?.url || ''
       this.refreshQualityState(currentUrl)
       this.renderQualityPanel()
-      this.updateQualityButton()
 
       void loadPlayHistory(this.currentPickCode, (time) => {
         if (this.artplayer) {
@@ -287,7 +287,7 @@ class PlayerManager {
       autoMini: true,
       screenshot: false,
       setting: true,
-      quality: buildArtplayerQuality(this.qualityOptions, videoUrl, this.currentQualityLabel),
+      settings: [this.buildQualitySettingItem()],
       loop: false,
       flip: true,
       playbackRate: true,
@@ -305,7 +305,6 @@ class PlayerManager {
             const opt = this.qualityOptions.find(o => o.url === url)
             if (opt) {
               this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
-              this.updateQualityButton()
               this.renderQualityPanel()
             }
 
@@ -324,7 +323,6 @@ class PlayerManager {
                 saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
               }
               this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
-              this.updateQualityButton()
               this.renderQualityPanel()
             }
           }
@@ -349,19 +347,6 @@ class PlayerManager {
       if (opt && this.perfMarks.loadedmetadata) {
         saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
         this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
-        this.updateQualityButton()
-        this.renderQualityPanel()
-      }
-    })
-
-    // 监听画质插件的切换事件（更可靠地捕获手动选择）
-    this.artplayer.on('quality' as any, (opt: any) => {
-      // 仅在初始加载完成（loadedmetadata 有值）后的切换才认定为手动选择，并记录偏好
-      if (opt && opt.label && this.perfMarks.loadedmetadata) {
-        console.log('[115m] Artplayer quality manual switch:', opt.label)
-        saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
-        this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
-        this.updateQualityButton()
         this.renderQualityPanel()
       }
     })
@@ -400,12 +385,10 @@ class PlayerManager {
             mounted: ($el: HTMLElement) => { this.infoMenuEl = $el },
           })
           this.renderQualityPanel()
-          this.updateQualityButton()
         },
         onLoadedmetadata: () => {
           this.perfMarks.loadedmetadata = performance.now()
           this.updateQualityByUrl(this.artplayer?.url || '')
-          this.updateQualityButton()
           this.renderQualityPanel()
           this.hoverPreview?.updateSize()
         },
@@ -453,10 +436,22 @@ class PlayerManager {
     Object.assign(this, state)
   }
 
-  private updateQualityButton() {
-    const labelEl = document.getElementById('quality-control-label')
-    if (!labelEl) return
-    labelEl.textContent = `画质: ${this.currentQualityLabel}`
+  private buildQualitySettingItem() {
+    return {
+      name: PlayerManager.QUALITY_SETTING_NAME,
+      html: '画质',
+      tooltip: this.currentQualityLabel,
+      selector: buildArtplayerQuality(this.qualityOptions, this.artplayer?.url || '', this.currentQualityLabel).map(item => ({
+        ...item,
+      })),
+      onSelect: async (item: { html?: string, url?: string }) => {
+        const label = item.html || ''
+        const target = this.qualityOptions.find(opt => opt.label === label || opt.url === item.url)
+        if (!target) return label
+        await this.switchQuality(target)
+        return target.label
+      },
+    }
   }
 
   private renderQualityPanel() {
@@ -465,10 +460,21 @@ class PlayerManager {
 
   private updateQualitySetting() {
     if (!this.artplayer) return
-    if (!this.artplayer.quality) return
+    const settingApi = (this.artplayer as any).setting
+    if (!settingApi) return
+    const nextItem = this.buildQualitySettingItem()
 
-    const qualityList = buildArtplayerQuality(this.qualityOptions, this.artplayer.url, this.currentQualityLabel)
-    this.artplayer.quality = qualityList
+    if (typeof settingApi.update === 'function') {
+      settingApi.update(nextItem)
+      return
+    }
+
+    if (typeof settingApi.remove === 'function') {
+      settingApi.remove(PlayerManager.QUALITY_SETTING_NAME)
+    }
+    if (typeof settingApi.add === 'function') {
+      settingApi.add(nextItem)
+    }
   }
 
   private async switchQuality(opt: QualityOption) {
@@ -489,7 +495,6 @@ class PlayerManager {
     const wasPlaying = !this.artplayer.video.paused
 
     this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
-    this.updateQualityButton()
     this.renderQualityPanel()
 
     // 记住用户手动选择的画质
@@ -636,7 +641,6 @@ class PlayerManager {
     }
     
     console.log('[115m] fallbackToHls: switching to', bestQualityUrl.substring(0, 80) + '...')
-    this.updateQualityButton()
     this.renderQualityPanel()
     this.artplayer.switchUrl(bestQualityUrl)
   }

@@ -1,6 +1,7 @@
 import type Artplayer from 'artplayer'
 import { getVideoCovers } from '../../lib/videoThumbnail'
 import { escapeHtml } from '../../shared/utils'
+import { UI_LAYER } from './ui-layer'
 
 export interface OverlayPathItem {
   cid: string
@@ -227,7 +228,7 @@ export class PlayerOverlayController {
       'top:60px',
       'left:50%',
       'transform:translateX(-50%) translateY(-8px)',
-      'z-index:300',
+      `z-index:${UI_LAYER.toast}`,
       'padding:8px 20px',
       'border-radius:999px',
       'background:rgba(0,0,0,.85)',
@@ -280,13 +281,13 @@ export class PlayerOverlayController {
     this.endPanelEl?.remove()
 
     const panel = document.createElement('div')
-    panel.className = 'm115-playback-end m115-interactive'
+    panel.className = 'm115-playback-end m115-interactive m115-layer-playback-end'
     panel.style.cssText = [
       'position:absolute',
       'left:50%',
       'top:50%',
       'transform:translate(-50%,-50%)',
-      'z-index:260',
+      `z-index:${UI_LAYER.playbackEnd}`,
       'display:none',
       'flex-direction:column',
       'align-items:center',
@@ -457,7 +458,7 @@ export class PlayerOverlayController {
       'top:0',
       'left:0',
       'right:0',
-      'z-index:200',
+      `z-index:${UI_LAYER.header}`,
       'display:flex',
       'align-items:flex-start',
       'padding:16px 20px 28px',
@@ -467,6 +468,7 @@ export class PlayerOverlayController {
       'transition:opacity .2s ease',
       'box-sizing:border-box',
     ].join(';')
+    header.classList.add('m115-layer-header')
 
     const left = document.createElement('div')
     left.style.cssText = 'min-width:0;max-width:min(72vw,800px);display:flex;align-items:flex-start;gap:12px;'
@@ -654,7 +656,7 @@ export class PlayerOverlayController {
       'right:0',
       'top:50%',
       'transform:translateY(-50%)',
-      'z-index:210',
+      `z-index:${UI_LAYER.playlistTab}`,
       'display:flex',
       'align-items:center',
       'justify-content:center',
@@ -671,7 +673,7 @@ export class PlayerOverlayController {
       'opacity:0.6',
     ].join(';')
     tab.title = '播放列表'
-    tab.classList.add('m115-interactive')
+    tab.classList.add('m115-interactive', 'm115-layer-playlist-tab')
     tab.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>'
 
     tab.addEventListener('mouseenter', () => {

@@ -1,4 +1,5 @@
 import type Artplayer from 'artplayer'
+import { UI_LAYER } from './ui-layer'
 
 export interface HoverPreviewRefs {
   preview: HTMLDivElement
@@ -71,7 +72,7 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
     'transform:translateX(-50%)',
     'display:none',
     'pointer-events:none',
-    'z-index:55',
+    `z-index:${UI_LAYER.hoverPreview}`,
     'background:rgba(0,0,0,.78)',
     'border:1px solid rgba(255,255,255,.22)',
     'border-radius:8px',
