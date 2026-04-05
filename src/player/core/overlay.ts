@@ -34,8 +34,24 @@ export interface PlayerOverlayOptions {
   onToggleFavorite: (fileId: string, nextMarked: boolean) => Promise<boolean>
   onPlaylistToggle: (open: boolean) => Promise<OverlayPlaylistItem[]>
   onPlaylistPlay: (pickCode: string) => void
+  onPlayPrevious: () => void
+  onPlayNext: () => void
+  onReplay: () => void
   onRefreshBreadcrumbs?: () => void
   getCurrentPickCode: () => string
+}
+
+export interface OverlayPlaybackNavState {
+  hasPrevious: boolean
+  hasNext: boolean
+  previousTitle?: string
+  nextTitle?: string
+}
+
+export interface OverlayPlaybackEndState {
+  mode: 'autoplay-next' | 'ended'
+  nextTitle?: string
+  countdownSec?: number
 }
 
 export function readOverlayMetaFromQuery(): PlayerOverlayMeta {
@@ -80,6 +96,12 @@ export class PlayerOverlayController {
   private playlistListEl: HTMLElement | null = null
   private favBtnEl: HTMLButtonElement | null = null
   private moveBtnEl: HTMLButtonElement | null = null
+  private prevBtnEl: HTMLButtonElement | null = null
+  private nextBtnEl: HTMLButtonElement | null = null
+  private endPanelEl: HTMLDivElement | null = null
+  private endPanelTextEl: HTMLDivElement | null = null
+  private endPanelSubTextEl: HTMLDivElement | null = null
+  private endPanelNextBtnEl: HTMLButtonElement | null = null
   private visibleTimer: number | null = null
   private isPointerInsideOverlay = false
   private isPointerOnProgress = false
@@ -102,6 +124,7 @@ export class PlayerOverlayController {
     this.mountHeaderOverlay()
     this.mountPlaylistTab()
     this.mountSidebarContent()
+    this.mountPlaybackEndPanel()
 
     this.controlsEl.addEventListener('mouseenter', this.handleOverlayEnter)
     this.controlsEl.addEventListener('mouseleave', this.handleOverlayLeave)
@@ -143,6 +166,7 @@ export class PlayerOverlayController {
     this.controlsEl.removeEventListener('mouseleave', this.handleOverlayLeave)
     this.headerEl?.removeEventListener('mouseenter', this.handleOverlayEnter)
     this.headerEl?.removeEventListener('mouseleave', this.handleOverlayLeave)
+    this.endPanelEl?.remove()
   }
 
   setCurrentTitle(title: string) {
@@ -160,6 +184,158 @@ export class PlayerOverlayController {
   updateFavoriteStatus(isMarked: boolean) {
     this.options.meta.isMarked = isMarked
     this.updateFavoriteIcon()
+  }
+
+  updatePlaybackNav(state: OverlayPlaybackNavState) {
+    this.syncNavButton(this.prevBtnEl, state.hasPrevious, state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集')
+    this.syncNavButton(this.nextBtnEl, state.hasNext, state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集')
+    if (this.endPanelNextBtnEl) {
+      this.endPanelNextBtnEl.disabled = !state.hasNext
+      this.endPanelNextBtnEl.style.opacity = state.hasNext ? '1' : '.45'
+      this.endPanelNextBtnEl.style.cursor = state.hasNext ? 'pointer' : 'not-allowed'
+      this.endPanelNextBtnEl.title = state.hasNext ? (state.nextTitle ? `下一集：${state.nextTitle}` : '下一集') : '没有下一集'
+    }
+  }
+
+  showPlaybackEndPanel(state: OverlayPlaybackEndState) {
+    if (!this.endPanelEl || !this.endPanelTextEl || !this.endPanelSubTextEl) return
+    this.endPanelTextEl.textContent = state.mode === 'autoplay-next' ? '当前视频播放完成' : '当前视频已播放完成'
+    if (state.mode === 'autoplay-next' && state.nextTitle) {
+      const sec = Math.max(1, state.countdownSec || 1)
+      this.endPanelSubTextEl.textContent = `${sec} 秒后自动播放下一集：${state.nextTitle}`
+    }
+    else {
+      this.endPanelSubTextEl.textContent = state.nextTitle ? `下一集：${state.nextTitle}` : '已经是最后一集'
+    }
+    this.endPanelEl.style.display = 'flex'
+  }
+
+  hidePlaybackEndPanel() {
+    if (!this.endPanelEl) return
+    this.endPanelEl.style.display = 'none'
+  }
+
+  showToast(text: string) {
+    const existing = this.root.querySelector('.m115-toast')
+    existing?.remove()
+
+    const toast = document.createElement('div')
+    toast.className = 'm115-toast'
+    toast.textContent = text
+    toast.style.cssText = [
+      'position:absolute',
+      'top:60px',
+      'left:50%',
+      'transform:translateX(-50%) translateY(-8px)',
+      'z-index:300',
+      'padding:8px 20px',
+      'border-radius:999px',
+      'background:rgba(0,0,0,.85)',
+      'color:#fff',
+      'font-size:13px',
+      'font-weight:500',
+      'white-space:nowrap',
+      'pointer-events:none',
+      'opacity:0',
+      'transition:opacity .2s ease, transform .2s ease',
+      'backdrop-filter:blur(8px)',
+    ].join(';')
+    this.root.appendChild(toast)
+
+    requestAnimationFrame(() => {
+      toast.style.opacity = '1'
+      toast.style.transform = 'translateX(-50%) translateY(0)'
+    })
+    setTimeout(() => {
+      toast.style.opacity = '0'
+      toast.style.transform = 'translateX(-50%) translateY(-8px)'
+      setTimeout(() => toast.remove(), 200)
+    }, 1800)
+  }
+
+  private syncNavButton(button: HTMLButtonElement | null, enabled: boolean, title: string) {
+    if (!button) return
+    button.disabled = !enabled
+    button.title = title
+    button.style.opacity = enabled ? '1' : '.38'
+    button.style.cursor = enabled ? 'pointer' : 'not-allowed'
+  }
+
+  private createHeaderActionButton(title: string, icon: string) {
+    const button = document.createElement('button')
+    button.type = 'button'
+    button.title = title
+    button.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:background .15s,color .15s,opacity .15s;'
+    button.innerHTML = icon
+    button.addEventListener('mouseenter', () => {
+      if (!button.disabled) button.style.background = 'rgba(255,255,255,.1)'
+    })
+    button.addEventListener('mouseleave', () => {
+      button.style.background = 'transparent'
+    })
+    return button
+  }
+
+  private mountPlaybackEndPanel() {
+    this.endPanelEl?.remove()
+
+    const panel = document.createElement('div')
+    panel.className = 'm115-playback-end m115-interactive'
+    panel.style.cssText = [
+      'position:absolute',
+      'left:50%',
+      'top:50%',
+      'transform:translate(-50%,-50%)',
+      'z-index:260',
+      'display:none',
+      'flex-direction:column',
+      'align-items:center',
+      'gap:12px',
+      'min-width:320px',
+      'max-width:min(72vw,520px)',
+      'padding:24px 28px',
+      'border:1px solid rgba(255,255,255,.14)',
+      'border-radius:18px',
+      'background:rgba(8,8,8,.84)',
+      'box-shadow:0 20px 60px rgba(0,0,0,.38)',
+      'backdrop-filter:blur(14px)',
+      'pointer-events:auto',
+      'box-sizing:border-box',
+      'text-align:center',
+    ].join(';')
+
+    const title = document.createElement('div')
+    title.style.cssText = 'font-size:20px;font-weight:700;color:#fff;line-height:1.4;'
+
+    const desc = document.createElement('div')
+    desc.style.cssText = 'font-size:13px;line-height:1.6;color:rgba(255,255,255,.72);max-width:100%;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;'
+
+    const actions = document.createElement('div')
+    actions.style.cssText = 'display:flex;align-items:center;justify-content:center;gap:10px;flex-wrap:wrap;'
+
+    const replayBtn = document.createElement('button')
+    replayBtn.type = 'button'
+    replayBtn.textContent = '重播'
+    replayBtn.style.cssText = 'min-width:92px;height:38px;padding:0 16px;border:none;border-radius:999px;background:#1890ff;color:#fff;font-size:14px;font-weight:600;cursor:pointer;'
+    replayBtn.addEventListener('click', this.options.onReplay)
+
+    const nextBtn = document.createElement('button')
+    nextBtn.type = 'button'
+    nextBtn.textContent = '下一集'
+    nextBtn.style.cssText = 'min-width:92px;height:38px;padding:0 16px;border:1px solid rgba(255,255,255,.16);border-radius:999px;background:rgba(255,255,255,.08);color:#fff;font-size:14px;font-weight:600;cursor:pointer;'
+    nextBtn.addEventListener('click', this.options.onPlayNext)
+
+    actions.appendChild(replayBtn)
+    actions.appendChild(nextBtn)
+    panel.appendChild(title)
+    panel.appendChild(desc)
+    panel.appendChild(actions)
+    this.root.appendChild(panel)
+
+    this.endPanelEl = panel
+    this.endPanelTextEl = title
+    this.endPanelSubTextEl = desc
+    this.endPanelNextBtnEl = nextBtn
   }
 
   private renderBreadcrumbs(items: OverlayPathItem[]) {
@@ -373,15 +549,18 @@ export class PlayerOverlayController {
     const right = document.createElement('div')
     right.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;pointer-events:auto;padding-top:2px;'
 
+    const navGroup = document.createElement('div')
+    navGroup.style.cssText = 'display:flex;align-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);padding:2px;gap:0;'
+    const prevBtn = this.createHeaderActionButton('上一集', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="M11 6l-6 6 6 6"/><path d="M19 6l-6 6 6 6"/></svg>')
+    const nextBtn = this.createHeaderActionButton('下一集', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="m13 6 6 6-6 6"/><path d="m5 6 6 6-6 6"/></svg>')
+    prevBtn.addEventListener('click', this.options.onPlayPrevious)
+    nextBtn.addEventListener('click', this.options.onPlayNext)
+    navGroup.appendChild(prevBtn)
+    navGroup.appendChild(nextBtn)
+
     const pillGroup = document.createElement('div')
     pillGroup.style.cssText = 'display:flex;align-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);padding:2px;gap:0;'
-    const moveBtn = document.createElement('button')
-    moveBtn.type = 'button'
-    moveBtn.title = '移动视频'
-    moveBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:background .15s,color .15s;'
-    moveBtn.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M5 9l-3 3 3 3"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M2 12h14"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M12 5V2h10v20H12v-3"/></svg>'
-    moveBtn.addEventListener('mouseenter', () => { moveBtn.style.background = 'rgba(255,255,255,.1)' })
-    moveBtn.addEventListener('mouseleave', () => { moveBtn.style.background = 'transparent' })
+    const moveBtn = this.createHeaderActionButton('移动视频', '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M5 9l-3 3 3 3"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M2 12h14"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M12 5V2h10v20H12v-3"/></svg>')
     moveBtn.addEventListener('click', async () => {
       const { fileId, cid } = this.options.meta
       console.log('[115m] 移动文件:', fileId, cid)
@@ -399,12 +578,7 @@ export class PlayerOverlayController {
       }
     })
 
-    const favBtn = document.createElement('button')
-    favBtn.type = 'button'
-    favBtn.title = '收藏'
-    favBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:all .2s ease;'
-    favBtn.addEventListener('mouseenter', () => { favBtn.style.background = 'rgba(255,255,255,.1)' })
-    favBtn.addEventListener('mouseleave', () => { favBtn.style.background = 'transparent' })
+    const favBtn = this.createHeaderActionButton('收藏', '')
     favBtn.addEventListener('click', async () => {
       const fileId = this.options.meta.fileId
       console.log('[115m] 收藏切换:', { fileId, currentMarked: this.options.meta.isMarked })
@@ -435,10 +609,14 @@ export class PlayerOverlayController {
     })
     this.favBtnEl = favBtn
     this.moveBtnEl = moveBtn
+    this.prevBtnEl = prevBtn
+    this.nextBtnEl = nextBtn
     // 初始状态设为未收藏，避免闪烁（等 API 返回后更新）
     this.options.meta.isMarked = false
     this.updateFavoriteIcon()
+    this.updatePlaybackNav({ hasPrevious: false, hasNext: false })
 
+    right.appendChild(navGroup)
     pillGroup.appendChild(moveBtn)
     pillGroup.appendChild(favBtn)
     right.appendChild(pillGroup)
@@ -465,44 +643,6 @@ export class PlayerOverlayController {
     this.favBtnEl.innerHTML = marked
       ? '<svg width="20" height="20" viewBox="0 0 24 24"><path style="fill:#f472b6" d="m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg>'
       : '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.7);stroke-width:2" d="m12 20.4-1.4-1.27C5.4 14.36 2 11.28 2 7.5 2 4.42 4.42 2 7.5 2c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 2C19.58 2 22 4.42 22 7.5c0 3.78-3.4 6.86-8.6 11.63z"/></svg>'
-  }
-
-  private showToast(text: string) {
-    const existing = this.root.querySelector('.m115-toast')
-    existing?.remove()
-
-    const toast = document.createElement('div')
-    toast.className = 'm115-toast'
-    toast.textContent = text
-    toast.style.cssText = [
-      'position:absolute',
-      'top:60px',
-      'left:50%',
-      'transform:translateX(-50%) translateY(-8px)',
-      'z-index:300',
-      'padding:8px 20px',
-      'border-radius:999px',
-      'background:rgba(0,0,0,.85)',
-      'color:#fff',
-      'font-size:13px',
-      'font-weight:500',
-      'white-space:nowrap',
-      'pointer-events:none',
-      'opacity:0',
-      'transition:opacity .2s ease, transform .2s ease',
-      'backdrop-filter:blur(8px)',
-    ].join(';')
-    this.root.appendChild(toast)
-
-    requestAnimationFrame(() => {
-      toast.style.opacity = '1'
-      toast.style.transform = 'translateX(-50%) translateY(0)'
-    })
-    setTimeout(() => {
-      toast.style.opacity = '0'
-      toast.style.transform = 'translateX(-50%) translateY(-8px)'
-      setTimeout(() => toast.remove(), 200)
-    }, 1800)
   }
 
   // ── Playlist toggle tab (right edge, vertically centered) ──

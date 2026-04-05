@@ -11,6 +11,7 @@ export interface BindPlayerEventsOptions {
   onLoadedmetadata: () => void
   onCanplay: () => void
   onPlaying: () => void
+  onEnded: () => void
   onReady: () => void
   onError: () => void
 }
@@ -25,6 +26,7 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
     onLoadedmetadata,
     onCanplay,
     onPlaying,
+    onEnded,
     onReady,
     onError,
   } = options
@@ -59,6 +61,11 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
   art.on('video:playing', () => {
     onPerf('video-playing', { type })
     onPlaying()
+  })
+
+  art.on('video:ended', () => {
+    onPerf('video-ended', { type })
+    onEnded()
   })
 
   art.on('error', onError)

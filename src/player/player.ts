@@ -53,6 +53,9 @@ class PlayerManager {
   private infoMenuEl: HTMLElement | null = null
   private hoverPreview: HoverPreviewController | null = null
   private overlay: PlayerOverlayController | null = null
+  private playlistItemsCache: OverlayPlaylistItem[] = []
+  private playlistLoadingPromise: Promise<OverlayPlaylistItem[]> | null = null
+  private autoNextTimer: number | null = null
   private traceId = ''
   private clickTs = 0
   private initStartTs = 0
@@ -285,7 +288,7 @@ class PlayerManager {
       screenshot: false,
       setting: true,
       quality: buildArtplayerQuality(this.qualityOptions, videoUrl, this.currentQualityLabel),
-      loop: true,
+      loop: false,
       flip: true,
       playbackRate: true,
       aspectRatio: true,
@@ -410,8 +413,12 @@ class PlayerManager {
           this.perfMarks.canplay = performance.now()
         },
         onPlaying: () => {
+          this.clearPlaybackEndState()
           this.perfMarks.playing = performance.now()
           this.reportFirstFrameSummary()
+        },
+        onEnded: () => {
+          this.handlePlaybackEnded()
         },
         onError: () => {
           if (this.isNativeVideo) {
@@ -507,16 +514,26 @@ class PlayerManager {
       meta,
       onMoveFile: async (fileId, cid) => await this.moveFile(fileId, cid),
       onToggleFavorite: async (fileId, nextMarked) => await this.toggleFavorite(fileId, nextMarked),
-      onPlaylistToggle: async open => open ? await this.fetchPlaylistItems() : [],
+      onPlaylistToggle: async (open) => {
+        if (!open) return []
+        const items = await this.fetchPlaylistItems()
+        this.syncOverlayPlaybackNav()
+        return items
+      },
       onPlaylistPlay: (pickCode) => {
         if (pickCode && pickCode !== this.currentPickCode) {
           this.navigateToVideo(pickCode)
         }
       },
+      onPlayPrevious: () => this.playPrevious(),
+      onPlayNext: () => this.playNext(),
+      onReplay: () => this.replayCurrent(),
       onRefreshBreadcrumbs: () => this.refreshBreadcrumbs(),
       getCurrentPickCode: () => this.currentPickCode,
     })
     this.overlay.init()
+    this.syncOverlayPlaybackNav()
+    void this.prefetchPlaylistItems()
     // 异步获取最新的收藏状态
     if (meta.fileId) {
       void this.fetchFileFavoriteStatus(meta.fileId)
@@ -651,7 +668,35 @@ class PlayerManager {
     renderPlayerError(message)
   }
 
+  private async prefetchPlaylistItems() {
+    try {
+      await this.fetchPlaylistItems()
+      this.syncOverlayPlaybackNav()
+    }
+    catch (error) {
+      console.warn('[115m] prefetchPlaylistItems failed:', error)
+    }
+  }
+
   private async fetchPlaylistItems(): Promise<OverlayPlaylistItem[]> {
+    if (this.playlistItemsCache.length > 0) {
+      return this.playlistItemsCache
+    }
+    if (this.playlistLoadingPromise) {
+      return await this.playlistLoadingPromise
+    }
+
+    this.playlistLoadingPromise = this.fetchPlaylistItemsInternal()
+    try {
+      this.playlistItemsCache = await this.playlistLoadingPromise
+      return this.playlistItemsCache
+    }
+    finally {
+      this.playlistLoadingPromise = null
+    }
+  }
+
+  private async fetchPlaylistItemsInternal(): Promise<OverlayPlaylistItem[]> {
     const urlParams = new URLSearchParams(window.location.search)
     let cid = urlParams.get('cid') || ''
 
@@ -680,6 +725,92 @@ class PlayerManager {
         duration: item.play_long || 0,
         sha: item.sha || '',
       }))
+  }
+
+  private getPlaylistPosition(items: OverlayPlaylistItem[] = this.playlistItemsCache) {
+    const index = items.findIndex(item => item.pickCode === this.currentPickCode)
+    return {
+      index,
+      previous: index > 0 ? items[index - 1] : null,
+      current: index >= 0 ? items[index] : null,
+      next: index >= 0 && index < items.length - 1 ? items[index + 1] : null,
+    }
+  }
+
+  private syncOverlayPlaybackNav() {
+    const { previous, next } = this.getPlaylistPosition()
+    this.overlay?.updatePlaybackNav({
+      hasPrevious: !!previous,
+      hasNext: !!next,
+      previousTitle: previous?.name,
+      nextTitle: next?.name,
+    })
+  }
+
+  private clearPlaybackEndState() {
+    if (this.autoNextTimer) {
+      window.clearTimeout(this.autoNextTimer)
+      this.autoNextTimer = null
+    }
+    this.overlay?.hidePlaybackEndPanel()
+  }
+
+  private async handlePlaybackEnded() {
+    this.clearPlaybackEndState()
+    const items = await this.fetchPlaylistItems().catch(() => [])
+    const { next } = this.getPlaylistPosition(items)
+
+    if (next) {
+      let countdown = 3
+      this.overlay?.showPlaybackEndPanel({
+        mode: 'autoplay-next',
+        nextTitle: next.name,
+        countdownSec: countdown,
+      })
+      this.autoNextTimer = window.setInterval(() => {
+        countdown -= 1
+        if (countdown <= 0) {
+          this.clearPlaybackEndState()
+          this.navigateToVideo(next.pickCode)
+          return
+        }
+        this.overlay?.showPlaybackEndPanel({
+          mode: 'autoplay-next',
+          nextTitle: next.name,
+          countdownSec: countdown,
+        })
+      }, 1000) as unknown as number
+      return
+    }
+
+    this.overlay?.showPlaybackEndPanel({ mode: 'ended' })
+  }
+
+  private async playPrevious() {
+    const items = await this.fetchPlaylistItems().catch(() => [])
+    const { previous } = this.getPlaylistPosition(items)
+    if (!previous) {
+      this.overlay?.showToast('已经是第一集')
+      return
+    }
+    this.navigateToVideo(previous.pickCode)
+  }
+
+  private async playNext() {
+    const items = await this.fetchPlaylistItems().catch(() => [])
+    const { next } = this.getPlaylistPosition(items)
+    if (!next) {
+      this.overlay?.showToast('已经是最后一集')
+      return
+    }
+    this.navigateToVideo(next.pickCode)
+  }
+
+  private replayCurrent() {
+    this.clearPlaybackEndState()
+    if (!this.artplayer) return
+    this.artplayer.seek = 0
+    void this.artplayer.play()
   }
 
   /**
@@ -770,14 +901,13 @@ class PlayerManager {
   }
 
   private navigateToVideo(pickCode: string) {
+    this.clearPlaybackEndState()
     const params = new URLSearchParams(window.location.search)
     params.set('pick_code', pickCode)
     params.set('pickCode', pickCode)
-    const title = this.overlay ? undefined : ''
-    void title
-    const playlistItem = document.querySelector(`[data-pickcode="${pickCode}"] .block.truncate`)?.textContent?.trim()
-    if (playlistItem) {
-      params.set('title', playlistItem)
+    const targetItem = this.playlistItemsCache.find(item => item.pickCode === pickCode)
+    if (targetItem?.name) {
+      params.set('title', targetItem.name)
     }
     window.location.href = `${window.location.pathname}?${params.toString()}`
   }
@@ -790,6 +920,7 @@ class PlayerManager {
   }
 
   destroy() {
+    this.clearPlaybackEndState()
     this.overlay?.destroy()
     this.overlay = null
     this.hoverPreview?.destroy()
