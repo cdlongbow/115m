@@ -40,7 +40,7 @@ interface PlayerConfig {
 }
 
 class PlayerManager {
-  private static readonly QUALITY_SETTING_NAME = 'm115-quality-setting'
+  private static readonly QUALITY_CONTROL_NAME = 'm115-quality-control'
   private artplayer: Artplayer | null = null
   private hlsInstance: HlsType | null = null
   private m3u8List: M3u8Item[] = []
@@ -287,7 +287,7 @@ class PlayerManager {
       autoMini: true,
       screenshot: false,
       setting: true,
-      settings: [this.buildQualitySettingItem()],
+      controls: [this.buildQualityControlItem()],
       loop: false,
       flip: true,
       playbackRate: true,
@@ -436,15 +436,21 @@ class PlayerManager {
     Object.assign(this, state)
   }
 
-  private buildQualitySettingItem() {
+  private buildQualityControlItem(): any {
     return {
-      name: PlayerManager.QUALITY_SETTING_NAME,
-      html: '画质',
-      tooltip: this.currentQualityLabel,
+      name: PlayerManager.QUALITY_CONTROL_NAME,
+      position: 'right' as const,
+      index: 10,
+      style: {
+        marginRight: '10px',
+        minWidth: '52px',
+        textAlign: 'center' as const,
+      },
+      html: this.currentQualityLabel,
       selector: buildArtplayerQuality(this.qualityOptions, this.artplayer?.url || '', this.currentQualityLabel).map(item => ({
         ...item,
       })),
-      onSelect: async (item: { html?: string, url?: string }) => {
+      onSelect: async (item: any) => {
         const label = item.html || ''
         const target = this.qualityOptions.find(opt => opt.label === label || opt.url === item.url)
         if (!target) return label
@@ -455,25 +461,25 @@ class PlayerManager {
   }
 
   private renderQualityPanel() {
-    this.updateQualitySetting()
+    this.updateQualityControl()
   }
 
-  private updateQualitySetting() {
+  private updateQualityControl() {
     if (!this.artplayer) return
-    const settingApi = (this.artplayer as any).setting
-    if (!settingApi) return
-    const nextItem = this.buildQualitySettingItem()
+    const controlsApi = (this.artplayer as any).controls
+    if (!controlsApi) return
+    const nextItem = this.buildQualityControlItem()
 
-    if (typeof settingApi.update === 'function') {
-      settingApi.update(nextItem)
+    if (typeof controlsApi.update === 'function') {
+      controlsApi.update(nextItem)
       return
     }
 
-    if (typeof settingApi.remove === 'function') {
-      settingApi.remove(PlayerManager.QUALITY_SETTING_NAME)
+    if (typeof controlsApi.remove === 'function') {
+      controlsApi.remove(PlayerManager.QUALITY_CONTROL_NAME)
     }
-    if (typeof settingApi.add === 'function') {
-      settingApi.add(nextItem)
+    if (typeof controlsApi.add === 'function') {
+      controlsApi.add(nextItem)
     }
   }
 

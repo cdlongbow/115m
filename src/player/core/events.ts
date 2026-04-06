@@ -85,7 +85,7 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
     // ArtPlayer 设置面板（播放速度、画面比例、画面旋转等）
     if (target.closest('.art-settings, .art-setting, .art-setting-item, .art-setting-inner, .art-setting-body, .art-setting-radio, .art-radio-item, .art-setting-range, .art-setting-checkbox')) return true
     // ArtPlayer 画质/字幕选择面板（两种类名都兼容）
-    if (target.closest('.art-selector, .art-selector-item, .art-qualitys, .art-quality-item')) return true
+    if (target.closest('.art-control-selector, .art-selector, .art-selector-item, .art-qualitys, .art-quality-item')) return true
     // ArtPlayer 通知提示、信息面板
     if (target.closest('.art-notice, .art-info, .art-info-item, .art-info-close')) return true
     // ArtPlayer 音量面板和滑块
