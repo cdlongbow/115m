@@ -49,10 +49,11 @@ export function renderPlayerError(message: string): void {
 export function findProgressElement(art: Artplayer): HTMLElement | null {
   const root = art.template.$player as HTMLElement
   const selectors = [
-    '.art-control-progress',
-    '.art-progress',
     '.art-control .art-progress',
     '.art-bottom .art-progress',
+    '.art-progress',
+    '.art-control-progress .art-progress',
+    '.art-control-progress',
   ]
 
   for (const selector of selectors) {

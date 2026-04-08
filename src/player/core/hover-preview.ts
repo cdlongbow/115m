@@ -199,7 +199,7 @@ export class HoverPreviewController {
     // 取消隐藏定时器（鼠标还在播放器区域内）
     this.cancelHide()
 
-    if (this.isFloatingMenuOpen()) {
+    if (this.shouldSuspendPreview(event.target)) {
       this.hidePreview()
       return
     }
@@ -272,6 +272,7 @@ export class HoverPreviewController {
       '.art-control-selector:hover',
       '.art-qualitys',
       '.art-contextmenus',
+      '.art-volume-panel',
     ]
 
     return selectors.some((selector) => {
@@ -283,12 +284,25 @@ export class HoverPreviewController {
     })
   }
 
+  private shouldSuspendPreview(target: EventTarget | null) {
+    if (this.isFloatingMenuOpen()) return true
+    if (!(target instanceof Element)) return false
+
+    return Boolean(target.closest([
+      '.art-control-volume',
+      '.art-volume-panel',
+      '.art-volume-slider',
+      '.art-volume-handle',
+      '.art-volume-indicator',
+    ].join(', ')))
+  }
+
   private updatePreviewPosition(event: MouseEvent) {
     if (!this.progressEl || !this.previewEl || !this.previewImgEl || !this.previewTimeEl) {
       return
     }
     if (this.covers.length === 0 || !this.art.duration) return
-    if (this.isFloatingMenuOpen()) {
+    if (this.shouldSuspendPreview(event.target)) {
       this.hidePreview()
       return
     }
