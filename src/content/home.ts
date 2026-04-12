@@ -2,6 +2,7 @@ import homeCss from './home.css?inline'
 import { extractFileInfo } from './core/extractors'
 import { openPlayer } from './core/player-open'
 import { injectActionButtons } from './core/action-buttons'
+import { addDownloadIntercept } from './core/download-intercept'
 
 import { renderPreview } from './core/preview'
 import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
@@ -140,14 +141,16 @@ class HomeController {
       this.scannedItems.add(item)
 
       const file = extractFileInfo(item)
-      if (!file || !file.isVideo) return
+      if (!file) return
+
+      // 下载拦截对所有文件生效
+      addDownloadIntercept(item, file)
+
+      if (!file.isVideo) return
 
       this.bindItemPlay(item)
       injectActionButtons(item, file)
-
-      if (file.isVideo) {
-        renderPreview(item, file)
-      }
+      renderPreview(item, file)
     })
   }
 }
