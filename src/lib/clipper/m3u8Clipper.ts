@@ -103,6 +103,7 @@ export class M3U8ClipperNew {
       targetTime,
       baseTime: segment.timestamp,
       segmentUrl: segment.url,
+      segmentByterange: segment.byterange,
       firstFramePriority,
       io: this.hlsIo,
       logger,

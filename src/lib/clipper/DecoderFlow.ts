@@ -1,6 +1,6 @@
 import type { AVCFrame } from '@cbingbing/demuxer'
 import type { AvcFrameData } from './demuxerTsNew'
-import type { ChunkReader } from './io/ChunkIO'
+import { ChunkReader } from './io/ChunkIO'
 import type { FetchIO } from './io/FetchIO'
 import type { Logger } from '../logger'
 import { appLogger } from '../logger'
@@ -34,6 +34,8 @@ export interface DecoderFlowOptions {
   baseTime: number
   /** 分片 URL */
   segmentUrl: string
+  /** 分片字节范围 */
+  segmentByterange?: { length: number; offset: number }
   /** 首帧优先 */
   firstFramePriority: boolean
   /** 输入输出流 */
@@ -47,6 +49,8 @@ export interface DecoderFlowOptions {
  */
 export class DecoderFlow {
   static readonly LOGGER_NAME = 'DecoderFlow'
+  static readonly PRECISE_FINISH_WINDOW = 0.4
+  static readonly PRECISE_OVERSHOOT_LIMIT = 1.2
   protected logger = appLogger.sub(DecoderFlow.LOGGER_NAME)
   private videoDecoder: VideoDecoder | undefined
   private demuxer: DemuxerTsNew | undefined
@@ -54,10 +58,13 @@ export class DecoderFlow {
   private samplesProcessed: SampleQueueItem[] = []
   private decodedFramesTimes: number[] = []
   private frame: VideoFrame | undefined
+  private frameTime: number | undefined
   private isRunning: boolean = true
+  private shouldFinish: boolean = false
   private targetTime: number
   private baseTime: number
   private segmentUrl: string = ''
+  private segmentByterange?: { length: number; offset: number }
   private firstFramePriority: boolean
   private io: FetchIO
   private firstPts: number | undefined
@@ -72,6 +79,7 @@ export class DecoderFlow {
     this.targetTime = options.targetTime
     this.baseTime = options.baseTime
     this.segmentUrl = options.segmentUrl
+    this.segmentByterange = options.segmentByterange
     this.firstFramePriority = options.firstFramePriority
     this.io = options.io
   }
@@ -83,7 +91,20 @@ export class DecoderFlow {
     this.logger.debug(`initialize 开始, segmentUrl: ${this.segmentUrl}`)
     this.videoDecoder = this._createDecoder()
     this.demuxer = this._createDemuxer()
-    this.reader = this.io.createChunkReader(this.segmentUrl, 0)
+    
+    if (this.segmentByterange) {
+      const { offset, length } = this.segmentByterange
+      this.reader = this.io.createChunkReader(
+        this.segmentUrl,
+        offset,
+        ChunkReader.DEFAULT_LIMIT,
+        offset + length - 1,
+      )
+    }
+    else {
+      this.reader = this.io.createChunkReader(this.segmentUrl, 0)
+    }
+
     this.logger.debug(`initialize 完成, videoDecoder状态: ${this.videoDecoder.state}`)
   }
 
@@ -156,7 +177,7 @@ export class DecoderFlow {
         throw this.error
       }
 
-      if (this._shouldStop() || timeout) {
+      if (this._shouldStop() || this._isExhausted() || timeout) {
         if (timeout) {
           this.logger.error(`超时! 循环次数: ${loopCount}, 已耗时: ${elapsed}ms`)
           this.logger.error(`超时时的状态:`, {
@@ -183,7 +204,7 @@ export class DecoderFlow {
         this._stop()
 
         if (this.frame) {
-          const frameTime = this._getFrameRealTime(this.frame.timestamp)
+          const frameTime = this.frameTime ?? this._getFrameRealTime(this.frame.timestamp)
           this.logger.debug(`成功找到帧, frameTime: ${frameTime}, 耗时: ${Date.now() - startTime}ms`)
           return {
             videoFrame: this.frame.clone(),
@@ -208,10 +229,7 @@ export class DecoderFlow {
     this.sampleQueue = []
     this.samplesProcessed = []
 
-    if (this.frame) {
-      this.frame.close()
-      this.frame = undefined
-    }
+    this._clearSelectedFrame()
 
     if (this.demuxer) {
       this.demuxer.destroy()
@@ -305,12 +323,12 @@ export class DecoderFlow {
       return
     }
 
-    if (!avcFrame.pts) {
+    if (avcFrame.pts == null) {
       this.logger.warn('_onDecodeChunk avcFrame lost pts')
       return
     }
 
-    if (!avcFrame.duration) {
+    if (avcFrame.duration == null) {
       this.logger.warn('_onDecodeChunk avcFrame lost duration')
       return
     }
@@ -320,7 +338,7 @@ export class DecoderFlow {
       return
     }
 
-    if (!this.firstPts) {
+    if (this.firstPts == null) {
       this.firstPts = avcFrame.pts
       if (!avcFrame.keyframe) {
         this.logger.warn('_onDecodeChunk first avcFrame is not keyframe')
@@ -347,60 +365,42 @@ export class DecoderFlow {
    * @param videoFrame 视频帧
    */
   private _processFrame(videoFrame: VideoFrame): void {
-    this.decodedFramesTimes.push(this._getFrameRealTime(videoFrame.timestamp))
-    const matchedFrame = this.matchFrame(videoFrame)
+    const frameTime = this._getFrameRealTime(videoFrame.timestamp)
+    this.decodedFramesTimes.push(frameTime)
 
-    if (!this.frame && matchedFrame) {
-      this.frame = matchedFrame
+    if (this.firstFramePriority) {
+      if (!this.frame) {
+        this._setSelectedFrame(videoFrame, frameTime)
+        this.shouldFinish = true
+        return
+      }
+
+      videoFrame.close()
       return
     }
 
-    videoFrame.close()
-  }
+    const previousDelta = this.frameTime == null
+      ? Number.POSITIVE_INFINITY
+      : Math.abs(this.frameTime - this.targetTime)
+    const nextDelta = Math.abs(frameTime - this.targetTime)
 
-  /**
-   * 匹配第一个输出帧
-   * @param videoFrame 视频帧
-   * @returns 视频帧
-   */
-  private matchFirstFrameOutput(videoFrame: VideoFrame): VideoFrame | undefined {
-    if (this.firstFramePriority && !this.frame) {
-      return videoFrame
+    if (!this.frame || nextDelta <= previousDelta) {
+      this._setSelectedFrame(videoFrame, frameTime)
     }
-    return undefined
-  }
-
-  /**
-   * 匹配帧时间范围
-   * @param frameTime 帧时间/秒
-   * @returns 是否匹配
-   */
-  private matchFrameTimeRange(frameTime: number): boolean {
-    return Math.ceil(frameTime) >= this.targetTime
-  }
-
-  /**
-   * 精确匹配输出帧
-   * @param videoFrame 视频帧
-   * @returns 视频帧
-   */
-  private matchAccurateOutput(videoFrame: VideoFrame): VideoFrame | undefined {
-    const frameTime = this._getFrameRealTime(videoFrame.timestamp)
-    const isMatch = this.matchFrameTimeRange(frameTime)
-    if (isMatch) {
-      return videoFrame
+    else {
+      videoFrame.close()
     }
-    return undefined
-  }
 
-  /**
-   * 匹配帧时间
-   * @param videoFrame 视频帧
-   * @returns 是否匹配
-   */
-  private matchFrame(videoFrame: VideoFrame): VideoFrame | undefined {
-    return this.matchFirstFrameOutput(videoFrame)
-      || this.matchAccurateOutput(videoFrame)
+    if (frameTime >= this.targetTime) {
+      const bestDelta = Math.abs((this.frameTime ?? frameTime) - this.targetTime)
+      const overshoot = frameTime - this.targetTime
+      if (
+        bestDelta <= DecoderFlow.PRECISE_FINISH_WINDOW
+        || overshoot >= DecoderFlow.PRECISE_OVERSHOOT_LIMIT
+      ) {
+        this.shouldFinish = true
+      }
+    }
   }
 
   /**
@@ -459,7 +459,7 @@ export class DecoderFlow {
    * @returns 是否停止
    */
   private _shouldStop(): boolean {
-    return !!this.frame || !this.isRunning
+    return this.shouldFinish || !this.isRunning
   }
 
   /**
@@ -467,6 +467,14 @@ export class DecoderFlow {
    */
   private _stop(): void {
     this.isRunning = false
+  }
+
+  private _isExhausted(): boolean {
+    return Boolean(
+      this.reader?.isDoned
+      && this.sampleQueue.length === 0
+      && (this.videoDecoder?.decodeQueueSize ?? 0) === 0,
+    )
   }
 
   /**
@@ -518,5 +526,19 @@ export class DecoderFlow {
       secTimebase,
     )
     return (this.baseTime ?? 0) + (videoFrameTime - (this.firstPts ?? 0))
+  }
+
+  private _clearSelectedFrame(): void {
+    if (this.frame) {
+      this.frame.close()
+      this.frame = undefined
+    }
+    this.frameTime = undefined
+  }
+
+  private _setSelectedFrame(videoFrame: VideoFrame, frameTime: number): void {
+    this._clearSelectedFrame()
+    this.frame = videoFrame
+    this.frameTime = frameTime
   }
 }

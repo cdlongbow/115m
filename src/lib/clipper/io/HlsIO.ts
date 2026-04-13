@@ -24,6 +24,8 @@ export type Segment = M3U8Segment & {
   timestamp: number
   /** 分段结束时间 */
   endTime: number
+  /** 分段字节范围 */
+  byterange?: { length: number; offset: number }
 }
 
 /**

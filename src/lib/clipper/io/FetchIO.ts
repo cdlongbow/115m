@@ -12,8 +12,8 @@ export class FetchIO {
    * @param limit 限制大小
    * @returns 分块读取器
    */
-  createChunkReader(url: string, start: number, limit: number = ChunkReader.DEFAULT_LIMIT): ChunkReader {
-    return new ChunkReader(url, this, start, limit)
+  createChunkReader(url: string, start: number, limit: number = ChunkReader.DEFAULT_LIMIT, endOffset?: number): ChunkReader {
+    return new ChunkReader(url, this, start, limit, endOffset)
   }
 
   /**

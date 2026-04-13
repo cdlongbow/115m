@@ -1,22 +1,30 @@
 export class Logger {
   name: string
-  constructor(name: string) {
+  private silent = false
+  constructor(name: string, silent = false) {
     this.name = name
+    this.silent = silent
   }
   sub(name: string) {
-    return new Logger(`${this.name}:${name}`)
+    return new Logger(`${this.name}:${name}`, this.silent)
   }
-  enableSilentMode() {}
+  enableSilentMode() {
+    this.silent = true
+  }
   debug(...args: any[]) {
+    if (this.silent) return
     // console.debug(`[${this.name}]`, ...args)
   }
   info(...args: any[]) {
+    if (this.silent) return
     // console.info(`[${this.name}]`, ...args)
   }
   warn(...args: any[]) {
+    if (this.silent) return
     console.warn(`[${this.name}]`, ...args)
   }
   error(...args: any[]) {
+    if (this.silent) return
     console.error(`[${this.name}]`, ...args)
   }
   clearLogs() {}

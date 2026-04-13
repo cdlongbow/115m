@@ -1,10 +1,15 @@
+import type { FrameData } from './clipper/DecoderFlow'
 import { drive115 } from './drive115'
 import { M3U8ClipperNew } from './clipper/m3u8Clipper'
 import { getImageResize } from './image'
 
 const MAX_WIDTH = 720
 const MAX_HEIGHT = 720
+const CACHE_VERSION = 'v3'
+const SEEK_CONCURRENCY = 3
+const sourceUrlCache = new Map<string, Promise<string>>()
 const memoryCoverCache = new Map<string, VideoThumbnail[]>()
+const memorySingleCoverCache = new Map<string, Promise<VideoThumbnail | null>>()
 
 function isContextInvalidatedError(error: unknown): boolean {
   return String(error).includes('Extension context invalidated')
@@ -15,6 +20,58 @@ function getStorageArea(): chrome.storage.StorageArea | null {
   return area ?? null
 }
 
+function clampTime(time: number, duration?: number): number {
+  const min = 0.2
+  const max = duration ? Math.max(min, duration - 0.2) : Number.POSITIVE_INFINITY
+  return Math.max(min, Math.min(max, time))
+}
+
+function uniqueTimes(times: number[]): number[] {
+  return Array.from(new Set(times.map(time => Math.round(time * 10) / 10)))
+}
+
+function getBatchCacheKey(pickCode: string, coverNum: number): string {
+  return `115m_covers_${CACHE_VERSION}_${pickCode}_${coverNum}`
+}
+
+function getSingleCacheKey(pickCode: string, time: number): string {
+  return `115m_cover_${CACHE_VERSION}_${pickCode}_${Math.round(time * 10) / 10}`
+}
+
+async function getThumbnailSourceUrl(pickCode: string): Promise<string> {
+  let cached = sourceUrlCache.get(pickCode)
+  if (!cached) {
+    cached = (async () => {
+      const m3u8List = await drive115.getM3u8(pickCode)
+      console.log('[115m] m3u8List:', m3u8List.map(m => ({ name: m.name, quality: m.quality })))
+
+      const source = m3u8List.sort((a, b) => a.quality - b.quality)[0]
+      if (!source) {
+        throw new Error('No m3u8 source found')
+      }
+
+      console.log('[115m] 使用源:', source.name, source.url.slice(0, 80))
+      return source.url
+    })()
+    sourceUrlCache.set(pickCode, cached)
+  }
+
+  try {
+    return await cached
+  }
+  catch (error) {
+    sourceUrlCache.delete(pickCode)
+    throw error
+  }
+}
+
+async function openClipper(pickCode: string): Promise<M3U8ClipperNew> {
+  const url = await getThumbnailSourceUrl(pickCode)
+  const clipper = new M3U8ClipperNew({ url })
+  await clipper.open()
+  return clipper
+}
+
 export interface VideoThumbnail {
   imgUrl: string
   width: number
@@ -23,72 +80,178 @@ export interface VideoThumbnail {
 }
 
 function calculateTimes(duration: number, count = 5): number[] {
-  const offset = duration / 5
-  const minTime = offset
-  const maxTime = duration - offset
-  const range = maxTime - minTime
+  if (count <= 1) {
+    return [Math.floor(clampTime(duration / 2, duration))]
+  }
 
+  const interval = duration / count
   return Array.from({ length: count }, (_, i) =>
-    Math.floor(minTime + (range / count) * i)
+    Math.floor(clampTime(interval / 2 + interval * i, duration))
   )
 }
 
-/**
- * 生成单个视频封面（并行解码用）
- */
+async function renderCover(result: FrameData): Promise<VideoThumbnail | null> {
+  const resize = getImageResize(
+    result.videoFrame.displayWidth,
+    result.videoFrame.displayHeight,
+    MAX_WIDTH,
+    MAX_HEIGHT,
+  )
+  const canvas = new OffscreenCanvas(resize.width, resize.height)
+  const ctx = canvas.getContext('2d')
+
+  if (!ctx) {
+    result.videoFrame.close()
+    return null
+  }
+
+  const bitmap = await createImageBitmap(result.videoFrame, {
+    resizeQuality: 'pixelated',
+    resizeWidth: resize.width,
+    resizeHeight: resize.height,
+  })
+
+  try {
+    ctx.drawImage(bitmap, 0, 0, resize.width, resize.height)
+  }
+  finally {
+    bitmap.close()
+    result.videoFrame.close()
+  }
+
+  const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 })
+  const blobUrl = URL.createObjectURL(blob)
+
+  return {
+    imgUrl: blobUrl,
+    width: resize.width,
+    height: resize.height,
+    time: result.frameTime,
+  }
+}
+
 async function generateSingleCover(
   clipper: M3U8ClipperNew,
-  time: number
+  time: number,
+  preferAccurate = false,
 ): Promise<VideoThumbnail | null> {
+  const seekModes = preferAccurate ? [false, true] : [true, false]
+
+  for (const firstFramePriority of seekModes) {
+    try {
+      const result = await clipper.seek(time, firstFramePriority)
+      if (!result) {
+        continue
+      }
+
+      return await renderCover(result)
+    }
+    catch (error) {
+      // Ignore per-attempt seek failures here. Thumbnail generation has fallback attempts.
+    }
+  }
+
+  return null
+}
+
+async function generateCoverWithFallbacks(
+  clipper: M3U8ClipperNew,
+  time: number,
+  duration: number,
+  fallbackWindow: number,
+  preferAccurate = false,
+): Promise<VideoThumbnail | null> {
+  const candidateTimes = uniqueTimes([
+    clampTime(time, duration),
+    clampTime(time - fallbackWindow, duration),
+    clampTime(time + fallbackWindow, duration),
+    clampTime(time - fallbackWindow * 2, duration),
+    clampTime(time + fallbackWindow * 2, duration),
+  ])
+
+  for (const candidateTime of candidateTimes) {
+    const cover = await generateSingleCover(clipper, candidateTime, preferAccurate)
+    if (cover) {
+      return cover
+    }
+  }
+
+  return null
+}
+
+async function mapWithConcurrency<T, R>(
+  items: T[],
+  limit: number,
+  worker: (item: T, index: number) => Promise<R>,
+): Promise<R[]> {
+  const results = new Array<R>(items.length)
+  let cursor = 0
+
+  async function runWorker() {
+    while (cursor < items.length) {
+      const current = cursor++
+      results[current] = await worker(items[current], current)
+    }
+  }
+
+  const workerCount = Math.max(1, Math.min(limit, items.length))
+  await Promise.all(Array.from({ length: workerCount }, () => runWorker()))
+  return results
+}
+
+function sortAndDedupeCovers(covers: VideoThumbnail[]): VideoThumbnail[] {
+  const sorted = [...covers].sort((a, b) => a.time - b.time)
+  return sorted.filter((cover, index) => {
+    const prev = sorted[index - 1]
+    if (!prev) {
+      return true
+    }
+    return Math.abs(prev.time - cover.time) >= 0.5 || prev.imgUrl !== cover.imgUrl
+  })
+}
+
+export async function getVideoCoverAt(
+  pickCode: string,
+  time: number,
+  duration?: number,
+): Promise<VideoThumbnail | null> {
+  const normalizedTime = clampTime(time, duration)
+  const cacheKey = getSingleCacheKey(pickCode, normalizedTime)
+  let pending = memorySingleCoverCache.get(cacheKey)
+
+  if (!pending) {
+    pending = (async () => {
+      const clipper = await openClipper(pickCode)
+      try {
+        return await generateCoverWithFallbacks(
+          clipper,
+          normalizedTime,
+          duration ?? normalizedTime + 30,
+          4,
+          true,
+        )
+      }
+      finally {
+        clipper.destroy()
+      }
+    })()
+    memorySingleCoverCache.set(cacheKey, pending)
+  }
+
   try {
-    const result = await clipper.seek(time, true)
-    if (!result) return null
-
-    const resize = getImageResize(
-      result.videoFrame.displayWidth,
-      result.videoFrame.displayHeight,
-      MAX_WIDTH,
-      MAX_HEIGHT
-    )
-    const canvas = new OffscreenCanvas(resize.width, resize.height)
-    const ctx = canvas.getContext('2d')
-
-    if (!ctx) {
-      result.videoFrame.close()
-      return null
-    }
-
-    ctx.drawImage(
-      await createImageBitmap(result.videoFrame, {
-        resizeQuality: 'pixelated',
-        resizeWidth: resize.width,
-        resizeHeight: resize.height,
-      }),
-      0, 0, resize.width, resize.height
-    )
-
-    const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 })
-    const blobUrl = URL.createObjectURL(blob)
-
-    result.videoFrame.close()
-
-    return {
-      imgUrl: blobUrl,
-      width: resize.width,
-      height: resize.height,
-      time,
-    }
-  } catch (e) {
-    console.warn('[115m] seek error for time', time, e)
-    return null
+    return await pending
+  }
+  catch (error) {
+    memorySingleCoverCache.delete(cacheKey)
+    throw error
   }
 }
 
 export async function getVideoCovers(pickCode: string, duration: number, coverNum = 5): Promise<VideoThumbnail[]> {
   console.log('[115m] getVideoCovers 开始:', { pickCode, duration, coverNum })
 
-  const CACHE_KEY = `115m_covers_${pickCode}_${coverNum}`
-  const inMemory = memoryCoverCache.get(CACHE_KEY)
+  const cacheKey = getBatchCacheKey(pickCode, coverNum)
+  const inMemory = memoryCoverCache.get(cacheKey)
   if (inMemory && inMemory.length > 0) {
     return inMemory
   }
@@ -96,10 +259,10 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
   const storageArea = getStorageArea()
   try {
     if (storageArea) {
-      const cached = await storageArea.get(CACHE_KEY)
-      if (cached[CACHE_KEY] && cached[CACHE_KEY].length > 0) {
-        const hit = cached[CACHE_KEY] as VideoThumbnail[]
-        memoryCoverCache.set(CACHE_KEY, hit)
+      const cached = await storageArea.get(cacheKey)
+      if (cached[cacheKey] && cached[cacheKey].length > 0) {
+        const hit = cached[cacheKey] as VideoThumbnail[]
+        memoryCoverCache.set(cacheKey, hit)
         console.log('[115m] 命中本地强缓存，瞬间读取出图:', pickCode)
         return hit
       }
@@ -107,62 +270,62 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
     else {
       console.warn('[115m] 当前上下文不可用 chrome.storage.local，封面缓存降级为内存缓存')
     }
-  } catch (e) {
-    if (isContextInvalidatedError(e)) {
+  }
+  catch (error) {
+    if (isContextInvalidatedError(error)) {
       return inMemory || []
     }
-    console.warn('[115m] 读取缓存失败:', e)
+    console.warn('[115m] 读取缓存失败:', error)
   }
 
-  const m3u8List = await drive115.getM3u8(pickCode)
-  console.log('[115m] m3u8List:', m3u8List.map(m => ({ name: m.name, quality: m.quality })))
-
-  const source = m3u8List.sort((a, b) => a.quality - b.quality)[0] // use lowest quality for fastest decode
-  if (!source) throw new Error('No m3u8 source found')
-
-  console.log('[115m] 使用源:', source.name, source.url.slice(0, 80))
-
-  const clipper = new M3U8ClipperNew({ url: source.url })
-  await clipper.open()
+  const clipper = await openClipper(pickCode)
   console.log('[115m] clipper 已打开, segments:', clipper.hlsIo.segments.length)
 
-  const times = calculateTimes(duration, coverNum)
-  console.log('[115m] 截取时间点:', times)
+  try {
+    const times = calculateTimes(duration, coverNum)
+    const fallbackWindow = Math.max(3, Math.min(20, duration / Math.max(coverNum * 4, 1)))
+    console.log('[115m] 截取时间点:', times)
 
-  // 并行解码所有帧
-  const promises = times.map(time => generateSingleCover(clipper, time))
-  const results = (await Promise.all(promises)).filter((r): r is VideoThumbnail => r !== null)
+    const covers = await mapWithConcurrency(times, SEEK_CONCURRENCY, async time =>
+      generateCoverWithFallbacks(clipper, time, duration, fallbackWindow, false),
+    )
+    const results = sortAndDedupeCovers(covers.filter((item): item is VideoThumbnail => item !== null))
 
-  clipper.destroy()
-  console.log('[115m] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
+    console.log('[115m] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
+    if (results.length === 0) {
+      return results
+    }
 
-  if (results.length > 0) {
-    memoryCoverCache.set(CACHE_KEY, results)
+    memoryCoverCache.set(cacheKey, results)
+
     try {
       if (storageArea) {
-        // Blob URL 无法序列化到 storage，需要转换为 base64
         const storableResults = await Promise.all(
-          results.map(async (r) => {
-            const response = await fetch(r.imgUrl)
+          results.map(async (cover) => {
+            const response = await fetch(cover.imgUrl)
             const blob = await response.blob()
             const base64 = await new Promise<string>((resolve) => {
               const reader = new FileReader()
               reader.onloadend = () => resolve(reader.result as string)
               reader.readAsDataURL(blob)
             })
-            return { ...r, imgUrl: base64 }
-          })
+            return { ...cover, imgUrl: base64 }
+          }),
         )
-        await storageArea.set({ [CACHE_KEY]: storableResults })
+        await storageArea.set({ [cacheKey]: storableResults })
         console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
       }
-    } catch (e) {
-      if (isContextInvalidatedError(e)) {
+    }
+    catch (error) {
+      if (isContextInvalidatedError(error)) {
         return results
       }
-      console.warn('[115m] 写入缓存失败:', e)
+      console.warn('[115m] 写入缓存失败:', error)
     }
-  }
 
-  return results
+    return results
+  }
+  finally {
+    clipper.destroy()
+  }
 }

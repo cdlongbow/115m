@@ -13,16 +13,20 @@ export class ChunkReader {
   private stoped: boolean = false
   private doned: boolean = false
 
+  private endOffset?: number
+
   constructor(
     url: string,
     io: FetchIO,
     offset: number,
     limit: number = ChunkReader.DEFAULT_LIMIT,
+    endOffset?: number,
   ) {
     this.url = url
     this.io = io
     this.offset = offset
     this.limit = limit
+    this.endOffset = endOffset
   }
 
   get isStoped() {
@@ -59,14 +63,37 @@ export class ChunkReader {
 
     this.count++
     const start = this.offset
-    const end = this.limit === 0 ? undefined : this.offset + this.limit - 1
+    
+    // Calculate the planned end byte index
+    let end = this.limit === 0 ? undefined : this.offset + this.limit - 1
+    
+    // Clamp to endOffset if provided
+    if (this.endOffset !== undefined) {
+      if (start > this.endOffset) {
+        this.doned = true
+        return undefined
+      }
+      if (end === undefined || end > this.endOffset) {
+        end = this.endOffset
+      }
+    }
+
     const res = await this._read(start, end ?? start)
     const contentLength = parseInt(res.headers.get('content-length') ?? '0')
 
     if (res.status === 206) {
-      this.offset += this.limit
+      this.offset += contentLength // Use actual content length to advance offset
+      // Also advance offset by at least limit if content length is wrong, maybe? No, let's just use what we read.
+      // Wait, the previous code was: this.offset += this.limit.
+      // We should use actual content length if possible, or just limit:
+      // this.offset += contentLength || (end ? end - start + 1 : this.limit)
+      
+      const advanced = contentLength > 0 ? contentLength : (end !== undefined ? end - start + 1 : this.limit)
+      this.offset = start + advanced
 
-      if (contentLength < this.limit) {
+      if (this.endOffset !== undefined && this.offset > this.endOffset) {
+        this.doned = true
+      } else if (contentLength > 0 && contentLength < (end !== undefined ? end - start + 1 : this.limit)) {
         this.doned = true
       }
       return res.arrayBuffer()

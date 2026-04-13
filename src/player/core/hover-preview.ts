@@ -7,6 +7,10 @@ interface HoverCover {
   imgUrl: string
 }
 
+const PRECISE_COVER_BUCKET = 15
+const PRECISE_COVER_MIN_DELTA = 8
+const PRECISE_COVER_DEBOUNCE = 120
+
 export class HoverPreviewController {
   private covers: HoverCover[] = []
   private previewEl: HTMLDivElement | null = null
@@ -18,6 +22,9 @@ export class HoverPreviewController {
   private thumbnailsLoading = false
   private thumbnailsLoaded = false
   private hoverReticle: HTMLDivElement | null = null
+  private preciseCoverTimer: number | null = null
+  private preciseCoverRequestKey: string | null = null
+  private preciseCovers = new Map<number, HoverCover>()
 
   constructor(
     private readonly art: Artplayer,
@@ -60,6 +67,10 @@ export class HoverPreviewController {
       window.clearTimeout(this.bindRetryTimer)
       this.bindRetryTimer = null
     }
+    if (this.preciseCoverTimer) {
+      window.clearTimeout(this.preciseCoverTimer)
+      this.preciseCoverTimer = null
+    }
     this.cancelHide()
     // 事件绑定在 root 上
     const root = this.art.template.$player as HTMLElement
@@ -77,6 +88,8 @@ export class HoverPreviewController {
       this.previewTimeEl = null
     }
     this.covers = []
+    this.preciseCovers.clear()
+    this.preciseCoverRequestKey = null
   }
 
   private async loadThumbnails() {
@@ -96,22 +109,11 @@ export class HoverPreviewController {
 
       if (!duration) return
 
-      const covers = await getVideoCovers(this.pickCode, duration, 30)
+      const covers = await getVideoCovers(this.pickCode, duration, this.getInitialCoverCount(duration))
       if (covers.length === 0) return
 
       this.covers = covers
-
-      let vtt = 'WEBVTT\n\n'
-      covers.forEach((cover: HoverCover) => {
-        const tDuration = duration / covers.length
-        const startTime = formatVttTime(Math.max(0, cover.time - tDuration / 2))
-        const endTime = formatVttTime(Math.min(duration, cover.time + tDuration / 2))
-        vtt += `${startTime} --> ${endTime}\n${cover.imgUrl}\n\n`
-      })
-
-      const blob = new Blob([vtt], { type: 'text/vtt' })
-      const vttUrl = URL.createObjectURL(blob)
-      this.art.emit('artplayerPluginThumbnail:update', { url: vttUrl })
+      this.updateThumbnailTrack(duration)
       this.thumbnailsLoaded = true
     }
     catch {
@@ -284,6 +286,98 @@ export class HoverPreviewController {
     })
   }
 
+  private getInitialCoverCount(duration: number): number {
+    return Math.max(18, Math.min(30, Math.ceil(duration / 180)))
+  }
+
+  private updateThumbnailTrack(duration: number) {
+    let vtt = 'WEBVTT\n\n'
+    const covers = [...this.covers].sort((a, b) => a.time - b.time)
+
+    covers.forEach((cover: HoverCover, index) => {
+      const prevTime = covers[index - 1]?.time ?? 0
+      const nextTime = covers[index + 1]?.time ?? duration
+      const startTime = formatVttTime(Math.max(0, (prevTime + cover.time) / 2))
+      const endTime = formatVttTime(Math.min(duration, (cover.time + nextTime) / 2))
+      vtt += `${startTime} --> ${endTime}\n${cover.imgUrl}\n\n`
+    })
+
+    const blob = new Blob([vtt], { type: 'text/vtt' })
+    const vttUrl = URL.createObjectURL(blob)
+    this.art.emit('artplayerPluginThumbnail:update', { url: vttUrl })
+  }
+
+  private getPreciseBucketTime(hoverTime: number): number {
+    return Math.round(hoverTime / PRECISE_COVER_BUCKET) * PRECISE_COVER_BUCKET
+  }
+
+  private insertCover(cover: HoverCover) {
+    const exists = this.covers.some(item => Math.abs(item.time - cover.time) < 0.5)
+    if (!exists) {
+      this.covers = [...this.covers, cover].sort((a, b) => a.time - b.time)
+    }
+  }
+
+  private schedulePreciseCover(hoverTime: number, nearest: HoverCover) {
+    if (!this.art.duration) {
+      return
+    }
+
+    const bucketTime = this.getPreciseBucketTime(hoverTime)
+    const cacheHit = this.preciseCovers.get(bucketTime)
+    if (cacheHit) {
+      this.insertCover(cacheHit)
+      return
+    }
+
+    if (Math.abs(nearest.time - hoverTime) < PRECISE_COVER_MIN_DELTA) {
+      return
+    }
+    if (this.preciseCoverTimer) {
+      window.clearTimeout(this.preciseCoverTimer)
+    }
+
+    this.preciseCoverTimer = window.setTimeout(() => {
+      void this.loadPreciseCover(bucketTime)
+    }, PRECISE_COVER_DEBOUNCE)
+  }
+
+  private async loadPreciseCover(bucketTime: number) {
+    if (!this.art.duration) {
+      return
+    }
+
+    const requestKey = `${this.pickCode}:${bucketTime}`
+    if (this.preciseCoverRequestKey === requestKey || this.preciseCovers.has(bucketTime)) {
+      return
+    }
+
+    this.preciseCoverRequestKey = requestKey
+    try {
+      const { getVideoCoverAt } = await import('../../lib/videoThumbnail')
+      const cover = await getVideoCoverAt(this.pickCode, bucketTime, this.art.duration)
+      if (!cover) {
+        return
+      }
+
+      const preciseCover: HoverCover = {
+        imgUrl: cover.imgUrl,
+        time: cover.time,
+      }
+
+      this.preciseCovers.set(bucketTime, preciseCover)
+      this.insertCover(preciseCover)
+    }
+    catch {
+      // ignore thumbnail errors
+    }
+    finally {
+      if (this.preciseCoverRequestKey === requestKey) {
+        this.preciseCoverRequestKey = null
+      }
+    }
+  }
+
   private shouldSuspendPreview(target: EventTarget | null) {
     if (this.isFloatingMenuOpen()) return true
     if (!(target instanceof Element)) return false
@@ -314,13 +408,16 @@ export class HoverPreviewController {
     const ratio = clamp(raw, 0, 1)
     const hoverTime = ratio * this.art.duration
 
-    const nearest = findNearestCover(this.covers, hoverTime)
+    const preciseBucketTime = this.getPreciseBucketTime(hoverTime)
+    const preciseCover = this.preciseCovers.get(preciseBucketTime)
+    const nearest = preciseCover ?? findNearestCover(this.covers, hoverTime)
     if (!nearest) return
 
     if (nearest.imgUrl) {
       this.previewImgEl.src = nearest.imgUrl
     }
     this.previewTimeEl.textContent = formatTimeLabel(hoverTime)
+    this.schedulePreciseCover(hoverTime, nearest)
 
     const containerRect = (this.art.template.$player as HTMLElement).getBoundingClientRect()
     const offsetX = event.clientX - containerRect.left
