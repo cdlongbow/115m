@@ -35,12 +35,13 @@ export interface PlayerOverlayOptions {
   onMoveFile: (fileId: string, cid: string) => Promise<void>
   onToggleFavorite: (fileId: string, nextMarked: boolean) => Promise<boolean>
   onPlaylistToggle: (open: boolean) => Promise<OverlayPlaylistItem[]>
-  onPlaylistPlay: (pickCode: string) => void
+  onPlaylistPlay: (pickCode: string, keepPlaylistOpen: boolean) => void
   onPlayPrevious: () => void
   onPlayNext: () => void
   onReplay: () => void
   onRefreshBreadcrumbs?: () => void
   getCurrentPickCode: () => string
+  shouldKeepPlaylistOpen: () => boolean
 }
 
 export interface OverlayPlaybackNavState {
@@ -81,6 +82,7 @@ export class PlayerOverlayController {
   private endPanelSubTextEl: HTMLDivElement | null = null
   private endPanelNextBtnEl: HTMLButtonElement | null = null
   private visibleTimer: number | null = null
+  private overlayVisible = false
   private isPointerInsideOverlay = false
   private isPointerOnProgress = false
   private playlistOpen = false
@@ -119,6 +121,10 @@ export class PlayerOverlayController {
     // 监听来自 background 的移动成功消息（通过 tabs.sendMessage）
     chrome.runtime.onMessage.addListener(this.handleRuntimeMessage)
 
+    if (this.options.shouldKeepPlaylistOpen()) {
+      void this.restorePlaylistOpen()
+    }
+
     this.titleEl && (this.titleEl.textContent = this.options.meta.title)
     document.title = this.options.meta.title
 
@@ -129,6 +135,17 @@ export class PlayerOverlayController {
 
     this.renderBreadcrumbs(this.options.meta.path)
     this.showTemporarily()
+  }
+
+  private async restorePlaylistOpen() {
+    try {
+      const items = await this.options.onPlaylistToggle(true)
+      this.renderPlaylist(items)
+      this.setPlaylistOpen(true)
+    }
+    catch (error) {
+      console.warn('[115m] restore playlist open failed:', error)
+    }
   }
 
   destroy() {
@@ -162,6 +179,31 @@ export class PlayerOverlayController {
   updateFavoriteStatus(isMarked: boolean) {
     this.options.meta.isMarked = isMarked
     this.updateFavoriteIcon()
+  }
+
+  updateMeta(meta: Partial<PlayerOverlayMeta>) {
+    Object.assign(this.options.meta, meta)
+
+    if (typeof meta.title === 'string') {
+      this.setCurrentTitle(meta.title)
+    }
+
+    if (typeof meta.fileSize === 'string' && this.statsEl) {
+      this.statsEl.textContent = meta.fileSize
+      this.statsEl.style.display = meta.fileSize ? '' : 'none'
+    }
+
+    if (Array.isArray(meta.path)) {
+      this.renderBreadcrumbs(meta.path)
+    }
+
+    if (typeof meta.isMarked === 'boolean') {
+      this.updateFavoriteIcon()
+    }
+  }
+
+  updatePlaylist(items: OverlayPlaylistItem[]) {
+    this.renderPlaylist(items)
   }
 
   updatePlaybackNav(state: OverlayPlaybackNavState) {
@@ -366,7 +408,7 @@ export class PlayerOverlayController {
         node.style.background = isActive ? 'rgba(255,255,255,.12)' : ''
       })
       node.addEventListener('click', () => {
-        if (pc) this.options.onPlaylistPlay(pc)
+        if (pc) this.options.onPlaylistPlay(pc, true)
       })
     })
 
@@ -411,6 +453,7 @@ export class PlayerOverlayController {
   }
 
   private setVisible(visible: boolean) {
+    this.overlayVisible = visible
     if (this.headerEl) {
       this.headerEl.style.opacity = visible ? '1' : '0'
       this.headerEl.style.pointerEvents = visible ? 'auto' : 'none'
@@ -421,7 +464,21 @@ export class PlayerOverlayController {
     this.bottomEl.style.pointerEvents = visible ? 'auto' : 'none'
     this.progressEl.style.opacity = visible ? '1' : '0'
     this.progressEl.style.pointerEvents = visible ? 'auto' : 'none'
+    this.syncPlaylistTabVisibility(visible)
     this.root.style.cursor = visible || this.playlistOpen ? 'auto' : 'none'
+  }
+
+  private syncPlaylistTabVisibility(visible: boolean) {
+    if (!this.playlistTabEl) return
+
+    if (this.playlistOpen) {
+      this.playlistTabEl.style.opacity = '0'
+      this.playlistTabEl.style.pointerEvents = 'none'
+      return
+    }
+
+    this.playlistTabEl.style.opacity = visible ? '0.6' : '0'
+    this.playlistTabEl.style.pointerEvents = visible ? 'auto' : 'none'
   }
 
   // ── Header (left side only: back, title, stats, breadcrumbs) ──
@@ -748,14 +805,7 @@ export class PlayerOverlayController {
       })
     }
     if (this.playlistTabEl) {
-      if (open) {
-        this.playlistTabEl.style.opacity = '0'
-        this.playlistTabEl.style.pointerEvents = 'none'
-      }
-      else {
-        this.playlistTabEl.style.opacity = '0.6'
-        this.playlistTabEl.style.pointerEvents = 'auto'
-      }
+      this.syncPlaylistTabVisibility(this.overlayVisible)
     }
     this.setVisible(open || this.isPointerInsideOverlay)
   }

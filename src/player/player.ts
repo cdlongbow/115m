@@ -7,6 +7,7 @@ console.log('[115m] player.ts loading...')
 import Artplayer from 'artplayer'
 import type HlsType from 'hls.js'
 import type { M3u8Item } from '../lib/types'
+import type { FileItem } from '../lib/api/types'
 import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
 import { loadPlayHistory, loadQualityPreference, saveQualityPreference } from './core/history'
@@ -45,6 +46,7 @@ interface PlayerConfig {
   pickCode: string
   traceId?: string
   clickTs?: number
+  keepPlaylistOpen?: boolean
 }
 
 class PlayerManager {
@@ -65,6 +67,7 @@ class PlayerManager {
   private playlistItemsCache: OverlayPlaylistItem[] = []
   private playlistLoadingPromise: Promise<OverlayPlaylistItem[]> | null = null
   private autoNextTimer: number | null = null
+  private switchVideoRequestId = 0
   private traceId = ''
   private clickTs = 0
   private initStartTs = 0
@@ -72,11 +75,14 @@ class PlayerManager {
   private firstPlayingReported = false
   private _initUrl = ''
   private cleanupKeyboard: (() => void) | null = null
+  private readonly keepPlaylistOpenOnInit: boolean
+  private currentPlaybackType: 'native' | 'hls' = 'hls'
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
     this.traceId = config.traceId || `${config.pickCode}-${Date.now()}`
     this.clickTs = config.clickTs || 0
+    this.keepPlaylistOpenOnInit = config.keepPlaylistOpen === true
     this.initStartTs = performance.now()
     this.perfMarks.init = this.initStartTs
     runPlayerSmokeChecks()
@@ -130,70 +136,20 @@ class PlayerManager {
       }
       await ensureServiceWorkerReady()
 
-      // 1. 先读取画质偏好（纯本地 localStorage，瞬间完成）
-      const qualityPref = await loadQualityPreference(this.currentPickCode)
-      console.log('[115m] init qualityPref:', this.currentPickCode, qualityPref)
-
-      // 2. 获取播放源（总是并行获取 HLS 和无损源，以确保画质列表完整）
       if (loadingTextEl) {
         loadingTextEl.textContent = '正在获取播放源...'
       }
 
-      const m3u8Promise = fetchM3u8WithRetry(this.currentPickCode).catch((e) => {
-        console.warn('[115m] fetchM3u8WithRetry failed:', e)
-        return null as unknown as M3u8Item[]
-      })
-
-      const ultraPromise = fetchUltraSource(this.currentPickCode).catch((e) => {
-        console.warn('[115m] fetchUltraSource failed:', e)
-        return null
-      })
-
-      const [ultraSource, m3u8List] = await Promise.all([ultraPromise, m3u8Promise])
-
-      console.log('[115m] Source fetch result:', {
-        ultraOk: !!ultraSource,
-        m3u8Ok: !!m3u8List,
-        m3u8Count: m3u8List?.length || 0,
-        qualityPref,
-      })
-      const ultraUrl = ultraSource?.url || null
-      if (ultraSource?.ultraUrl) {
-        this.ultraUrl = ultraSource.ultraUrl
-      }
-      if (m3u8List && m3u8List.length > 0) {
-        this.m3u8List = m3u8List
-      }
+      const playback = await this.resolvePlaybackForPickCode(this.currentPickCode)
+      this.applyResolvedPlayback(playback)
 
       this.perfMarks.ultraReady = performance.now()
-      this.perf('ultra-source-ready', { ok: !!ultraUrl, m3u8Count: this.m3u8List.length })
+      this.perf('ultra-source-ready', { ok: !!playback.ultraUrl, m3u8Count: this.m3u8List.length })
 
-      // 先构建画质选项列表
-      this.qualityOptions = buildQualityOptions(
-        '', // 初始化时还没有播放器 URL
-        ultraUrl,
-        this.m3u8List,
-        this.currentQuality,
-        this.currentQualityLabel,
-      )
-
-      const initialPlayback = resolveInitialPlayback({
-        qualityPreference: qualityPref,
-        ultraUrl,
-        m3u8List: this.m3u8List,
-      })
-
-      if (!initialPlayback) {
-        throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
-      }
-
-      this.isNativeVideo = initialPlayback.isNativeVideo
-      this.currentQuality = initialPlayback.currentQuality
-      this.currentQualityLabel = initialPlayback.currentQualityLabel
-      this.createArtplayer(initialPlayback.url, initialPlayback.type)
-      this.perf(initialPlayback.type === 'native' ? 'create-player-native' : 'create-player-hls', {
-        label: initialPlayback.currentQualityLabel,
-        hasPreference: !!qualityPref,
+      this.createArtplayer(playback.initialPlayback.url, playback.initialPlayback.type)
+      this.perf(playback.initialPlayback.type === 'native' ? 'create-player-native' : 'create-player-hls', {
+        label: playback.initialPlayback.currentQualityLabel,
+        hasPreference: !!playback.qualityPreference,
       })
 
       const currentUrl = this.artplayer?.url || ''
@@ -216,6 +172,10 @@ class PlayerManager {
   }
 
   private async initHls(video: HTMLVideoElement, url: string): Promise<HlsType> {
+    if (this.hlsInstance) {
+      this.hlsInstance.destroy()
+      this.hlsInstance = null
+    }
     const hls = await createHlsInstance(video, url)
     this.hlsInstance = hls
     return hls
@@ -320,8 +280,8 @@ class PlayerManager {
       }
       this.cleanupKeyboard = bindPlayerEvents({
         art: this.artplayer,
-        type,
-        pickCode: this.currentPickCode,
+        getType: () => this.currentPlaybackType,
+        getPickCode: () => this.currentPickCode,
         getQualityLabel: () => this.currentQualityLabel,
         onPerf: (stage, extra) => this.perf(stage, extra),
         onReady: () => {
@@ -483,9 +443,9 @@ class PlayerManager {
         this.syncOverlayPlaybackNav()
         return items
       },
-      onPlaylistPlay: (pickCode) => {
+      onPlaylistPlay: (pickCode, keepPlaylistOpen) => {
         if (pickCode && pickCode !== this.currentPickCode) {
-          this.navigateToVideo(pickCode)
+          this.navigateToVideo(pickCode, keepPlaylistOpen)
         }
       },
       onPlayPrevious: () => this.playPrevious(),
@@ -493,6 +453,7 @@ class PlayerManager {
       onReplay: () => this.replayCurrent(),
       onRefreshBreadcrumbs: () => this.refreshBreadcrumbs(),
       getCurrentPickCode: () => this.currentPickCode,
+      shouldKeepPlaylistOpen: () => this.keepPlaylistOpenOnInit,
     })
     this.overlay.init()
     this.syncOverlayPlaybackNav()
@@ -790,14 +751,140 @@ class PlayerManager {
     return result
   }
 
-  private navigateToVideo(pickCode: string) {
+  private navigateToVideo(pickCode: string, keepPlaylistOpen = false) {
+    void this.switchToVideo(pickCode, keepPlaylistOpen)
+  }
+
+  private async switchToVideo(pickCode: string, keepPlaylistOpen = false) {
+    if (!this.artplayer || !pickCode || pickCode === this.currentPickCode) return
+
+    const requestId = ++this.switchVideoRequestId
+    const targetItem = this.getPlaylistItemByPickCode(pickCode)
+
     this.clearPlaybackEndState()
-    const targetItem = this.playlistItemsCache.find(item => item.pickCode === pickCode)
-    window.location.href = buildNavigateToVideoUrl(
+
+    try {
+      const playback = await this.resolvePlaybackForPickCode(pickCode)
+      if (requestId !== this.switchVideoRequestId || !this.artplayer) return
+
+      this.currentPickCode = pickCode
+      this.perfMarks = { init: performance.now() }
+      this.firstPlayingReported = false
+      this.applyResolvedPlayback(playback)
+      this.updateCurrentVideoMeta(targetItem)
+      this.updateHistoryUrl(pickCode, targetItem, keepPlaylistOpen)
+      this.syncOverlayPlaybackNav()
+      this.overlay?.updatePlaylist(this.playlistItemsCache)
+      this.setupProgressHoverPreview()
+      this.renderQualityPanel()
+
+      this.artplayer.switchUrl(playback.initialPlayback.url)
+
+      void loadPlayHistory(pickCode, (time) => {
+        if (requestId === this.switchVideoRequestId && this.artplayer) {
+          this.artplayer.seek = time
+        }
+      })
+
+      void this.fetchBreadcrumbs()
+
+      if (targetItem?.fileId) {
+        void this.fetchFileFavoriteStatus(targetItem.fileId)
+      }
+    }
+    catch (error) {
+      if (requestId !== this.switchVideoRequestId) return
+      this.overlay?.showToast(error instanceof Error ? error.message : '切换视频失败')
+    }
+  }
+
+  private getPlaylistItemByPickCode(pickCode: string): OverlayPlaylistItem | undefined {
+    return this.playlistItemsCache.find(item => item.pickCode === pickCode)
+  }
+
+  private updateCurrentVideoMeta(targetItem?: OverlayPlaylistItem) {
+    if (!targetItem) return
+
+    this.overlay?.updateMeta({
+      title: targetItem.name,
+      fileId: targetItem.fileId,
+      fileSize: targetItem.size || '',
+      isMarked: targetItem.isMarked === true,
+    })
+  }
+
+  private updateHistoryUrl(pickCode: string, targetItem: OverlayPlaylistItem | undefined, keepPlaylistOpen: boolean) {
+    window.history.replaceState(null, '', buildNavigateToVideoUrl(
       window.location.pathname,
       window.location.search,
       pickCode,
-      targetItem?.name,
+      {
+        title: targetItem?.name,
+        fileId: targetItem?.fileId,
+        fileSize: targetItem?.size,
+        isMarked: targetItem?.isMarked,
+        keepPlaylistOpen,
+      },
+    ))
+  }
+
+  private async resolvePlaybackForPickCode(pickCode: string) {
+    const qualityPreference = await loadQualityPreference(pickCode)
+    console.log('[115m] init qualityPref:', pickCode, qualityPreference)
+
+    const m3u8Promise = fetchM3u8WithRetry(pickCode).catch((e) => {
+      console.warn('[115m] fetchM3u8WithRetry failed:', e)
+      return null as unknown as M3u8Item[]
+    })
+
+    const ultraPromise = fetchUltraSource(pickCode).catch((e) => {
+      console.warn('[115m] fetchUltraSource failed:', e)
+      return null
+    })
+
+    const [ultraSource, m3u8List] = await Promise.all([ultraPromise, m3u8Promise])
+    const ultraUrl = ultraSource?.ultraUrl || null
+    const resolvedM3u8List = m3u8List && m3u8List.length > 0 ? m3u8List : []
+
+    console.log('[115m] Source fetch result:', {
+      pickCode,
+      ultraOk: !!ultraSource,
+      m3u8Ok: resolvedM3u8List.length > 0,
+      m3u8Count: resolvedM3u8List.length,
+      qualityPreference,
+    })
+
+    const initialPlayback = resolveInitialPlayback({
+      qualityPreference,
+      ultraUrl: ultraSource?.url || null,
+      m3u8List: resolvedM3u8List,
+    })
+
+    if (!initialPlayback) {
+      throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
+    }
+
+    return {
+      qualityPreference,
+      ultraUrl,
+      m3u8List: resolvedM3u8List,
+      initialPlayback,
+    }
+  }
+
+  private applyResolvedPlayback(playback: Awaited<ReturnType<PlayerManager['resolvePlaybackForPickCode']>>) {
+    this.ultraUrl = playback.ultraUrl
+    this.m3u8List = playback.m3u8List
+    this.isNativeVideo = playback.initialPlayback.isNativeVideo
+    this.currentPlaybackType = playback.initialPlayback.type
+    this.currentQuality = playback.initialPlayback.currentQuality
+    this.currentQualityLabel = playback.initialPlayback.currentQualityLabel
+    this.qualityOptions = buildQualityOptions(
+      '',
+      playback.initialPlayback.type === 'native' ? playback.initialPlayback.url : playback.ultraUrl,
+      this.m3u8List,
+      this.currentQuality,
+      this.currentQualityLabel,
     )
   }
 
@@ -837,7 +924,7 @@ class PlayerManager {
 let playerManager: PlayerManager | null = null
 
 function initPlayer() {
-  const { pickCode, traceId, clickTs } = readPlayerBootstrapConfig(window.location.search)
+  const { pickCode, traceId, clickTs, keepPlaylistOpen } = readPlayerBootstrapConfig(window.location.search)
 
   if (!pickCode) {
     const el = document.getElementById('artplayer-app')
@@ -847,7 +934,7 @@ function initPlayer() {
     return
   }
 
-  playerManager = new PlayerManager({ pickCode, traceId, clickTs })
+  playerManager = new PlayerManager({ pickCode, traceId, clickTs, keepPlaylistOpen })
 }
 
 if (document.readyState === 'loading') {

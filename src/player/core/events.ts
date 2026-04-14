@@ -5,8 +5,8 @@ import { INTERACTIVE_SELECTOR } from './ui-layer'
 
 export interface BindPlayerEventsOptions {
   art: Artplayer
-  type: 'native' | 'hls'
-  pickCode: string
+  getType: () => 'native' | 'hls'
+  getPickCode: () => string
   getQualityLabel: () => string
   onPerf: (stage: string, extra?: Record<string, unknown>) => void
   onLoadedmetadata: () => void
@@ -20,8 +20,8 @@ export interface BindPlayerEventsOptions {
 export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
   const {
     art,
-    type,
-    pickCode,
+    getType,
+    getPickCode,
     getQualityLabel,
     onPerf,
     onLoadedmetadata,
@@ -35,14 +35,14 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
   const mask = art.template.$mask as HTMLDivElement
 
   art.on('ready', () => {
-    onPerf('art-ready', { type })
+    onPerf('art-ready', { type: getType() })
     onReady()
   })
 
   art.on('video:timeupdate', () => {
     savePlayHistory({
-      pickCode,
-      fileName: pickCode,
+      pickCode: getPickCode(),
+      fileName: getPickCode(),
       currentTime: art.currentTime || 0,
       duration: art.duration || 0,
       quality: getQualityLabel(),
@@ -50,22 +50,22 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
   })
 
   art.on('video:loadedmetadata', () => {
-    onPerf('video-loadedmetadata', { type })
+    onPerf('video-loadedmetadata', { type: getType() })
     onLoadedmetadata()
   })
 
   art.on('video:canplay', () => {
-    onPerf('video-canplay', { type })
+    onPerf('video-canplay', { type: getType() })
     onCanplay()
   })
 
   art.on('video:playing', () => {
-    onPerf('video-playing', { type })
+    onPerf('video-playing', { type: getType() })
     onPlaying()
   })
 
   art.on('video:ended', () => {
-    onPerf('video-ended', { type })
+    onPerf('video-ended', { type: getType() })
     onEnded()
   })
 

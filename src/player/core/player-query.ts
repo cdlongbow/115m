@@ -4,6 +4,7 @@ export interface PlayerBootstrapConfig {
   pickCode: string | null
   traceId?: string
   clickTs?: number
+  keepPlaylistOpen?: boolean
 }
 
 export interface OverlayMetaQuery {
@@ -16,14 +17,23 @@ export interface OverlayMetaQuery {
   path: OverlayPathItem[]
 }
 
+export interface NavigateToVideoOptions {
+  title?: string
+  fileId?: string
+  fileSize?: string
+  isMarked?: boolean
+  keepPlaylistOpen?: boolean
+}
+
 export function readPlayerBootstrapConfig(search: string): PlayerBootstrapConfig {
   const params = new URLSearchParams(search)
   const pickCode = params.get('pickCode')
   const traceId = params.get('traceId') || undefined
   const clickTsRaw = params.get('clickTs')
   const clickTs = clickTsRaw ? Number(clickTsRaw) : undefined
+  const keepPlaylistOpen = params.get('playlistOpen') === '1'
 
-  return { pickCode, traceId, clickTs }
+  return { pickCode, traceId, clickTs, keepPlaylistOpen }
 }
 
 export function readPlaylistCidFromLocation(search: string): string {
@@ -60,12 +70,27 @@ export function readOverlayMetaQuery(search: string): OverlayMetaQuery {
   }
 }
 
-export function buildNavigateToVideoUrl(pathname: string, search: string, pickCode: string, title?: string): string {
+export function buildNavigateToVideoUrl(pathname: string, search: string, pickCode: string, options: NavigateToVideoOptions = {}): string {
   const params = new URLSearchParams(search)
   params.set('pick_code', pickCode)
   params.set('pickCode', pickCode)
-  if (title) {
-    params.set('title', title)
+  if (options.title) {
+    params.set('title', options.title)
+  }
+  if (options.fileId) {
+    params.set('fileId', options.fileId)
+  }
+  if (options.fileSize) {
+    params.set('fileSize', options.fileSize)
+  }
+  if (typeof options.isMarked === 'boolean') {
+    params.set('marked', options.isMarked ? '1' : '0')
+  }
+  if (options.keepPlaylistOpen) {
+    params.set('playlistOpen', '1')
+  }
+  else {
+    params.delete('playlistOpen')
   }
   return `${pathname}?${params.toString()}`
 }

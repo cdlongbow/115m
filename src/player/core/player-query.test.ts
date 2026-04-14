@@ -14,6 +14,12 @@ describe('player query helpers', () => {
       pickCode: 'abc',
       traceId: 't1',
       clickTs: 123,
+      keepPlaylistOpen: false,
+    })
+
+    expect(readPlayerBootstrapConfig('?pickCode=abc&playlistOpen=1')).toEqual({
+      pickCode: 'abc',
+      keepPlaylistOpen: true,
     })
   })
 
@@ -25,7 +31,14 @@ describe('player query helpers', () => {
   })
 
   it('builds stable navigation urls', () => {
-    expect(buildNavigateToVideoUrl('/player', '?cid=88', 'next123', '下一集')).toBe('/player?cid=88&pick_code=next123&pickCode=next123&title=%E4%B8%8B%E4%B8%80%E9%9B%86')
+    expect(buildNavigateToVideoUrl('/player', '?cid=88', 'next123', { title: '下一集' })).toBe('/player?cid=88&pick_code=next123&pickCode=next123&title=%E4%B8%8B%E4%B8%80%E9%9B%86')
+    expect(buildNavigateToVideoUrl('/player', '?cid=88', 'next123', {
+      title: '下一集',
+      fileId: 'f1',
+      fileSize: '1 GB',
+      isMarked: true,
+      keepPlaylistOpen: true,
+    })).toBe('/player?cid=88&pick_code=next123&pickCode=next123&title=%E4%B8%8B%E4%B8%80%E9%9B%86&fileId=f1&fileSize=1+GB&marked=1&playlistOpen=1')
     expect(buildUpdatedMarkedUrl('/player', '?pickCode=abc', true)).toBe('/player?pickCode=abc&marked=1')
   })
 
