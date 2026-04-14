@@ -31,7 +31,7 @@ describe('playback state helpers', () => {
 
     expect(next.currentQualityLabel).toBe('115原画')
     expect(next.isNativeVideo).toBe(false)
-    expect(next.qualityOptions.map(item => item.label)).toEqual(['无损', '115原画'])
+    expect(next.qualityOptions.map(item => item.label)).toEqual(['无损', '115原画', '1080P'])
   })
 
   it('returns a patch for switching selected quality', () => {

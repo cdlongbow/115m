@@ -29,9 +29,17 @@ import {
   syncPlaybackStateByUrl,
 } from './core/playback-state'
 import { ensureServiceWorkerReady, sendRuntimeMessageSafe } from './core/runtime'
-import { WEB_API_URL } from '../lib/constants'
-import type { FileItem } from '../lib/api/types'
-import type { MsgFetchPlaylistResponse } from '../shared/messages'
+import { resolveInitialPlayback } from './core/startup'
+import {
+  buildNavigateToVideoUrl,
+  buildUpdatedMarkedUrl,
+  readPathFromLocation,
+  readPlayerBootstrapConfig,
+  readPlaylistCidFromLocation,
+} from './core/player-query'
+import { normalizePlaylistItems } from './core/playlist'
+import { fetchFavoriteStatus, fetchPlaylistResponse, updateFavoriteStatus } from './core/player-api'
+import { buildPlaybackNavState, getPlaylistPosition } from './core/playlist-navigation'
 
 interface PlayerConfig {
   pickCode: string
@@ -125,7 +133,6 @@ class PlayerManager {
       // 1. 先读取画质偏好（纯本地 localStorage，瞬间完成）
       const qualityPref = await loadQualityPreference(this.currentPickCode)
       console.log('[115m] init qualityPref:', this.currentPickCode, qualityPref)
-      const wantsHls = qualityPref && qualityPref.label !== '无损'
 
       // 2. 获取播放源（总是并行获取 HLS 和无损源，以确保画质列表完整）
       if (loadingTextEl) {
@@ -170,43 +177,24 @@ class PlayerManager {
         this.currentQualityLabel,
       )
 
-      if (qualityPref) {
-        console.log('[115m] init applying qualityPref:', qualityPref)
-        if (qualityPref.label === '无损' && ultraUrl) {
-          // 偏好无损
-          this.isNativeVideo = true
-          this.currentQuality = 9999
-          this.currentQualityLabel = '无损'
-          this.createArtplayer(ultraUrl, 'native')
-          this.perf('create-player-ultra-pref')
-        }
-        else {
-          // 偏好 HLS 画质（115原画、1080P等）
-          let m3u8Match: M3u8Item | undefined
-          if (qualityPref.label === '115原画') {
-            m3u8Match = this.m3u8List.find(item => item.quality === 9999) || this.m3u8List[0]
-          }
-          else {
-            m3u8Match = this.m3u8List.find(item => item.quality === qualityPref.quality)
-          }
+      const initialPlayback = resolveInitialPlayback({
+        qualityPreference: qualityPref,
+        ultraUrl,
+        m3u8List: this.m3u8List,
+      })
 
-          if (m3u8Match) {
-            this.isNativeVideo = false
-            this.currentQuality = m3u8Match.quality
-            this.currentQualityLabel = qualityPref.label
-            this.createArtplayer(m3u8Match.url, 'hls')
-            this.perf('create-player-hls-pref', { label: qualityPref.label })
-          }
-          else {
-            console.warn('[115m] qualityPref match failed, fallback to default', qualityPref)
-            this.initWithDefaultQuality(ultraUrl)
-          }
-        }
+      if (!initialPlayback) {
+        throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
       }
-      else {
-        // 无偏好记录
-        this.initWithDefaultQuality(ultraUrl)
-      }
+
+      this.isNativeVideo = initialPlayback.isNativeVideo
+      this.currentQuality = initialPlayback.currentQuality
+      this.currentQualityLabel = initialPlayback.currentQualityLabel
+      this.createArtplayer(initialPlayback.url, initialPlayback.type)
+      this.perf(initialPlayback.type === 'native' ? 'create-player-native' : 'create-player-hls', {
+        label: initialPlayback.currentQualityLabel,
+        hasPreference: !!qualityPref,
+      })
 
       const currentUrl = this.artplayer?.url || ''
       this.refreshQualityState(currentUrl)
@@ -224,42 +212,6 @@ class PlayerManager {
     finally {
       const loadingEl = document.getElementById('loading')
       if (loadingEl) loadingEl.style.display = 'none'
-    }
-  }
-
-  private async fetchUltraSource(): Promise<string> {
-    const source = await fetchUltraSource(this.currentPickCode)
-    this.ultraUrl = source.ultraUrl
-    return source.url
-  }
-
-  private async fetchM3u8WithRetry(): Promise<M3u8Item[]> {
-    const list = await fetchM3u8WithRetry(this.currentPickCode)
-    this.m3u8List = list
-    return list
-  }
-
-
-  /**
-   * 默认画质初始化逻辑（无损优先，降级 HLS）
-   */
-  private initWithDefaultQuality(ultraUrl: string | null) {
-    if (ultraUrl) {
-      this.isNativeVideo = true
-      this.currentQuality = 9999
-      this.currentQualityLabel = '无损'
-      this.createArtplayer(ultraUrl, 'native')
-      this.perf('create-player-native')
-    }
-    else if (this.m3u8List.length > 0) {
-      this.isNativeVideo = false
-      this.currentQuality = this.m3u8List[0].quality
-      this.currentQualityLabel = getQualityDisplayName(this.m3u8List[0].quality, true)
-      this.createArtplayer(this.m3u8List[0].url, 'hls')
-      this.perf('create-player-hls-fallback')
-    }
-    else {
-      throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
     }
   }
 
@@ -553,18 +505,9 @@ class PlayerManager {
 
   private async fetchFileFavoriteStatus(fileId: string): Promise<void> {
     try {
-      // 使用 /files/video API 获取文件信息（包含 is_mark 字段）
-      // 注意：这个 API 使用 GET 请求，参数放在 URL 中
-      const url = `${WEB_API_URL}/files/video?pickcode=${encodeURIComponent(this.currentPickCode)}&share_id=0&local=1`
-      const res = await sendRuntimeMessageSafe<{ ok?: boolean, text?: string }>({
-        type: 'MAIN_WORLD_GET',
-        data: { url },
-      })
-
-      if (res?.ok && res.text) {
-        const parsed = JSON.parse(res.text) as { is_mark?: string }
-        // is_mark 是字符串 '1'（已收藏）或 '0'（未收藏）
-        this.overlay?.updateFavoriteStatus(parsed.is_mark === '1')
+      const favoriteStatus = await fetchFavoriteStatus(sendRuntimeMessageSafe, this.currentPickCode)
+      if (favoriteStatus !== null) {
+        this.overlay?.updateFavoriteStatus(favoriteStatus)
       }
     } catch (e) {
       console.warn('[115m] fetchFileFavoriteStatus failed:', e)
@@ -707,13 +650,9 @@ class PlayerManager {
   }
 
   private async fetchPlaylistItemsInternal(): Promise<OverlayPlaylistItem[]> {
-    const urlParams = new URLSearchParams(window.location.search)
-    let cid = urlParams.get('cid') || ''
+    const cid = readPlaylistCidFromLocation(window.location.search)
 
-    const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
-      type: 'FETCH_PLAYLIST',
-      data: { cid, pickCode: this.currentPickCode },
-    })
+    const res = await fetchPlaylistResponse(sendRuntimeMessageSafe, cid, this.currentPickCode)
 
     // API 返回的 path 是完整的目录路径，用它更新面包屑
     if (res?.path && res.path.length > 0) {
@@ -724,37 +663,13 @@ class PlayerManager {
     if (list.length === 0) {
       console.warn('[115m] playlist empty, raw response:', res)
     }
-    return list
-      .filter((item: any) => !!(item.pc || item.pick_code))
-      .map((item: any) => ({
-        pickCode: item.pc || item.pick_code,
-        fileId: String(item.fid || item.file_id || item.cid || ''),
-        name: item.n || item.fn || '',
-        size: (item.s || item.fs || 0) > 0 ? this.formatFileSize(item.s || item.fs) : '',
-        isMarked: (item.m === 1) || (item.iv === 1),
-        duration: item.play_long || 0,
-        sha: item.sha || '',
-      }))
-  }
-
-  private getPlaylistPosition(items: OverlayPlaylistItem[] = this.playlistItemsCache) {
-    const index = items.findIndex(item => item.pickCode === this.currentPickCode)
-    return {
-      index,
-      previous: index > 0 ? items[index - 1] : null,
-      current: index >= 0 ? items[index] : null,
-      next: index >= 0 && index < items.length - 1 ? items[index + 1] : null,
-    }
+    return normalizePlaylistItems(list as FileItem[], size => this.formatFileSize(size))
   }
 
   private syncOverlayPlaybackNav() {
-    const { previous, next } = this.getPlaylistPosition()
-    this.overlay?.updatePlaybackNav({
-      hasPrevious: !!previous,
-      hasNext: !!next,
-      previousTitle: previous?.name,
-      nextTitle: next?.name,
-    })
+    this.overlay?.updatePlaybackNav(buildPlaybackNavState(
+      getPlaylistPosition(this.playlistItemsCache, this.currentPickCode),
+    ))
   }
 
   private clearPlaybackEndState() {
@@ -768,7 +683,7 @@ class PlayerManager {
   private async handlePlaybackEnded() {
     this.clearPlaybackEndState()
     const items = await this.fetchPlaylistItems().catch(() => [])
-    const { next } = this.getPlaylistPosition(items)
+    const { next } = getPlaylistPosition(items, this.currentPickCode)
 
     if (next) {
       let countdown = 3
@@ -798,7 +713,7 @@ class PlayerManager {
 
   private async playPrevious() {
     const items = await this.fetchPlaylistItems().catch(() => [])
-    const { previous } = this.getPlaylistPosition(items)
+    const { previous } = getPlaylistPosition(items, this.currentPickCode)
     if (!previous) {
       this.overlay?.showToast('已经是第一集')
       return
@@ -808,7 +723,7 @@ class PlayerManager {
 
   private async playNext() {
     const items = await this.fetchPlaylistItems().catch(() => [])
-    const { next } = this.getPlaylistPosition(items)
+    const { next } = getPlaylistPosition(items, this.currentPickCode)
     if (!next) {
       this.overlay?.showToast('已经是最后一集')
       return
@@ -827,26 +742,15 @@ class PlayerManager {
    * 主动通过 API 获取面包屑，不依赖 DOM 提取或 URL 参数
    */
   private async fetchBreadcrumbs(): Promise<void> {
-    // 检查 URL 参数中是否已有 path（从文件列表页面传递过来的）
-    const urlParams = new URLSearchParams(window.location.search)
-    const rawPath = urlParams.get('path')
-    if (rawPath) {
-      try {
-        const parsed = JSON.parse(rawPath) as Array<{ cid: string, name: string }>
-        if (Array.isArray(parsed) && parsed.length > 0) {
-          this.overlay?.updateBreadcrumbs(parsed)
-          return
-        }
-      }
-      catch { /* ignore */ }
+    const pathFromQuery = readPathFromLocation(window.location.search)
+    if (pathFromQuery.length > 0) {
+      this.overlay?.updateBreadcrumbs(pathFromQuery)
+      return
     }
 
     // 通过 API 获取（需要 cid 或 pickCode）
-    const cid = urlParams.get('cid') || ''
-    const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
-      type: 'FETCH_PLAYLIST',
-      data: { cid, pickCode: this.currentPickCode },
-    })
+    const cid = readPlaylistCidFromLocation(window.location.search)
+    const res = await fetchPlaylistResponse(sendRuntimeMessageSafe, cid, this.currentPickCode)
 
     if (res?.path && res.path.length > 0) {
       this.overlay?.updateBreadcrumbs(res.path)
@@ -858,10 +762,7 @@ class PlayerManager {
    */
   private async refreshBreadcrumbs(): Promise<void> {
     // 强制通过 API 获取最新路径
-    const res = await sendRuntimeMessageSafe<MsgFetchPlaylistResponse>({
-      type: 'FETCH_PLAYLIST',
-      data: { cid: '', pickCode: this.currentPickCode },
-    })
+    const res = await fetchPlaylistResponse(sendRuntimeMessageSafe, '', this.currentPickCode)
 
     if (res?.path && res.path.length > 0) {
       this.overlay?.updateBreadcrumbs(res.path)
@@ -882,44 +783,22 @@ class PlayerManager {
   private async toggleFavorite(fileId: string, nextMarked: boolean): Promise<boolean> {
     if (!fileId) return !nextMarked
 
-    const body = `file_id=${encodeURIComponent(fileId)}&star=${nextMarked ? '1' : '0'}`
-
-    const res = await sendRuntimeMessageSafe<{ ok?: boolean, text?: string }>({
-      type: 'MAIN_WORLD_FETCH',
-      data: {
-        url: `${WEB_API_URL}/files/star`,
-        body,
-      },
-    })
-
-    try {
-      const parsed = res?.text ? JSON.parse(res.text) as { state?: boolean } : null
-
-      // API 返回 { state: true } 表示成功
-      if (res?.ok && parsed?.state === true) {
-        const params = new URLSearchParams(window.location.search)
-        params.set('marked', nextMarked ? '1' : '0')
-        window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
-        return nextMarked
-      }
+    const result = await updateFavoriteStatus(sendRuntimeMessageSafe, fileId, nextMarked)
+    if (result === nextMarked) {
+      window.history.replaceState(null, '', buildUpdatedMarkedUrl(window.location.pathname, window.location.search, nextMarked))
     }
-    catch {
-      // ignore parse error
-    }
-
-    return !nextMarked
+    return result
   }
 
   private navigateToVideo(pickCode: string) {
     this.clearPlaybackEndState()
-    const params = new URLSearchParams(window.location.search)
-    params.set('pick_code', pickCode)
-    params.set('pickCode', pickCode)
     const targetItem = this.playlistItemsCache.find(item => item.pickCode === pickCode)
-    if (targetItem?.name) {
-      params.set('title', targetItem.name)
-    }
-    window.location.href = `${window.location.pathname}?${params.toString()}`
+    window.location.href = buildNavigateToVideoUrl(
+      window.location.pathname,
+      window.location.search,
+      pickCode,
+      targetItem?.name,
+    )
   }
 
   private formatFileSize(size: number): string {
@@ -958,11 +837,7 @@ class PlayerManager {
 let playerManager: PlayerManager | null = null
 
 function initPlayer() {
-  const urlParams = new URLSearchParams(window.location.search)
-  const pickCode = urlParams.get('pickCode')
-  const traceId = urlParams.get('traceId') || undefined
-  const clickTsRaw = urlParams.get('clickTs')
-  const clickTs = clickTsRaw ? Number(clickTsRaw) : undefined
+  const { pickCode, traceId, clickTs } = readPlayerBootstrapConfig(window.location.search)
 
   if (!pickCode) {
     const el = document.getElementById('artplayer-app')

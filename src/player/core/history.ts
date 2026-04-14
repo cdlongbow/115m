@@ -3,7 +3,7 @@ import { sendRuntimeMessageSafe } from './runtime'
 /**
  * 画质偏好记录
  */
-interface QualityPreference {
+export interface QualityPreference {
   label: string
   quality: number
 }

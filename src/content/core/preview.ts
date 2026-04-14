@@ -211,7 +211,14 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
     })
 
     state.cancelTask = cancel
-    await promise
+    try {
+      await promise
+    }
+    catch (e) {
+      if (!(e instanceof TaskCancelledError)) {
+        throw e
+      }
+    }
   }
 
   /** 取消加载 */

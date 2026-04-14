@@ -1,18 +1,14 @@
-import { sendRuntimeMessageSafe } from './runtime'
 import { escapeHtml } from '../../shared/utils'
+import {
+  apiCreateFolder,
+  apiFetchFolders,
+  apiMoveFile,
+  apiSearchFolders,
+  type BreadcrumbItem,
+  type FolderItem,
+} from './move-dialog-api'
 
 // ─── Types ───
-interface FolderItem {
-  cid: string
-  name: string
-  pid: string
-}
-
-interface BreadcrumbItem {
-  cid: string
-  name: string
-}
-
 interface RecentMoveRecord {
   cid: string
   name: string
@@ -207,114 +203,6 @@ const DIALOG_STYLES = `
 const ICON_FOLDER = '<svg viewBox="0 0 24 24"><path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z"/></svg>'
 const ICON_FOLDER_PLUS = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 4H4a2 2 0 00-2 2v12a2 2 0 002 2h16a2 2 0 002-2V8a2 2 0 00-2-2h-8l-2-2z"/><line x1="12" y1="11" x2="12" y2="17"/><line x1="9" y1="14" x2="15" y2="14"/></svg>'
 const ICON_CLOCK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>'
-
-// ─── API Helpers ───
-async function apiFetchFolders(cid: string): Promise<{ folders: FolderItem[], path: BreadcrumbItem[] }> {
-  const params = new URLSearchParams({
-    aid: '1', cid, offset: '0', limit: '500',
-    show_dir: '1', qid: '0', type: '0',
-    source: '', format: 'json', star: '', is_q: '',
-    is_share: '', o: 'file_name', asc: '1', cur: '1',
-    natsort: '1',
-  })
-  const url = `https://webapi.115.com/files?${params}`
-
-  const res = await sendRuntimeMessageSafe<{ ok: boolean, text: string }>({
-    type: 'MAIN_WORLD_GET',
-    data: { url },
-  })
-
-  if (!res?.ok || !res.text) return { folders: [], path: [] }
-
-  try {
-    const json = JSON.parse(res.text)
-    if (!json.state) return { folders: [], path: [] }
-
-    // 客户端过滤：文件有 sha（文件哈希），文件夹没有
-    const folders: FolderItem[] = (json.data ?? [])
-      .filter((item: any) => item.cid !== undefined && !item.sha && !item.ico)
-      .map((item: any) => ({
-        cid: String(item.cid),
-        name: item.n || '',
-        pid: String(item.pid || item.parent_id || cid),
-      }))
-
-    const path: BreadcrumbItem[] = (json.path ?? []).map((p: any) => ({
-      cid: String(p.cid),
-      name: p.name,
-    }))
-
-    return { folders, path }
-  } catch {
-    return { folders: [], path: [] }
-  }
-}
-
-async function apiCreateFolder(parentCid: string, name: string): Promise<{ ok: boolean, cid?: string, error?: string }> {
-  const body = `pid=${encodeURIComponent(parentCid)}&cname=${encodeURIComponent(name)}`
-  const res = await sendRuntimeMessageSafe<{ ok: boolean, text: string }>({
-    type: 'MAIN_WORLD_FETCH',
-    data: { url: 'https://webapi.115.com/files/add', body },
-  })
-
-  if (!res?.ok || !res.text) return { ok: false, error: '网络请求失败' }
-
-  try {
-    const json = JSON.parse(res.text)
-    if (json.state) {
-      return { ok: true, cid: String(json.cid || json.file_id || '') }
-    }
-    return { ok: false, error: json.error || '创建失败' }
-  } catch {
-    return { ok: false, error: '解析返回数据失败' }
-  }
-}
-
-async function apiMoveFile(fileId: string, targetCid: string): Promise<{ ok: boolean, error?: string }> {
-  const body = `pid=${encodeURIComponent(targetCid)}&fid[0]=${encodeURIComponent(fileId)}&move_proid=`
-  const res = await sendRuntimeMessageSafe<{ ok: boolean, text: string }>({
-    type: 'MAIN_WORLD_FETCH',
-    data: { url: 'https://webapi.115.com/files/move', body },
-  })
-
-  if (!res?.ok || !res.text) return { ok: false, error: '网络请求失败' }
-
-  try {
-    const json = JSON.parse(res.text)
-    if (json.state) return { ok: true }
-    return { ok: false, error: json.error || json.error_msg || '移动失败' }
-  } catch {
-    return { ok: false, error: '解析返回数据失败' }
-  }
-}
-
-async function apiSearchFolders(keyword: string): Promise<FolderItem[]> {
-  const params = new URLSearchParams({
-    aid: '1', offset: '0', limit: '50',
-    search_value: keyword, format: 'json',
-    fc: '1',  // folders only
-  })
-  const url = `https://webapi.115.com/files/search?${params}`
-
-  const res = await sendRuntimeMessageSafe<{ ok: boolean, text: string }>({
-    type: 'MAIN_WORLD_GET',
-    data: { url },
-  })
-
-  if (!res?.ok || !res.text) return []
-
-  try {
-    const json = JSON.parse(res.text)
-    if (!json.state) return []
-    return (json.data ?? []).map((item: any) => ({
-      cid: String(item.cid),
-      name: item.n || '',
-      pid: String(item.pid || ''),
-    }))
-  } catch {
-    return []
-  }
-}
 
 // ─── Recent Moves Storage ───
 function getRecentMoves(): RecentMoveRecord[] {
@@ -730,7 +618,7 @@ export class MoveDialog {
       saveRecentMove({ cid: targetCid, name: targetName, path: pathStr })
 
       // Notify background to refresh 115 wangpan tabs
-      sendRuntimeMessageSafe({ type: 'MOVE_SUCCESS_REFRESH' }).catch(() => {})
+      chrome.runtime.sendMessage({ type: 'MOVE_SUCCESS_REFRESH' }).catch(() => {})
 
       this.close(true)
       this.onMoved()

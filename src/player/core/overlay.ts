@@ -2,6 +2,7 @@ import type Artplayer from 'artplayer'
 import { getVideoCovers } from '../../lib/videoThumbnail'
 import { escapeHtml } from '../../shared/utils'
 import { UI_LAYER } from './ui-layer'
+import { readOverlayMetaQuery } from './player-query'
 
 export interface OverlayPathItem {
   cid: string
@@ -56,31 +57,7 @@ export interface OverlayPlaybackEndState {
 }
 
 export function readOverlayMetaFromQuery(): PlayerOverlayMeta {
-  const params = new URLSearchParams(window.location.search)
-  const rawPath = params.get('path')
-  let path: OverlayPathItem[] = []
-
-  if (rawPath) {
-    try {
-      const parsed = JSON.parse(rawPath) as OverlayPathItem[]
-      if (Array.isArray(parsed)) {
-        path = parsed.filter(item => !!item?.cid && !!item?.name)
-      }
-    }
-    catch {
-      path = []
-    }
-  }
-
-  return {
-    title: params.get('title') || '视频播放',
-    fileSize: params.get('fileSize') || '',
-    fileId: params.get('fileId') || '',
-    cid: params.get('cid') || '',
-    parentId: params.get('cid') || '',
-    isMarked: params.get('marked') === '1',
-    path,
-  }
+  return readOverlayMetaQuery(window.location.search)
 }
 
 export class PlayerOverlayController {

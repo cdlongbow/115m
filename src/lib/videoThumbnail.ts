@@ -267,9 +267,6 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
         return hit
       }
     }
-    else {
-      console.warn('[115m] 当前上下文不可用 chrome.storage.local，封面缓存降级为内存缓存')
-    }
   }
   catch (error) {
     if (isContextInvalidatedError(error)) {
