@@ -51,6 +51,7 @@ interface PlayerConfig {
 
 class PlayerManager {
   private static readonly QUALITY_CONTROL_NAME = 'm115-quality-control'
+  private static readonly CENTER_CONTROL_NAME = 'm115-center-control'
   private artplayer: Artplayer | null = null
   private hlsInstance: HlsType | null = null
   private m3u8List: M3u8Item[] = []
@@ -77,6 +78,11 @@ class PlayerManager {
   private cleanupKeyboard: (() => void) | null = null
   private readonly keepPlaylistOpenOnInit: boolean
   private currentPlaybackType: 'native' | 'hls' = 'hls'
+  private centerControlEl: HTMLElement | null = null
+  private centerPlayBtnEl: HTMLButtonElement | null = null
+  private centerPrevBtnEl: HTMLButtonElement | null = null
+  private centerNextBtnEl: HTMLButtonElement | null = null
+  private nativePlayObserver: MutationObserver | null = null
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
@@ -199,7 +205,10 @@ class PlayerManager {
       autoMini: true,
       screenshot: false,
       setting: true,
-      controls: [this.buildQualityControlItem()],
+      controls: [
+        this.buildCenterControlItem(),
+        this.buildQualityControlItem(),
+      ],
       loop: false,
       flip: true,
       playbackRate: true,
@@ -254,6 +263,7 @@ class PlayerManager {
     Artplayer.FULLSCREEN_WEB_IN_BODY = false
 
     this.artplayer.on('restart', (url) => {
+      this.hideNativePlayControl()
       if (typeof url !== 'string' || url === ORIGINAL_PLACEHOLDER_URL) return
       const opt = this.qualityOptions.find(o => o.url === url)
       if (opt && this.perfMarks.loadedmetadata) {
@@ -261,7 +271,20 @@ class PlayerManager {
         this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
         this.renderQualityPanel()
       }
+      this.syncCenterPlayButton()
     })
+
+    this.artplayer.on('video:pause', () => {
+      this.hideNativePlayControl()
+      this.syncCenterPlayButton()
+    })
+
+    this.artplayer.on('video:play', () => {
+      this.hideNativePlayControl()
+      this.syncCenterPlayButton()
+    })
+
+    this.observeNativeControls()
 
     if (type === 'native') {
       this.currentQuality = 9999
@@ -309,6 +332,7 @@ class PlayerManager {
         },
         onPlaying: () => {
           this.clearPlaybackEndState()
+          this.syncCenterPlayButton()
           this.perfMarks.playing = performance.now()
           this.reportFirstFrameSummary()
         },
@@ -316,6 +340,7 @@ class PlayerManager {
           this.handlePlaybackEnded()
         },
         onError: () => {
+          this.syncCenterPlayButton()
           if (this.isNativeVideo) {
             void this.fallbackToHls()
           }
@@ -374,6 +399,129 @@ class PlayerManager {
 
   private renderQualityPanel() {
     this.updateQualityControl()
+  }
+
+  private buildCenterControlItem(): any {
+    return {
+      name: PlayerManager.CENTER_CONTROL_NAME,
+      position: 'left' as const,
+      index: 200,
+      html: this.buildCenterControlsHtml(),
+      mounted: ($control: HTMLElement) => {
+        this.centerControlEl = $control
+        $control.style.position = 'absolute'
+        $control.style.left = '50%'
+        $control.style.bottom = '0'
+        $control.style.transform = 'translateX(-50%)'
+        $control.style.display = 'flex'
+        $control.style.alignItems = 'center'
+        $control.style.justifyContent = 'center'
+        $control.style.padding = '0'
+        $control.style.height = '100%'
+        $control.style.pointerEvents = 'auto'
+
+        this.hideNativePlayControl()
+        this.bindCenterControlElements($control)
+      },
+    }
+  }
+
+  private observeNativeControls() {
+    this.nativePlayObserver?.disconnect()
+    const controlsLeft = this.artplayer?.template.$controlsLeft as HTMLElement | null
+    if (!controlsLeft || typeof MutationObserver === 'undefined') return
+
+    this.nativePlayObserver = new MutationObserver(() => {
+      this.hideNativePlayControl()
+    })
+    this.nativePlayObserver.observe(controlsLeft, { childList: true, subtree: false })
+    this.hideNativePlayControl()
+  }
+
+  private hideNativePlayControl() {
+    const controlsLeft = this.artplayer?.template.$controlsLeft as HTMLElement | null
+    const nativePlayControl = controlsLeft?.firstElementChild as HTMLElement | null
+    if (!nativePlayControl || nativePlayControl === this.centerControlEl) return
+    nativePlayControl.style.display = 'none'
+    nativePlayControl.style.pointerEvents = 'none'
+    nativePlayControl.style.width = '0'
+    nativePlayControl.style.margin = '0'
+    nativePlayControl.style.padding = '0'
+    nativePlayControl.style.overflow = 'hidden'
+  }
+
+  private buildCenterControlsHtml(): string {
+    return `
+      <div style="display:flex;align-items:center;justify-content:center;gap:12px;height:100%;">
+        <button type="button" data-m115-center="prev" title="上一集" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.86);cursor:pointer;padding:0;transition:background .15s ease,opacity .15s ease;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 6l-6 6 6 6"/><path d="M19 6l-6 6 6 6"/></svg>
+        </button>
+        <button type="button" data-m115-center="play" title="播放" style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;padding:0;box-shadow:0 4px 16px rgba(0,0,0,.18);transition:background .15s ease,opacity .15s ease;">
+          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
+        </button>
+        <button type="button" data-m115-center="next" title="下一集" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.86);cursor:pointer;padding:0;transition:background .15s ease,opacity .15s ease;">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m13 6 6 6-6 6"/><path d="m5 6 6 6-6 6"/></svg>
+        </button>
+      </div>
+    `
+  }
+
+  private bindCenterControlElements(container: HTMLElement) {
+    this.centerPrevBtnEl = container.querySelector('[data-m115-center="prev"]') as HTMLButtonElement | null
+    this.centerPlayBtnEl = container.querySelector('[data-m115-center="play"]') as HTMLButtonElement | null
+    this.centerNextBtnEl = container.querySelector('[data-m115-center="next"]') as HTMLButtonElement | null
+
+    this.centerPrevBtnEl?.addEventListener('click', () => { void this.playPrevious() })
+    this.centerNextBtnEl?.addEventListener('click', () => { void this.playNext() })
+    this.centerPlayBtnEl?.addEventListener('click', () => {
+      if (!this.artplayer) return
+      if (this.artplayer.video.paused) {
+        void this.artplayer.play()
+      }
+      else {
+        this.artplayer.pause()
+      }
+      this.syncCenterPlayButton()
+    })
+
+    const bindHover = (button: HTMLButtonElement | null) => {
+      button?.addEventListener('mouseenter', () => {
+        if (!button.disabled) button.style.background = 'rgba(255,255,255,.16)'
+      })
+      button?.addEventListener('mouseleave', () => {
+        button.style.background = button === this.centerPlayBtnEl ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.08)'
+      })
+    }
+
+    bindHover(this.centerPrevBtnEl)
+    bindHover(this.centerPlayBtnEl)
+    bindHover(this.centerNextBtnEl)
+
+    this.syncCenterPlayButton()
+    this.syncCenterPlaybackNav()
+  }
+
+  private syncCenterPlayButton() {
+    if (!this.centerPlayBtnEl || !this.artplayer) return
+    const paused = this.artplayer.video.paused
+    this.centerPlayBtnEl.title = paused ? '播放' : '暂停'
+    this.centerPlayBtnEl.innerHTML = paused
+      ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
+      : '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5h3v14H8zM13 5h3v14h-3z"/></svg>'
+  }
+
+  private syncCenterPlaybackNav() {
+    const state = buildPlaybackNavState(getPlaylistPosition(this.playlistItemsCache, this.currentPickCode))
+    this.syncCenterNavButton(this.centerPrevBtnEl, state.hasPrevious, state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集')
+    this.syncCenterNavButton(this.centerNextBtnEl, state.hasNext, state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集')
+  }
+
+  private syncCenterNavButton(button: HTMLButtonElement | null, enabled: boolean, title: string) {
+    if (!button) return
+    button.disabled = !enabled
+    button.title = title
+    button.style.opacity = enabled ? '1' : '.38'
+    button.style.cursor = enabled ? 'pointer' : 'not-allowed'
   }
 
   private updateQualityControl() {
@@ -628,6 +776,7 @@ class PlayerManager {
   }
 
   private syncOverlayPlaybackNav() {
+    this.syncCenterPlaybackNav()
     this.overlay?.updatePlaybackNav(buildPlaybackNavState(
       getPlaylistPosition(this.playlistItemsCache, this.currentPickCode),
     ))
@@ -906,6 +1055,8 @@ class PlayerManager {
       this.infoMenuTimer = null
     }
     this.infoMenuEl = null
+    this.nativePlayObserver?.disconnect()
+    this.nativePlayObserver = null
     if (this.cleanupKeyboard) {
       this.cleanupKeyboard()
       this.cleanupKeyboard = null

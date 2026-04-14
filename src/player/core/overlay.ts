@@ -296,6 +296,39 @@ export class PlayerOverlayController {
     return button
   }
 
+  private bindFavoriteButton(button: HTMLButtonElement) {
+    button.addEventListener('click', async () => {
+      const fileId = this.options.meta.fileId
+      console.log('[115m] 收藏切换:', { fileId, currentMarked: this.options.meta.isMarked })
+      if (!fileId) {
+        this.showToast('文件 ID 缺失，无法收藏')
+        return
+      }
+
+      const nextMarked = !this.options.meta.isMarked
+      button.style.opacity = '0.4'
+      button.style.pointerEvents = 'none'
+      button.style.transform = 'scale(0.85)'
+      try {
+        const result = await this.options.onToggleFavorite(fileId, nextMarked)
+        this.options.meta.isMarked = result
+        this.updateFavoriteIcon()
+        button.style.transform = 'scale(1.3)'
+        setTimeout(() => { button.style.transform = '' }, 200)
+        this.showToast(result ? '已星标' : '已取消星标')
+        console.log('[115m] 收藏结果:', result)
+      }
+      catch (e) {
+        console.error('[115m] 收藏失败:', e)
+        this.showToast('操作失败')
+      }
+      finally {
+        button.style.opacity = ''
+        button.style.pointerEvents = ''
+      }
+    })
+  }
+
   private mountPlaybackEndPanel() {
     this.endPanelEl?.remove()
 
@@ -464,6 +497,10 @@ export class PlayerOverlayController {
     this.bottomEl.style.pointerEvents = visible ? 'auto' : 'none'
     this.progressEl.style.opacity = visible ? '1' : '0'
     this.progressEl.style.pointerEvents = visible ? 'auto' : 'none'
+    if (this.bottomPlaybackNavEl) {
+      this.bottomPlaybackNavEl.style.opacity = visible ? '1' : '0'
+      this.bottomPlaybackNavEl.style.pointerEvents = visible ? 'auto' : 'none'
+    }
     this.syncPlaylistTabVisibility(visible)
     this.root.style.cursor = visible || this.playlistOpen ? 'auto' : 'none'
   }
@@ -527,13 +564,15 @@ export class PlayerOverlayController {
     back.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>'
 
     const info = document.createElement('div')
-    info.style.cssText = 'min-width:0;padding-top:2px;'
+    info.style.cssText = 'min-width:0;flex:0 1 auto;padding-top:2px;max-width:min(62vw,760px);'
 
     const titleRow = document.createElement('div')
-    titleRow.style.cssText = 'display:flex;align-items:baseline;gap:8px;min-width:0;flex-wrap:wrap;'
+    titleRow.style.cssText = 'display:inline-flex;align-items:center;gap:10px;min-width:0;max-width:100%;vertical-align:top;'
 
     const title = document.createElement('div')
     title.style.cssText = [
+      'flex:0 1 auto',
+      'min-width:0',
       'font-size:16px',
       'font-weight:700',
       'line-height:1.35',
@@ -542,13 +581,18 @@ export class PlayerOverlayController {
       'white-space:nowrap',
       'overflow:hidden',
       'text-overflow:ellipsis',
-      'max-width:min(52vw,620px)',
       'user-select:text',
       'pointer-events:auto',
     ].join(';')
 
+    const favBtn = this.createHeaderActionButton('星标', '')
+    favBtn.style.marginLeft = '0'
+    favBtn.style.flexShrink = '0'
+    this.bindFavoriteButton(favBtn)
+
     const stats = document.createElement('div')
     stats.style.cssText = [
+      'flex:0 0 auto',
       'font-size:12px',
       'font-weight:600',
       'line-height:1.2',
@@ -575,6 +619,7 @@ export class PlayerOverlayController {
 
     titleRow.appendChild(title)
     titleRow.appendChild(stats)
+    titleRow.appendChild(favBtn)
     info.appendChild(titleRow)
     info.appendChild(breadcrumbs)
     left.appendChild(back)
@@ -584,15 +629,6 @@ export class PlayerOverlayController {
     // ── Right side: action buttons for current video ──
     const right = document.createElement('div')
     right.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;pointer-events:auto;padding-top:2px;'
-
-    const navGroup = document.createElement('div')
-    navGroup.style.cssText = 'display:flex;align-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);padding:2px;gap:0;'
-    const prevBtn = this.createHeaderActionButton('上一集', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="M11 6l-6 6 6 6"/><path d="M19 6l-6 6 6 6"/></svg>')
-    const nextBtn = this.createHeaderActionButton('下一集', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="m13 6 6 6-6 6"/><path d="m5 6 6 6-6 6"/></svg>')
-    prevBtn.addEventListener('click', this.options.onPlayPrevious)
-    nextBtn.addEventListener('click', this.options.onPlayNext)
-    navGroup.appendChild(prevBtn)
-    navGroup.appendChild(nextBtn)
 
     const pillGroup = document.createElement('div')
     pillGroup.style.cssText = 'display:flex;align-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);padding:2px;gap:0;'
@@ -613,48 +649,16 @@ export class PlayerOverlayController {
         else this.showToast('移动失败: ' + msg)
       }
     })
+    const deleteBtn = this.createHeaderActionButton('删除视频（开发中）', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>')
+    deleteBtn.addEventListener('click', () => this.showToast('删除功能开发中'))
 
-    const favBtn = this.createHeaderActionButton('收藏', '')
-    favBtn.addEventListener('click', async () => {
-      const fileId = this.options.meta.fileId
-      console.log('[115m] 收藏切换:', { fileId, currentMarked: this.options.meta.isMarked })
-      if (!fileId) {
-        this.showToast('文件 ID 缺失，无法收藏')
-        return
-      }
-      const nextMarked = !this.options.meta.isMarked
-      favBtn.style.opacity = '0.4'
-      favBtn.style.pointerEvents = 'none'
-      favBtn.style.transform = 'scale(0.85)'
-      try {
-        const result = await this.options.onToggleFavorite(fileId, nextMarked)
-        this.options.meta.isMarked = result
-        this.updateFavoriteIcon()
-        // Flash animation for feedback
-        favBtn.style.transform = 'scale(1.3)'
-        setTimeout(() => { favBtn.style.transform = '' }, 200)
-        this.showToast(result ? '已收藏 ♥' : '已取消收藏')
-        console.log('[115m] 收藏结果:', result)
-      } catch (e) {
-        console.error('[115m] 收藏失败:', e)
-        this.showToast('操作失败')
-      } finally {
-        favBtn.style.opacity = ''
-        favBtn.style.pointerEvents = ''
-      }
-    })
     this.favBtnEl = favBtn
     this.moveBtnEl = moveBtn
-    this.prevBtnEl = prevBtn
-    this.nextBtnEl = nextBtn
-    // 初始状态设为未收藏，避免闪烁（等 API 返回后更新）
     this.options.meta.isMarked = false
     this.updateFavoriteIcon()
-    this.updatePlaybackNav({ hasPrevious: false, hasNext: false })
 
-    right.appendChild(navGroup)
     pillGroup.appendChild(moveBtn)
-    pillGroup.appendChild(favBtn)
+    pillGroup.appendChild(deleteBtn)
     right.appendChild(pillGroup)
     header.appendChild(right)
 
@@ -674,11 +678,11 @@ export class PlayerOverlayController {
   private updateFavoriteIcon() {
     if (!this.favBtnEl) return
     const marked = this.options.meta.isMarked
-    this.favBtnEl.title = marked ? '取消收藏' : '收藏'
+    this.favBtnEl.title = marked ? '取消星标' : '星标'
     // Use inline style on path to bypass ArtPlayer `.art-video-player svg { fill }` override
     this.favBtnEl.innerHTML = marked
-      ? '<svg width="20" height="20" viewBox="0 0 24 24"><path style="fill:#f472b6" d="m12 21.35-1.45-1.32C5.4 15.36 2 12.28 2 8.5 2 5.42 4.42 3 7.5 3c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 3C19.58 3 22 5.42 22 8.5c0 3.78-3.4 6.86-8.55 11.54z"/></svg>'
-      : '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.7);stroke-width:2" d="m12 20.4-1.4-1.27C5.4 14.36 2 11.28 2 7.5 2 4.42 4.42 2 7.5 2c1.74 0 3.41.81 4.5 2.09A6 6 0 0 1 16.5 2C19.58 2 22 4.42 22 7.5c0 3.78-3.4 6.86-8.6 11.63z"/></svg>'
+      ? '<svg width="20" height="20" viewBox="0 0 24 24"><path style="fill:#facc15" d="m12 3.6 2.55 5.16 5.7.83-4.12 4.02.97 5.67L12 16.6l-5.1 2.68.97-5.67-4.12-4.02 5.7-.83L12 3.6z"/></svg>'
+      : '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.72);stroke-width:2;stroke-linejoin:round" d="m12 3.6 2.55 5.16 5.7.83-4.12 4.02.97 5.67L12 16.6l-5.1 2.68.97-5.67-4.12-4.02 5.7-.83L12 3.6z"/></svg>'
   }
 
   // ── Playlist toggle tab (right edge, vertically centered) ──
