@@ -10,6 +10,8 @@ const items = [
 describe('playlist navigation helpers', () => {
   it('returns previous and next items around current pick code', () => {
     const position = getPlaylistPosition(items, 'b')
+    expect(position.totalCount).toBe(3)
+    expect(position.index).toBe(1)
     expect(position.previous?.pickCode).toBe('a')
     expect(position.current?.pickCode).toBe('b')
     expect(position.next?.pickCode).toBe('c')
@@ -21,6 +23,8 @@ describe('playlist navigation helpers', () => {
       hasNext: true,
       previousTitle: undefined,
       nextTitle: '第二集',
+      currentIndex: 1,
+      totalCount: 3,
     })
   })
 })

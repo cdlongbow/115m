@@ -49,6 +49,8 @@ export interface OverlayPlaybackNavState {
   hasNext: boolean
   previousTitle?: string
   nextTitle?: string
+  currentIndex?: number
+  totalCount?: number
 }
 
 export interface OverlayPlaybackEndState {
@@ -68,6 +70,7 @@ export class PlayerOverlayController {
   private readonly progressEl: HTMLElement
   private sidebarEl: HTMLElement | null
   private headerEl: HTMLElement | null = null
+  private indexEl: HTMLElement | null = null
   private titleEl: HTMLElement | null = null
   private statsEl: HTMLElement | null = null
   private breadcrumbsEl: HTMLElement | null = null
@@ -209,6 +212,7 @@ export class PlayerOverlayController {
   updatePlaybackNav(state: OverlayPlaybackNavState) {
     this.syncNavButton(this.prevBtnEl, state.hasPrevious, state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集')
     this.syncNavButton(this.nextBtnEl, state.hasNext, state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集')
+    this.updatePlaylistIndex(state.currentIndex, state.totalCount)
     if (this.endPanelNextBtnEl) {
       this.endPanelNextBtnEl.disabled = !state.hasNext
       this.endPanelNextBtnEl.style.opacity = state.hasNext ? '1' : '.45'
@@ -294,6 +298,13 @@ export class PlayerOverlayController {
       button.style.background = 'transparent'
     })
     return button
+  }
+
+  private updatePlaylistIndex(currentIndex?: number, totalCount?: number) {
+    if (!this.indexEl) return
+    const visible = typeof currentIndex === 'number' && currentIndex > 0 && typeof totalCount === 'number' && totalCount > 0
+    this.indexEl.textContent = visible ? `${currentIndex} / ${totalCount}` : ''
+    this.indexEl.style.display = visible ? 'inline-flex' : 'none'
   }
 
   private bindFavoriteButton(button: HTMLButtonElement) {
@@ -497,10 +508,6 @@ export class PlayerOverlayController {
     this.bottomEl.style.pointerEvents = visible ? 'auto' : 'none'
     this.progressEl.style.opacity = visible ? '1' : '0'
     this.progressEl.style.pointerEvents = visible ? 'auto' : 'none'
-    if (this.bottomPlaybackNavEl) {
-      this.bottomPlaybackNavEl.style.opacity = visible ? '1' : '0'
-      this.bottomPlaybackNavEl.style.pointerEvents = visible ? 'auto' : 'none'
-    }
     this.syncPlaylistTabVisibility(visible)
     this.root.style.cursor = visible || this.playlistOpen ? 'auto' : 'none'
   }
@@ -585,6 +592,25 @@ export class PlayerOverlayController {
       'pointer-events:auto',
     ].join(';')
 
+    const index = document.createElement('div')
+    index.style.cssText = [
+      'display:none',
+      'align-items:center',
+      'justify-content:center',
+      'height:22px',
+      'padding:0 8px',
+      'border-radius:999px',
+      'background:rgba(255,255,255,.1)',
+      'border:1px solid rgba(255,255,255,.14)',
+      'font-size:12px',
+      'font-weight:700',
+      'line-height:1',
+      'color:rgba(255,255,255,.84)',
+      'white-space:nowrap',
+      'flex:0 0 auto',
+      'pointer-events:auto',
+    ].join(';')
+
     const favBtn = this.createHeaderActionButton('星标', '')
     favBtn.style.marginLeft = '0'
     favBtn.style.flexShrink = '0'
@@ -617,6 +643,7 @@ export class PlayerOverlayController {
       'pointer-events:auto',
     ].join(';')
 
+    titleRow.appendChild(index)
     titleRow.appendChild(title)
     titleRow.appendChild(stats)
     titleRow.appendChild(favBtn)
@@ -665,6 +692,7 @@ export class PlayerOverlayController {
     this.root.appendChild(header)
 
     this.headerEl = header
+    this.indexEl = index
     this.titleEl = title
     this.statsEl = stats
     this.breadcrumbsEl = breadcrumbs
