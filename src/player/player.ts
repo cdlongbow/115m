@@ -10,7 +10,7 @@ import type { M3u8Item } from '../lib/types'
 import type { FileItem } from '../lib/api/types'
 import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
-import { loadPlayHistory, loadPlayHistoryMap, loadQualityPreference, saveQualityPreference } from './core/history'
+import { buildPlaylistProgressSnapshot, deletePlayHistory, loadPlayHistory, loadPlayHistoryMap, loadQualityPreference, saveQualityPreference } from './core/history'
 import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { renderPlayerError } from './core/dom'
@@ -83,6 +83,7 @@ class PlayerManager {
   private centerPrevBtnEl: HTMLButtonElement | null = null
   private centerNextBtnEl: HTMLButtonElement | null = null
   private nativePlayObserver: MutationObserver | null = null
+  private lastPlaylistProgressSyncSec = -1
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
@@ -277,11 +278,16 @@ class PlayerManager {
     this.artplayer.on('video:pause', () => {
       this.hideNativePlayControl()
       this.syncCenterPlayButton()
+      this.syncCurrentPlaylistProgress(true)
     })
 
     this.artplayer.on('video:play', () => {
       this.hideNativePlayControl()
       this.syncCenterPlayButton()
+    })
+
+    this.artplayer.on('video:timeupdate', () => {
+      this.syncCurrentPlaylistProgress()
     })
 
     this.observeNativeControls()
@@ -782,20 +788,15 @@ class PlayerManager {
 
     const historyMap = await loadPlayHistoryMap()
     return items.map((item) => {
-      const history = historyMap[item.pickCode]
-      if (!history?.currentTime || !history.duration || history.duration <= 0) {
-        return item
-      }
-
-      const progressPercent = Math.max(0, Math.min(100, (history.currentTime / history.duration) * 100))
-      if (progressPercent <= 0) {
+      const snapshot = buildPlaylistProgressSnapshot(historyMap[item.pickCode])
+      if (!snapshot) {
         return item
       }
 
       return {
         ...item,
-        progressSec: history.currentTime,
-        progressPercent,
+        progressSec: snapshot.progressSec,
+        progressPercent: snapshot.progressPercent,
       }
     })
   }
@@ -805,6 +806,27 @@ class PlayerManager {
     this.overlay?.updatePlaybackNav(buildPlaybackNavState(
       getPlaylistPosition(this.playlistItemsCache, this.currentPickCode),
     ))
+  }
+
+  private syncCurrentPlaylistProgress(force = false) {
+    if (!this.artplayer) return
+
+    const currentTime = this.artplayer.currentTime || 0
+    const duration = this.artplayer.duration || 0
+    if (!duration || duration <= 0) return
+
+    const roundedSec = Math.floor(currentTime)
+    if (!force && roundedSec === this.lastPlaylistProgressSyncSec) return
+    this.lastPlaylistProgressSyncSec = roundedSec
+
+    const progressPercent = Math.max(0, Math.min(100, currentTime / duration * 100))
+    const item = this.playlistItemsCache.find(entry => entry.pickCode === this.currentPickCode)
+    if (item) {
+      item.progressSec = currentTime
+      item.progressPercent = progressPercent
+    }
+
+    this.overlay?.updateCurrentPlaylistProgress(this.currentPickCode, currentTime, duration)
   }
 
   private clearPlaybackEndState() {
@@ -931,6 +953,7 @@ class PlayerManager {
     const keepPlaylistOpen = this.keepPlaylistOpenOnInit || this.overlay?.isPlaylistExpanded() === true
 
     await deleteVideoFile(sendRuntimeMessageSafe, fileId, parentId, pickCode)
+    await deletePlayHistory(pickCode)
 
     this.playlistItemsCache = this.playlistItemsCache.filter(item => item.pickCode !== pickCode)
     this.syncOverlayPlaybackNav()
@@ -946,7 +969,7 @@ class PlayerManager {
       return
     }
 
-    this.showError('当前视频已删除，请返回列表')
+    window.close()
   }
 
   private navigateToVideo(pickCode: string, keepPlaylistOpen = false) {
@@ -968,6 +991,7 @@ class PlayerManager {
       this.currentPickCode = pickCode
       this.perfMarks = { init: performance.now() }
       this.firstPlayingReported = false
+      this.lastPlaylistProgressSyncSec = -1
       this.applyResolvedPlayback(playback)
       this.updateCurrentVideoMeta(targetItem)
       this.updateHistoryUrl(pickCode, targetItem, keepPlaylistOpen)

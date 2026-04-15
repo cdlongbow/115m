@@ -76,6 +76,13 @@ export interface MsgMoveFile {
   }
 }
 
+export interface MsgDeleteHistory {
+  type: 'DELETE_HISTORY'
+  data: {
+    pickCode: string
+  }
+}
+
 export interface MsgDeleteFile {
   type: 'DELETE_FILE'
   data: {
@@ -119,6 +126,7 @@ export type RuntimeMessage =
   | MsgGetHistory
   | MsgGetHistoryMap
   | MsgSetHistory
+  | MsgDeleteHistory
   | MsgOpenTab
   | MsgFetchM3u8
   | MsgMainWorldFetch
