@@ -16,4 +16,8 @@ describe('play history restore guard', () => {
     expect(isCompletedPlayback(176, 180)).toBe(true)
     expect(isCompletedPlayback(150, 180)).toBe(false)
   })
+
+  it('does not restore empty progress', () => {
+    expect(shouldRestorePlayHistory(0, 120)).toBe(false)
+  })
 })

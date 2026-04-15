@@ -27,6 +27,10 @@ export interface MsgGetHistory {
   data: { pickCode: string }
 }
 
+export interface MsgGetHistoryMap {
+  type: 'GET_HISTORY_MAP'
+}
+
 export interface MsgSetHistory {
   type: 'SET_HISTORY'
   data: {
@@ -113,6 +117,7 @@ export type RuntimeMessage =
   | MsgSetCookie
   | MsgDownload
   | MsgGetHistory
+  | MsgGetHistoryMap
   | MsgSetHistory
   | MsgOpenTab
   | MsgFetchM3u8

@@ -10,7 +10,7 @@ import type { M3u8Item } from '../lib/types'
 import type { FileItem } from '../lib/api/types'
 import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
-import { loadPlayHistory, loadQualityPreference, saveQualityPreference } from './core/history'
+import { loadPlayHistory, loadPlayHistoryMap, loadQualityPreference, saveQualityPreference } from './core/history'
 import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { renderPlayerError } from './core/dom'
@@ -773,7 +773,31 @@ class PlayerManager {
     if (list.length === 0) {
       console.warn('[115m] playlist empty, raw response:', res)
     }
-    return normalizePlaylistItems(list as FileItem[], size => this.formatFileSize(size))
+    const items = normalizePlaylistItems(list as FileItem[], size => this.formatFileSize(size))
+    return await this.attachPlaylistProgress(items)
+  }
+
+  private async attachPlaylistProgress(items: OverlayPlaylistItem[]): Promise<OverlayPlaylistItem[]> {
+    if (items.length === 0) return items
+
+    const historyMap = await loadPlayHistoryMap()
+    return items.map((item) => {
+      const history = historyMap[item.pickCode]
+      if (!history?.currentTime || !history.duration || history.duration <= 0) {
+        return item
+      }
+
+      const progressPercent = Math.max(0, Math.min(100, (history.currentTime / history.duration) * 100))
+      if (progressPercent <= 0) {
+        return item
+      }
+
+      return {
+        ...item,
+        progressSec: history.currentTime,
+        progressPercent,
+      }
+    })
   }
 
   private syncOverlayPlaybackNav() {

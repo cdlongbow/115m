@@ -142,6 +142,18 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
       return null
     }
 
+    case 'GET_HISTORY_MAP': {
+      const result = await chrome.storage.local.get('data')
+      if (result.data) {
+        try {
+          const parsed = JSON.parse(result.data)
+          return parsed.playHistory ?? {}
+        }
+        catch { return {} }
+      }
+      return {}
+    }
+
     case 'SET_HISTORY': {
       const { pickCode, fileName, currentTime, duration, quality } = message.data
       const result = await chrome.storage.local.get('data')

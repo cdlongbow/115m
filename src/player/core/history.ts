@@ -13,6 +13,10 @@ interface PlayHistoryRecord {
   duration?: number
 }
 
+export interface PlayHistoryMap {
+  [pickCode: string]: PlayHistoryRecord | undefined
+}
+
 const QUALITY_PREF_STORAGE_KEY = '115m-quality-preferences'
 const PLAY_HISTORY_COMPLETED_REMAINING_SEC = 15
 const PLAY_HISTORY_COMPLETED_RATIO = 0.98
@@ -73,6 +77,17 @@ export async function loadPlayHistory(pickCode: string, onRestore: (time: number
   }
   catch {
     // ignore history errors
+  }
+}
+
+export async function loadPlayHistoryMap(): Promise<PlayHistoryMap> {
+  try {
+    return await sendRuntimeMessageSafe<PlayHistoryMap>({
+      type: 'GET_HISTORY_MAP',
+    }) ?? {}
+  }
+  catch {
+    return {}
   }
 }
 

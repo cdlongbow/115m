@@ -17,6 +17,8 @@ export interface OverlayPlaylistItem {
   isMarked?: boolean
   duration?: number
   sha?: string
+  progressSec?: number
+  progressPercent?: number
 }
 
 export interface PlayerOverlayMeta {
@@ -440,6 +442,7 @@ export class PlayerOverlayController {
           <div style="min-width:0;flex:1;overflow:hidden">
             <div style="font-size:13px;font-weight:500;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;${active ? 'color:#fff' : 'color:rgba(255,255,255,.78)'}">${escapeHtml(item.name)}</div>
             ${item.size ? `<div style="font-size:11px;color:rgba(255,255,255,.35);margin-top:2px">${escapeHtml(item.size)}</div>` : ''}
+            ${this.renderPlaylistProgress(item, active)}
           </div>
         </div>
       `
@@ -515,6 +518,34 @@ export class PlayerOverlayController {
     this.progressEl.style.pointerEvents = visible ? 'auto' : 'none'
     this.syncPlaylistTabVisibility(visible)
     this.root.style.cursor = visible || this.playlistOpen ? 'auto' : 'none'
+  }
+
+  private renderPlaylistProgress(item: OverlayPlaylistItem, active: boolean) {
+    if (!item.progressPercent || item.progressPercent <= 0) return ''
+
+    const progressText = typeof item.progressSec === 'number' && item.progressSec > 0
+      ? this.formatSeconds(item.progressSec)
+      : ''
+
+    return `
+      <div style="margin-top:6px;display:flex;align-items:center;gap:8px;min-width:0;">
+        <div style="flex:1;height:4px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;">
+          <div style="width:${Math.max(2, Math.min(100, item.progressPercent))}%;height:100%;border-radius:999px;background:${active ? '#38bdf8' : 'rgba(255,255,255,.56)'};"></div>
+        </div>
+        ${progressText ? `<span style="flex:0 0 auto;font-size:10px;color:rgba(255,255,255,.42);font-variant-numeric:tabular-nums;">${progressText}</span>` : ''}
+      </div>
+    `
+  }
+
+  private formatSeconds(sec: number) {
+    const total = Math.max(0, Math.floor(sec))
+    const hours = Math.floor(total / 3600)
+    const minutes = Math.floor((total % 3600) / 60)
+    const seconds = total % 60
+    if (hours > 0) {
+      return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
+    }
+    return `${minutes}:${String(seconds).padStart(2, '0')}`
   }
 
   private syncPlaylistTabVisibility(visible: boolean) {
