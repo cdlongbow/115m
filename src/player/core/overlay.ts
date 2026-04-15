@@ -1,8 +1,15 @@
 import type Artplayer from 'artplayer'
-import { getVideoCovers } from '../../lib/videoThumbnail'
 import { escapeHtml } from '../../shared/utils'
 import { UI_LAYER } from './ui-layer'
 import { readOverlayMetaQuery } from './player-query'
+import { createHeaderActionButton, createOverlayHeaderScaffold, getFavoriteButtonIcon } from './overlay-header'
+import {
+  bindPlaylistInteractions,
+  buildPlaylistHtml,
+  formatPlaylistSeconds,
+  lazyLoadPlaylistCovers,
+  scrollActivePlaylistNodeIntoView,
+} from './overlay-playlist'
 
 export interface OverlayPathItem {
   cid: string
@@ -42,7 +49,6 @@ export interface PlayerOverlayOptions {
   onPlayPrevious: () => void
   onPlayNext: () => void
   onReplay: () => void
-  onRefreshBreadcrumbs?: () => void
   getCurrentPickCode: () => string
   shouldKeepPlaylistOpen: () => boolean
 }
@@ -124,9 +130,6 @@ export class PlayerOverlayController {
     this.root.addEventListener('mouseenter', this.handleMouseMove)
     this.root.addEventListener('mouseleave', this.handleMouseLeave)
 
-    // 监听来自 background 的移动成功消息（通过 tabs.sendMessage）
-    chrome.runtime.onMessage.addListener(this.handleRuntimeMessage)
-
     if (this.options.shouldKeepPlaylistOpen()) {
       void this.restorePlaylistOpen()
     }
@@ -159,7 +162,6 @@ export class PlayerOverlayController {
       window.clearTimeout(this.visibleTimer)
       this.visibleTimer = null
     }
-    chrome.runtime.onMessage.removeListener(this.handleRuntimeMessage)
     this.root.removeEventListener('mousemove', this.handleMouseMove)
     this.root.removeEventListener('mouseenter', this.handleMouseMove)
     this.root.removeEventListener('mouseleave', this.handleMouseLeave)
@@ -237,7 +239,7 @@ export class PlayerOverlayController {
       bar.style.width = `${Math.max(2, Math.min(100, progressPercent))}%`
     }
     if (text) {
-      text.textContent = this.formatSeconds(progressSec)
+      text.textContent = formatPlaylistSeconds(progressSec)
       text.style.display = 'inline'
     }
   }
@@ -320,21 +322,6 @@ export class PlayerOverlayController {
     button.title = title
     button.style.opacity = enabled ? '1' : '.38'
     button.style.cursor = enabled ? 'pointer' : 'not-allowed'
-  }
-
-  private createHeaderActionButton(title: string, icon: string) {
-    const button = document.createElement('button')
-    button.type = 'button'
-    button.title = title
-    button.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:background .15s,color .15s,opacity .15s;'
-    button.innerHTML = icon
-    button.addEventListener('mouseenter', () => {
-      if (!button.disabled) button.style.background = 'rgba(255,255,255,.1)'
-    })
-    button.addEventListener('mouseleave', () => {
-      button.style.background = 'transparent'
-    })
-    return button
   }
 
   private updatePlaylistIndex(currentIndex?: number, totalCount?: number) {
@@ -459,79 +446,10 @@ export class PlayerOverlayController {
     this.playlistItems = items
     const currentPickCode = this.options.getCurrentPickCode()
 
-    this.playlistListEl.innerHTML = items.map((item, index) => {
-      const active = item.pickCode === currentPickCode
-      const num = index + 1
-      return `
-        <div class="m115-pl-item" data-pickcode="${esc(item.pickCode)}" data-index="${index}"
-          style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;cursor:pointer;transition:background .15s;${active ? 'background:rgba(255,255,255,.12)' : ''}">
-          <span style="flex-shrink:0;width:22px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums;${active ? 'color:#38bdf8;font-weight:600' : 'color:rgba(255,255,255,.35)'}">${num}</span>
-          <div class="m115-pl-thumb" style="position:relative;width:120px;height:68px;border-radius:6px;flex-shrink:0;background:#1a1a1a;overflow:hidden;display:flex;align-items:center;justify-content:center">
-            <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
-          </div>
-          <div style="min-width:0;flex:1;overflow:hidden">
-            <div style="font-size:13px;font-weight:500;line-height:1.4;display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;text-overflow:ellipsis;${active ? 'color:#fff' : 'color:rgba(255,255,255,.78)'}">${escapeHtml(item.name)}</div>
-            ${item.size ? `<div style="font-size:11px;color:rgba(255,255,255,.35);margin-top:2px">${escapeHtml(item.size)}</div>` : ''}
-            ${this.renderPlaylistProgress(item, active)}
-          </div>
-        </div>
-      `
-    }).join('')
-
-    // Bind events
-    this.playlistListEl.querySelectorAll<HTMLElement>('.m115-pl-item').forEach((node) => {
-      const pc = node.dataset.pickcode || ''
-      const isActive = pc === currentPickCode
-
-      node.addEventListener('mouseenter', () => {
-        node.style.background = isActive ? 'rgba(255,255,255,.14)' : 'rgba(255,255,255,.06)'
-      })
-      node.addEventListener('mouseleave', () => {
-        node.style.background = isActive ? 'rgba(255,255,255,.12)' : ''
-      })
-      node.addEventListener('click', () => {
-        if (pc) this.options.onPlaylistPlay(pc, true)
-      })
-    })
-
-    // Scroll current item into view
-    const activeNode = this.playlistListEl.querySelector(`[data-pickcode="${esc(currentPickCode)}"]`)
-    activeNode?.scrollIntoView({ block: 'center', behavior: 'instant' })
-
-    // Lazy-load covers for visible items using IntersectionObserver
-    this.lazyLoadCovers(items)
-  }
-
-  private lazyLoadCovers(items: OverlayPlaylistItem[]) {
-    if (!this.playlistListEl) return
-    const thumbEls = this.playlistListEl.querySelectorAll<HTMLElement>('.m115-pl-thumb')
-    const loadedSet = new Set<string>()
-
-    const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue
-        const node = entry.target.closest<HTMLElement>('.m115-pl-item')
-        const idx = parseInt(node?.dataset.index || '-1', 10)
-        const item = items[idx]
-        if (!item || loadedSet.has(item.pickCode)) continue
-        loadedSet.add(item.pickCode)
-        observer.unobserve(entry.target)
-
-        const thumbEl = entry.target as HTMLElement
-        const duration = item.duration || 0
-        if (duration <= 0) return
-
-        void getVideoCovers(item.pickCode, duration, 1).then((covers) => {
-          if (covers.length > 0) {
-            thumbEl.innerHTML = `<img src="${covers[0].imgUrl}" alt="" style="width:100%;height:100%;object-fit:contain;object-position:center;display:block" />`
-          }
-        }).catch(() => {
-          // keep placeholder on error
-        })
-      }
-    }, { root: this.playlistListEl, rootMargin: '200px 0px' })
-
-    thumbEls.forEach(el => observer.observe(el))
+    this.playlistListEl.innerHTML = buildPlaylistHtml(items, currentPickCode)
+    bindPlaylistInteractions(this.playlistListEl, currentPickCode, this.options.onPlaylistPlay)
+    scrollActivePlaylistNodeIntoView(this.playlistListEl, currentPickCode)
+    lazyLoadPlaylistCovers(this.playlistListEl, items)
   }
 
   private setVisible(visible: boolean) {
@@ -548,34 +466,6 @@ export class PlayerOverlayController {
     this.progressEl.style.pointerEvents = visible ? 'auto' : 'none'
     this.syncPlaylistTabVisibility(visible)
     this.root.style.cursor = visible || this.playlistOpen ? 'auto' : 'none'
-  }
-
-  private renderPlaylistProgress(item: OverlayPlaylistItem, active: boolean) {
-    const visible = !!item.progressPercent && item.progressPercent > 0
-
-    const progressText = typeof item.progressSec === 'number' && item.progressSec > 0
-      ? this.formatSeconds(item.progressSec)
-      : ''
-
-    return `
-      <div data-role="playlist-progress" style="margin-top:6px;display:${visible ? 'flex' : 'none'};align-items:center;gap:8px;min-width:0;">
-        <div style="flex:1;height:4px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;">
-          <div data-role="playlist-progress-bar" style="width:${Math.max(2, Math.min(100, item.progressPercent || 0))}%;height:100%;border-radius:999px;background:${active ? '#38bdf8' : 'rgba(255,255,255,.56)'};"></div>
-        </div>
-        <span data-role="playlist-progress-text" style="flex:0 0 auto;font-size:10px;color:rgba(255,255,255,.42);font-variant-numeric:tabular-nums;display:${progressText ? 'inline' : 'none'};">${progressText}</span>
-      </div>
-    `
-  }
-
-  private formatSeconds(sec: number) {
-    const total = Math.max(0, Math.floor(sec))
-    const hours = Math.floor(total / 3600)
-    const minutes = Math.floor((total % 3600) / 60)
-    const seconds = total % 60
-    if (hours > 0) {
-      return `${hours}:${String(minutes).padStart(2, '0')}:${String(seconds).padStart(2, '0')}`
-    }
-    return `${minutes}:${String(seconds).padStart(2, '0')}`
   }
 
   private syncPlaylistTabVisibility(visible: boolean) {
@@ -595,137 +485,17 @@ export class PlayerOverlayController {
 
   private mountHeaderOverlay() {
     this.headerEl?.remove()
-
-    const header = document.createElement('div')
-    header.style.cssText = [
-      'position:absolute',
-      'top:0',
-      'left:0',
-      'right:0',
-      `z-index:${UI_LAYER.header}`,
-      'display:flex',
-      'align-items:flex-start',
-      'padding:16px 20px 28px',
-      'background:linear-gradient(180deg, rgba(0,0,0,.76) 0%, rgba(0,0,0,.32) 58%, rgba(0,0,0,0) 100%)',
-      'opacity:0',
-      'pointer-events:none',
-      'transition:opacity .2s ease',
-      'box-sizing:border-box',
-    ].join(';')
-    header.classList.add('m115-layer-header')
-
-    const left = document.createElement('div')
-    left.style.cssText = 'min-width:0;max-width:min(72vw,800px);display:flex;align-items:flex-start;gap:12px;'
-
-    const back = document.createElement('button')
-    back.type = 'button'
-    back.title = '返回'
-    back.style.cssText = [
-      'pointer-events:auto',
-      'display:flex',
-      'align-items:center',
-      'justify-content:center',
-      'width:40px',
-      'height:40px',
-      'border-radius:999px',
-      'border:1px solid rgba(255,255,255,.18)',
-      'background:rgba(0,0,0,.42)',
-      'color:rgba(255,255,255,.88)',
-      'cursor:pointer',
-      'flex-shrink:0',
-    ].join(';')
-    back.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>'
-
-    const info = document.createElement('div')
-    info.style.cssText = 'min-width:0;flex:0 1 auto;padding-top:2px;max-width:min(62vw,760px);'
-
-    const titleRow = document.createElement('div')
-    titleRow.style.cssText = 'display:inline-flex;align-items:center;gap:10px;min-width:0;max-width:100%;vertical-align:top;'
-
-    const title = document.createElement('div')
-    title.style.cssText = [
-      'flex:0 1 auto',
-      'min-width:0',
-      'font-size:16px',
-      'font-weight:700',
-      'line-height:1.35',
-      'color:#fff',
-      'text-shadow:0 1px 10px rgba(0,0,0,.6)',
-      'white-space:nowrap',
-      'overflow:hidden',
-      'text-overflow:ellipsis',
-      'user-select:text',
-      'pointer-events:auto',
-    ].join(';')
-
-    const index = document.createElement('div')
-    index.style.cssText = [
-      'display:none',
-      'align-items:center',
-      'justify-content:center',
-      'height:22px',
-      'padding:0 8px',
-      'border-radius:999px',
-      'background:rgba(255,255,255,.1)',
-      'border:1px solid rgba(255,255,255,.14)',
-      'font-size:12px',
-      'font-weight:700',
-      'line-height:1',
-      'color:rgba(255,255,255,.84)',
-      'white-space:nowrap',
-      'flex:0 0 auto',
-      'pointer-events:auto',
-    ].join(';')
-
-    const favBtn = this.createHeaderActionButton('星标', '')
+    const { header, back, titleRow, title, index, stats, breadcrumbs, pillGroup } = createOverlayHeaderScaffold()
+    const favBtn = createHeaderActionButton('星标', '')
     favBtn.style.marginLeft = '0'
     favBtn.style.flexShrink = '0'
     this.bindFavoriteButton(favBtn)
-
-    const stats = document.createElement('div')
-    stats.style.cssText = [
-      'flex:0 0 auto',
-      'font-size:12px',
-      'font-weight:600',
-      'line-height:1.2',
-      'color:rgba(255,255,255,.72)',
-      'text-shadow:0 1px 10px rgba(0,0,0,.6)',
-      'white-space:nowrap',
-      'user-select:text',
-      'pointer-events:auto',
-    ].join(';')
-
-    const breadcrumbs = document.createElement('div')
-    breadcrumbs.style.cssText = [
-      'margin-top:6px',
-      'font-size:12px',
-      'line-height:1.5',
-      'color:rgba(255,255,255,.8)',
-      'text-shadow:0 1px 10px rgba(0,0,0,.6)',
-      'white-space:nowrap',
-      'overflow:hidden',
-      'text-overflow:ellipsis',
-      'user-select:text',
-      'pointer-events:auto',
-    ].join(';')
 
     titleRow.appendChild(index)
     titleRow.appendChild(title)
     titleRow.appendChild(stats)
     titleRow.appendChild(favBtn)
-    info.appendChild(titleRow)
-    info.appendChild(breadcrumbs)
-    left.appendChild(back)
-    left.appendChild(info)
-    header.appendChild(left)
-
-    // ── Right side: action buttons for current video ──
-    const right = document.createElement('div')
-    right.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;pointer-events:auto;padding-top:2px;'
-
-    const pillGroup = document.createElement('div')
-    pillGroup.style.cssText = 'display:flex;align-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);padding:2px;gap:0;'
-    const moveBtn = this.createHeaderActionButton('移动视频', '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M5 9l-3 3 3 3"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M2 12h14"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M12 5V2h10v20H12v-3"/></svg>')
+    const moveBtn = createHeaderActionButton('移动视频', '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M5 9l-3 3 3 3"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M2 12h14"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M12 5V2h10v20H12v-3"/></svg>')
     moveBtn.addEventListener('click', async () => {
       const { fileId, cid } = this.options.meta
       console.log('[115m] 移动文件:', fileId, cid)
@@ -742,7 +512,7 @@ export class PlayerOverlayController {
         else this.showToast('移动失败: ' + msg)
       }
     })
-    const deleteBtn = this.createHeaderActionButton('删除视频', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>')
+    const deleteBtn = createHeaderActionButton('删除视频', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>')
     deleteBtn.addEventListener('click', async () => {
       const fileId = this.options.meta.fileId
       const parentId = this.options.meta.cid
@@ -770,8 +540,6 @@ export class PlayerOverlayController {
 
     pillGroup.appendChild(moveBtn)
     pillGroup.appendChild(deleteBtn)
-    right.appendChild(pillGroup)
-    header.appendChild(right)
 
     this.root.appendChild(header)
 
@@ -791,10 +559,7 @@ export class PlayerOverlayController {
     if (!this.favBtnEl) return
     const marked = this.options.meta.isMarked
     this.favBtnEl.title = marked ? '取消星标' : '星标'
-    // Use inline style on path to bypass ArtPlayer `.art-video-player svg { fill }` override
-    this.favBtnEl.innerHTML = marked
-      ? '<svg width="20" height="20" viewBox="0 0 24 24"><path style="fill:#facc15" d="m12 3.6 2.55 5.16 5.7.83-4.12 4.02.97 5.67L12 16.6l-5.1 2.68.97-5.67-4.12-4.02 5.7-.83L12 3.6z"/></svg>'
-      : '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.72);stroke-width:2;stroke-linejoin:round" d="m12 3.6 2.55 5.16 5.7.83-4.12 4.02.97 5.67L12 16.6l-5.1 2.68.97-5.67-4.12-4.02 5.7-.83L12 3.6z"/></svg>'
+    this.favBtnEl.innerHTML = getFavoriteButtonIcon(marked)
   }
 
   // ── Playlist toggle tab (right edge, vertically centered) ──
@@ -989,16 +754,6 @@ export class PlayerOverlayController {
       this.renderPlaylist(items)
     }
     this.setPlaylistOpen(nextOpen)
-  }
-
-  private handleRuntimeMessage = (message: any) => {
-    if (message?.type === 'MOVE_SUCCESS_REFRESH') {
-      this.options.onRefreshBreadcrumbs?.()
-      this.showToast('文件已移动')
-    }
-    if (message?.type === 'DELETE_SUCCESS_REFRESH' && message?.data?.pickCode === this.options.getCurrentPickCode()) {
-      this.showToast('文件已删除')
-    }
   }
 }
 

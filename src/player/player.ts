@@ -7,10 +7,18 @@ console.log('[115m] player.ts loading...')
 import Artplayer from 'artplayer'
 import type HlsType from 'hls.js'
 import type { M3u8Item } from '../lib/types'
-import type { FileItem } from '../lib/api/types'
 import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
-import { fetchM3u8WithRetry, fetchUltraSource } from './core/source'
-import { buildPlaylistProgressSnapshot, deletePlayHistory, loadPlayHistory, loadPlayHistoryMap, loadQualityPreference, saveQualityPreference } from './core/history'
+import { buildQualityControlItem as buildQualityControlConfig, updateArtplayerControl } from './core/player-quality'
+import { fetchM3u8WithRetry } from './core/source'
+import { deletePlayHistory, loadPlayHistory, saveQualityPreference } from './core/history'
+import {
+  applyCenterControlContainerStyle,
+  applyNavButtonState,
+  buildCenterControlsHtml,
+  buildPlayButtonState,
+  createCenterHoverBinder,
+  queryCenterControlElements,
+} from './core/player-center-controls'
 import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { renderPlayerError } from './core/dom'
@@ -19,6 +27,9 @@ import type { VideoPlaybackQualityLike } from './core/types'
 import { HoverPreviewController } from './core/hover-preview'
 import { bindPlayerEvents } from './core/events'
 import { PlayerOverlayController, readOverlayMetaFromQuery, type OverlayPlaylistItem } from './core/overlay'
+import { getNextPlaylistItem, getPlaybackEndCountdownPlan, getPreviousPlaylistItem } from './core/player-navigation'
+import { fetchBreadcrumbPath, fetchPlaylistData, resolvePlaybackBundle, type ResolvedPlaybackBundle } from './core/player-services'
+import { buildOverlayMetaPatch, buildPlayerHistoryUrl, findPlaylistItemByPickCode } from './core/player-switch'
 import { MoveDialog } from './core/move-dialog'
 import {
   applyFallbackToHlsState,
@@ -30,16 +41,13 @@ import {
   syncPlaybackStateByUrl,
 } from './core/playback-state'
 import { ensureServiceWorkerReady, sendRuntimeMessageSafe } from './core/runtime'
-import { resolveInitialPlayback } from './core/startup'
 import {
-  buildNavigateToVideoUrl,
   buildUpdatedMarkedUrl,
   readPathFromLocation,
   readPlayerBootstrapConfig,
   readPlaylistCidFromLocation,
 } from './core/player-query'
-import { normalizePlaylistItems } from './core/playlist'
-import { deleteVideoFile, fetchFavoriteStatus, fetchPlaylistResponse, updateFavoriteStatus } from './core/player-api'
+import { deleteVideoFile, fetchFavoriteStatus, updateFavoriteStatus } from './core/player-api'
 import { buildPlaybackNavState, getDeleteFallback, getPlaylistPosition } from './core/playlist-navigation'
 
 interface PlayerConfig {
@@ -84,6 +92,17 @@ class PlayerManager {
   private centerNextBtnEl: HTMLButtonElement | null = null
   private nativePlayObserver: MutationObserver | null = null
   private lastPlaylistProgressSyncSec = -1
+  private readonly handleRuntimeMessage = (message: any) => {
+    if (message?.type === 'MOVE_SUCCESS_REFRESH') {
+      void this.refreshBreadcrumbs()
+      this.overlay?.showToast('文件已移动')
+      return
+    }
+
+    if (message?.type === 'DELETE_SUCCESS_REFRESH' && message?.data?.pickCode === this.currentPickCode) {
+      this.overlay?.showToast('文件已删除')
+    }
+  }
 
   constructor(config: PlayerConfig) {
     this.currentPickCode = config.pickCode
@@ -380,27 +399,13 @@ class PlayerManager {
   }
 
   private buildQualityControlItem(): any {
-    return {
-      name: PlayerManager.QUALITY_CONTROL_NAME,
-      position: 'right' as const,
-      index: 10,
-      style: {
-        marginRight: '10px',
-        minWidth: '52px',
-        textAlign: 'center' as const,
-      },
-      html: this.currentQualityLabel,
-      selector: buildArtplayerQuality(this.qualityOptions, this.artplayer?.url || '', this.currentQualityLabel).map(item => ({
-        ...item,
-      })),
-      onSelect: async (item: any) => {
-        const label = item.html || ''
-        const target = this.qualityOptions.find(opt => opt.label === label || opt.url === item.url)
-        if (!target) return label
-        await this.switchQuality(target)
-        return target.label
-      },
-    }
+    return buildQualityControlConfig({
+      controlName: PlayerManager.QUALITY_CONTROL_NAME,
+      currentQualityLabel: this.currentQualityLabel,
+      currentUrl: this.artplayer?.url || '',
+      qualityOptions: this.qualityOptions,
+      onSelect: async target => await this.switchQuality(target),
+    })
   }
 
   private renderQualityPanel() {
@@ -412,19 +417,10 @@ class PlayerManager {
       name: PlayerManager.CENTER_CONTROL_NAME,
       position: 'left' as const,
       index: 200,
-      html: this.buildCenterControlsHtml(),
+      html: buildCenterControlsHtml(),
       mounted: ($control: HTMLElement) => {
         this.centerControlEl = $control
-        $control.style.position = 'absolute'
-        $control.style.left = '50%'
-        $control.style.bottom = '0'
-        $control.style.transform = 'translateX(-50%)'
-        $control.style.display = 'flex'
-        $control.style.alignItems = 'center'
-        $control.style.justifyContent = 'center'
-        $control.style.padding = '0'
-        $control.style.height = '100%'
-        $control.style.pointerEvents = 'auto'
+        applyCenterControlContainerStyle($control)
 
         this.hideNativePlayControl()
         this.bindCenterControlElements($control)
@@ -456,26 +452,11 @@ class PlayerManager {
     nativePlayControl.style.overflow = 'hidden'
   }
 
-  private buildCenterControlsHtml(): string {
-    return `
-      <div style="display:flex;align-items:center;justify-content:center;gap:12px;height:100%;">
-        <button type="button" data-m115-center="prev" title="上一集" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.86);cursor:pointer;padding:0;transition:background .15s ease,opacity .15s ease;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 6l-6 6 6 6"/><path d="M19 6l-6 6 6 6"/></svg>
-        </button>
-        <button type="button" data-m115-center="play" title="播放" style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;padding:0;box-shadow:0 4px 16px rgba(0,0,0,.18);transition:background .15s ease,opacity .15s ease;">
-          <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-        </button>
-        <button type="button" data-m115-center="next" title="下一集" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.86);cursor:pointer;padding:0;transition:background .15s ease,opacity .15s ease;">
-          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m13 6 6 6-6 6"/><path d="m5 6 6 6-6 6"/></svg>
-        </button>
-      </div>
-    `
-  }
-
   private bindCenterControlElements(container: HTMLElement) {
-    this.centerPrevBtnEl = container.querySelector('[data-m115-center="prev"]') as HTMLButtonElement | null
-    this.centerPlayBtnEl = container.querySelector('[data-m115-center="play"]') as HTMLButtonElement | null
-    this.centerNextBtnEl = container.querySelector('[data-m115-center="next"]') as HTMLButtonElement | null
+    const controls = queryCenterControlElements(container)
+    this.centerPrevBtnEl = controls.prev
+    this.centerPlayBtnEl = controls.play
+    this.centerNextBtnEl = controls.next
 
     this.centerPrevBtnEl?.addEventListener('click', () => { void this.playPrevious() })
     this.centerNextBtnEl?.addEventListener('click', () => { void this.playNext() })
@@ -490,14 +471,7 @@ class PlayerManager {
       this.syncCenterPlayButton()
     })
 
-    const bindHover = (button: HTMLButtonElement | null) => {
-      button?.addEventListener('mouseenter', () => {
-        if (!button.disabled) button.style.background = 'rgba(255,255,255,.16)'
-      })
-      button?.addEventListener('mouseleave', () => {
-        button.style.background = button === this.centerPlayBtnEl ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.08)'
-      })
-    }
+    const bindHover = createCenterHoverBinder(this.centerPlayBtnEl)
 
     bindHover(this.centerPrevBtnEl)
     bindHover(this.centerPlayBtnEl)
@@ -509,44 +483,20 @@ class PlayerManager {
 
   private syncCenterPlayButton() {
     if (!this.centerPlayBtnEl || !this.artplayer) return
-    const paused = this.artplayer.video.paused
-    this.centerPlayBtnEl.title = paused ? '播放' : '暂停'
-    this.centerPlayBtnEl.innerHTML = paused
-      ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
-      : '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5h3v14H8zM13 5h3v14h-3z"/></svg>'
+    const state = buildPlayButtonState(this.artplayer.video.paused)
+    this.centerPlayBtnEl.title = state.title
+    this.centerPlayBtnEl.innerHTML = state.html
   }
 
   private syncCenterPlaybackNav() {
     const state = buildPlaybackNavState(getPlaylistPosition(this.playlistItemsCache, this.currentPickCode))
-    this.syncCenterNavButton(this.centerPrevBtnEl, state.hasPrevious, state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集')
-    this.syncCenterNavButton(this.centerNextBtnEl, state.hasNext, state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集')
-  }
-
-  private syncCenterNavButton(button: HTMLButtonElement | null, enabled: boolean, title: string) {
-    if (!button) return
-    button.disabled = !enabled
-    button.title = title
-    button.style.opacity = enabled ? '1' : '.38'
-    button.style.cursor = enabled ? 'pointer' : 'not-allowed'
+    applyNavButtonState(this.centerPrevBtnEl, state.hasPrevious, state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集')
+    applyNavButtonState(this.centerNextBtnEl, state.hasNext, state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集')
   }
 
   private updateQualityControl() {
     if (!this.artplayer) return
-    const controlsApi = (this.artplayer as any).controls
-    if (!controlsApi) return
-    const nextItem = this.buildQualityControlItem()
-
-    if (typeof controlsApi.update === 'function') {
-      controlsApi.update(nextItem)
-      return
-    }
-
-    if (typeof controlsApi.remove === 'function') {
-      controlsApi.remove(PlayerManager.QUALITY_CONTROL_NAME)
-    }
-    if (typeof controlsApi.add === 'function') {
-      controlsApi.add(nextItem)
-    }
+    updateArtplayerControl(this.artplayer, PlayerManager.QUALITY_CONTROL_NAME, this.buildQualityControlItem())
   }
 
   private async switchQuality(opt: QualityOption) {
@@ -606,11 +556,12 @@ class PlayerManager {
       onPlayPrevious: () => this.playPrevious(),
       onPlayNext: () => this.playNext(),
       onReplay: () => this.replayCurrent(),
-      onRefreshBreadcrumbs: () => this.refreshBreadcrumbs(),
       getCurrentPickCode: () => this.currentPickCode,
       shouldKeepPlaylistOpen: () => this.keepPlaylistOpenOnInit,
     })
     this.overlay.init()
+    chrome.runtime.onMessage.removeListener(this.handleRuntimeMessage)
+    chrome.runtime.onMessage.addListener(this.handleRuntimeMessage)
     this.syncOverlayPlaybackNav()
     void this.prefetchPlaylistItems()
     // 异步获取最新的收藏状态
@@ -768,36 +719,12 @@ class PlayerManager {
   private async fetchPlaylistItemsInternal(): Promise<OverlayPlaylistItem[]> {
     const cid = readPlaylistCidFromLocation(window.location.search)
 
-    const res = await fetchPlaylistResponse(sendRuntimeMessageSafe, cid, this.currentPickCode)
-
-    // API 返回的 path 是完整的目录路径，用它更新面包屑
-    if (res?.path && res.path.length > 0) {
-      this.overlay?.updateBreadcrumbs(res.path)
-    }
-
-    const list = res?.list || []
-    if (list.length === 0) {
-      console.warn('[115m] playlist empty, raw response:', res)
-    }
-    const items = normalizePlaylistItems(list as FileItem[], size => this.formatFileSize(size))
-    return await this.attachPlaylistProgress(items)
-  }
-
-  private async attachPlaylistProgress(items: OverlayPlaylistItem[]): Promise<OverlayPlaylistItem[]> {
-    if (items.length === 0) return items
-
-    const historyMap = await loadPlayHistoryMap()
-    return items.map((item) => {
-      const snapshot = buildPlaylistProgressSnapshot(historyMap[item.pickCode])
-      if (!snapshot) {
-        return item
-      }
-
-      return {
-        ...item,
-        progressSec: snapshot.progressSec,
-        progressPercent: snapshot.progressPercent,
-      }
+    return await fetchPlaylistData({
+      sendMessage: sendRuntimeMessageSafe,
+      cid,
+      pickCode: this.currentPickCode,
+      formatFileSize: size => this.formatFileSize(size),
+      onPath: path => this.overlay?.updateBreadcrumbs(path),
     })
   }
 
@@ -840,10 +767,11 @@ class PlayerManager {
   private async handlePlaybackEnded() {
     this.clearPlaybackEndState()
     const items = await this.fetchPlaylistItems().catch(() => [])
-    const { next } = getPlaylistPosition(items, this.currentPickCode)
+    const plan = getPlaybackEndCountdownPlan(items, this.currentPickCode)
+    const next = plan.next
 
     if (next) {
-      let countdown = 3
+      let countdown = plan.countdownSec
       this.overlay?.showPlaybackEndPanel({
         mode: 'autoplay-next',
         nextTitle: next.name,
@@ -870,7 +798,7 @@ class PlayerManager {
 
   private async playPrevious() {
     const items = await this.fetchPlaylistItems().catch(() => [])
-    const { previous } = getPlaylistPosition(items, this.currentPickCode)
+    const previous = getPreviousPlaylistItem(items, this.currentPickCode)
     if (!previous) {
       this.overlay?.showToast('已经是第一集')
       return
@@ -880,7 +808,7 @@ class PlayerManager {
 
   private async playNext() {
     const items = await this.fetchPlaylistItems().catch(() => [])
-    const { next } = getPlaylistPosition(items, this.currentPickCode)
+    const next = getNextPlaylistItem(items, this.currentPickCode)
     if (!next) {
       this.overlay?.showToast('已经是最后一集')
       return
@@ -907,10 +835,10 @@ class PlayerManager {
 
     // 通过 API 获取（需要 cid 或 pickCode）
     const cid = readPlaylistCidFromLocation(window.location.search)
-    const res = await fetchPlaylistResponse(sendRuntimeMessageSafe, cid, this.currentPickCode)
+    const path = await fetchBreadcrumbPath(sendRuntimeMessageSafe, cid, this.currentPickCode)
 
-    if (res?.path && res.path.length > 0) {
-      this.overlay?.updateBreadcrumbs(res.path)
+    if (path.length > 0) {
+      this.overlay?.updateBreadcrumbs(path)
     }
   }
 
@@ -919,10 +847,10 @@ class PlayerManager {
    */
   private async refreshBreadcrumbs(): Promise<void> {
     // 强制通过 API 获取最新路径
-    const res = await fetchPlaylistResponse(sendRuntimeMessageSafe, '', this.currentPickCode)
+    const path = await fetchBreadcrumbPath(sendRuntimeMessageSafe, '', this.currentPickCode)
 
-    if (res?.path && res.path.length > 0) {
-      this.overlay?.updateBreadcrumbs(res.path)
+    if (path.length > 0) {
+      this.overlay?.updateBreadcrumbs(path)
     }
   }
 
@@ -980,7 +908,7 @@ class PlayerManager {
     if (!this.artplayer || !pickCode || pickCode === this.currentPickCode) return
 
     const requestId = ++this.switchVideoRequestId
-    const targetItem = this.getPlaylistItemByPickCode(pickCode)
+    const targetItem = findPlaylistItemByPickCode(this.playlistItemsCache, pickCode)
 
     this.clearPlaybackEndState()
 
@@ -993,8 +921,17 @@ class PlayerManager {
       this.firstPlayingReported = false
       this.lastPlaylistProgressSyncSec = -1
       this.applyResolvedPlayback(playback)
-      this.updateCurrentVideoMeta(targetItem)
-      this.updateHistoryUrl(pickCode, targetItem, keepPlaylistOpen)
+      const metaPatch = buildOverlayMetaPatch(targetItem)
+      if (metaPatch) {
+        this.overlay?.updateMeta(metaPatch)
+      }
+      window.history.replaceState(null, '', buildPlayerHistoryUrl({
+        pathname: window.location.pathname,
+        search: window.location.search,
+        pickCode,
+        targetItem,
+        keepPlaylistOpen,
+      }))
       this.syncOverlayPlaybackNav()
       this.overlay?.updatePlaylist(this.playlistItemsCache)
       this.setupProgressHoverPreview()
@@ -1020,81 +957,21 @@ class PlayerManager {
     }
   }
 
-  private getPlaylistItemByPickCode(pickCode: string): OverlayPlaylistItem | undefined {
-    return this.playlistItemsCache.find(item => item.pickCode === pickCode)
-  }
-
-  private updateCurrentVideoMeta(targetItem?: OverlayPlaylistItem) {
-    if (!targetItem) return
-
-    this.overlay?.updateMeta({
-      title: targetItem.name,
-      fileId: targetItem.fileId,
-      fileSize: targetItem.size || '',
-      isMarked: targetItem.isMarked === true,
-    })
-  }
-
-  private updateHistoryUrl(pickCode: string, targetItem: OverlayPlaylistItem | undefined, keepPlaylistOpen: boolean) {
-    window.history.replaceState(null, '', buildNavigateToVideoUrl(
-      window.location.pathname,
-      window.location.search,
-      pickCode,
-      {
-        title: targetItem?.name,
-        fileId: targetItem?.fileId,
-        fileSize: targetItem?.size,
-        isMarked: targetItem?.isMarked,
-        keepPlaylistOpen,
-      },
-    ))
-  }
-
   private async resolvePlaybackForPickCode(pickCode: string) {
-    const qualityPreference = await loadQualityPreference(pickCode)
-    console.log('[115m] init qualityPref:', pickCode, qualityPreference)
-
-    const m3u8Promise = fetchM3u8WithRetry(pickCode).catch((e) => {
-      console.warn('[115m] fetchM3u8WithRetry failed:', e)
-      return null as unknown as M3u8Item[]
-    })
-
-    const ultraPromise = fetchUltraSource(pickCode).catch((e) => {
-      console.warn('[115m] fetchUltraSource failed:', e)
-      return null
-    })
-
-    const [ultraSource, m3u8List] = await Promise.all([ultraPromise, m3u8Promise])
-    const ultraUrl = ultraSource?.ultraUrl || null
-    const resolvedM3u8List = m3u8List && m3u8List.length > 0 ? m3u8List : []
+    const playback = await resolvePlaybackBundle(sendRuntimeMessageSafe, pickCode)
 
     console.log('[115m] Source fetch result:', {
       pickCode,
-      ultraOk: !!ultraSource,
-      m3u8Ok: resolvedM3u8List.length > 0,
-      m3u8Count: resolvedM3u8List.length,
-      qualityPreference,
+      ultraOk: !!playback.ultraUrl,
+      m3u8Ok: playback.m3u8List.length > 0,
+      m3u8Count: playback.m3u8List.length,
+      qualityPreference: playback.qualityPreference,
     })
 
-    const initialPlayback = resolveInitialPlayback({
-      qualityPreference,
-      ultraUrl: ultraSource?.url || null,
-      m3u8List: resolvedM3u8List,
-    })
-
-    if (!initialPlayback) {
-      throw new Error('无法获取任何播放源，请检查网络或是否需要人机验证')
-    }
-
-    return {
-      qualityPreference,
-      ultraUrl,
-      m3u8List: resolvedM3u8List,
-      initialPlayback,
-    }
+    return playback
   }
 
-  private applyResolvedPlayback(playback: Awaited<ReturnType<PlayerManager['resolvePlaybackForPickCode']>>) {
+  private applyResolvedPlayback(playback: ResolvedPlaybackBundle) {
     this.ultraUrl = playback.ultraUrl
     this.m3u8List = playback.m3u8List
     this.isNativeVideo = playback.initialPlayback.isNativeVideo
@@ -1119,6 +996,7 @@ class PlayerManager {
 
   destroy() {
     this.clearPlaybackEndState()
+    chrome.runtime.onMessage.removeListener(this.handleRuntimeMessage)
     this.overlay?.destroy()
     this.overlay = null
     this.hoverPreview?.destroy()
