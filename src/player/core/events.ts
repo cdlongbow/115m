@@ -1,5 +1,5 @@
 import type Artplayer from 'artplayer'
-import { savePlayHistory } from './history'
+import { resetPlayHistory, savePlayHistory } from './history'
 import { bindKeyboardShortcuts } from './keyboard'
 import { INTERACTIVE_SELECTOR } from './ui-layer'
 
@@ -65,6 +65,12 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
   })
 
   art.on('video:ended', () => {
+    resetPlayHistory({
+      pickCode: getPickCode(),
+      fileName: getPickCode(),
+      duration: art.duration || 0,
+      quality: getQualityLabel(),
+    })
     onPerf('video-ended', { type: getType() })
     onEnded()
   })
