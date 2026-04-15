@@ -5,6 +5,7 @@
 
 import type { RuntimeMessage } from '../shared/messages'
 import { executeInMainWorld } from './helpers'
+import { deleteHistory, getHistory, getHistoryMap, setHistory } from './history-store'
 import {
   handleDeleteFile,
   handleDeleteSuccessRefresh,
@@ -131,72 +132,20 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
     }
 
     case 'GET_HISTORY': {
-      const result = await chrome.storage.local.get('data')
-      if (result.data) {
-        try {
-          const parsed = JSON.parse(result.data)
-          return parsed.playHistory?.[message.data.pickCode] ?? null
-        }
-        catch { return null }
-      }
-      return null
+      return await getHistory(message.data.pickCode)
     }
 
     case 'GET_HISTORY_MAP': {
-      const result = await chrome.storage.local.get('data')
-      if (result.data) {
-        try {
-          const parsed = JSON.parse(result.data)
-          return parsed.playHistory ?? {}
-        }
-        catch { return {} }
-      }
-      return {}
+      return await getHistoryMap()
     }
 
     case 'SET_HISTORY': {
-      const { pickCode, fileName, currentTime, duration, quality } = message.data
-      const result = await chrome.storage.local.get('data')
-      let data: any = {}
-      try {
-        data = result.data ? JSON.parse(result.data) : {}
-      }
-      catch { data = {} }
-
-      if (!data.playHistory) data.playHistory = {}
-      data.playHistory[pickCode] = {
-        pickCode,
-        fileName,
-        currentTime,
-        duration,
-        quality,
-        updatedAt: Date.now(),
-      }
-
-      // 保留最近 200 条
-      const entries = Object.entries(data.playHistory)
-      if (entries.length > 200) {
-        entries.sort((a: any, b: any) => b[1].updatedAt - a[1].updatedAt)
-        data.playHistory = Object.fromEntries(entries.slice(0, 200))
-      }
-
-      await chrome.storage.local.set({ data: JSON.stringify(data) })
+      await setHistory(message.data)
       return { success: true }
     }
 
     case 'DELETE_HISTORY': {
-      const result = await chrome.storage.local.get('data')
-      let data: any = {}
-      try {
-        data = result.data ? JSON.parse(result.data) : {}
-      }
-      catch { data = {} }
-
-      if (data.playHistory && typeof data.playHistory === 'object') {
-        delete data.playHistory[message.data.pickCode]
-      }
-
-      await chrome.storage.local.set({ data: JSON.stringify(data) })
+      await deleteHistory(message.data.pickCode)
       return { success: true }
     }
 
