@@ -36,6 +36,7 @@ export interface PlayerOverlayOptions {
   onToggleFavorite: (fileId: string, nextMarked: boolean) => Promise<boolean>
   onPlaylistToggle: (open: boolean) => Promise<OverlayPlaylistItem[]>
   onPlaylistPlay: (pickCode: string, keepPlaylistOpen: boolean) => void
+  onDeleteFile: (fileId: string, parentId: string, pickCode: string) => Promise<void>
   onPlayPrevious: () => void
   onPlayNext: () => void
   onReplay: () => void
@@ -207,6 +208,10 @@ export class PlayerOverlayController {
 
   updatePlaylist(items: OverlayPlaylistItem[]) {
     this.renderPlaylist(items)
+  }
+
+  isPlaylistExpanded() {
+    return this.playlistOpen
   }
 
   updatePlaybackNav(state: OverlayPlaybackNavState) {
@@ -676,8 +681,26 @@ export class PlayerOverlayController {
         else this.showToast('移动失败: ' + msg)
       }
     })
-    const deleteBtn = this.createHeaderActionButton('删除视频（开发中）', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>')
-    deleteBtn.addEventListener('click', () => this.showToast('删除功能开发中'))
+    const deleteBtn = this.createHeaderActionButton('删除视频', '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.82)" stroke-width="2"><path d="M3 6h18"/><path d="M8 6V4h8v2"/><path d="M19 6l-1 14H6L5 6"/><path d="M10 11v6"/><path d="M14 11v6"/></svg>')
+    deleteBtn.addEventListener('click', async () => {
+      const fileId = this.options.meta.fileId
+      const parentId = this.options.meta.cid
+      const pickCode = this.options.getCurrentPickCode()
+      const titleText = this.options.meta.title || '当前视频'
+      if (!fileId || !parentId || !pickCode) {
+        this.showToast('缺少删除参数')
+        return
+      }
+      if (!window.confirm(`确认删除“${titleText}”吗？`)) {
+        return
+      }
+      try {
+        await this.options.onDeleteFile(fileId, parentId, pickCode)
+      }
+      catch (error) {
+        this.showToast(error instanceof Error ? error.message : '删除失败')
+      }
+    })
 
     this.favBtnEl = favBtn
     this.moveBtnEl = moveBtn
@@ -911,6 +934,9 @@ export class PlayerOverlayController {
     if (message?.type === 'MOVE_SUCCESS_REFRESH') {
       this.options.onRefreshBreadcrumbs?.()
       this.showToast('文件已移动')
+    }
+    if (message?.type === 'DELETE_SUCCESS_REFRESH' && message?.data?.pickCode === this.options.getCurrentPickCode()) {
+      this.showToast('文件已删除')
     }
   }
 }

@@ -2,6 +2,8 @@
  * Background handlers: 播放列表、M3U8、移动文件等
  */
 import type {
+  MsgDeleteFile,
+  MsgDeleteSuccessRefresh,
   MsgFetchM3u8, MsgFetchPlaylist, MsgMoveFile,
   MsgMoveSuccessRefresh, MsgTranscode,
 } from '../shared/messages'
@@ -261,6 +263,101 @@ export async function handleMoveSuccessRefresh() {
     }
   }
   return { success: true }
+}
+
+export async function handleDeleteFile(
+  message: MsgDeleteFile,
+  sender?: chrome.runtime.MessageSender,
+) {
+  const tabId = await find115TabId(sender)
+  if (!tabId) {
+    return { ok: false, error: 'no 115.com tab found' }
+  }
+
+  const { fileId, parentId, pickCode } = message.data
+  const injected = await chrome.scripting.executeScript({
+    target: { tabId },
+    world: 'MAIN',
+    func: async (payload: { fileId: string, parentId: string }) => {
+      try {
+        const body = new URLSearchParams({
+          pid: payload.parentId,
+          'fid[0]': payload.fileId,
+        })
+        const res = await fetch(`${location.protocol}//webapi.115.com/rb/delete`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+          body: body.toString(),
+        })
+        const text = await res.text()
+        const parsed = text ? JSON.parse(text) : null
+        return {
+          ok: !!parsed?.state,
+          error: parsed?.error || parsed?.message || (!res.ok ? `HTTP ${res.status}` : ''),
+        }
+      }
+      catch (error) {
+        return { ok: false, error: String(error) }
+      }
+    },
+    args: [{ fileId, parentId }],
+  })
+
+  const result = injected?.[0]?.result as { ok?: boolean, error?: string } | undefined
+  if (result?.ok) {
+    await handleDeleteSuccessRefresh({
+      type: 'DELETE_SUCCESS_REFRESH',
+      data: { fileId, parentId, pickCode },
+    })
+  }
+  return result ?? { ok: false, error: 'delete executeScript empty' }
+}
+
+export async function handleDeleteSuccessRefresh(message: MsgDeleteSuccessRefresh) {
+  const { fileId, parentId, pickCode } = message.data
+
+  const playerTabs = await chrome.tabs.query({ url: '*://*.115.com/web/lixian/master/video/*' })
+  for (const tab of playerTabs) {
+    if (tab.id) {
+      chrome.tabs.sendMessage(tab.id, { type: 'DELETE_SUCCESS_REFRESH', data: { fileId, parentId, pickCode } }).catch(() => {})
+    }
+  }
+
+  const allTabs = await chrome.tabs.query({ url: '*://*.115.com/*' })
+  for (const tab of allTabs) {
+    if (tab.id && !playerTabs.some(pt => pt.id === tab.id)) {
+      chrome.tabs.sendMessage(tab.id, { type: 'DELETE_SUCCESS_REFRESH', data: { fileId, parentId, pickCode } }).catch(() => {})
+      try {
+        await chrome.scripting.executeScript({
+          target: { tabId: tab.id },
+          world: 'MAIN',
+          func: (payload: { fileId: string, parentId: string, pickCode: string }) => {
+            const docs: Document[] = [document]
+            const frame = document.querySelector('iframe[name="wangpan"]') as HTMLIFrameElement | null
+            if (frame?.contentDocument) docs.push(frame.contentDocument)
+
+            for (const doc of docs) {
+              const selector = [
+                `[file_id="${payload.fileId}"]`,
+                `[fid="${payload.fileId}"]`,
+                `[fileid="${payload.fileId}"]`,
+                `[pick_code="${payload.pickCode}"]`,
+                `[pickcode="${payload.pickCode}"]`,
+              ].join(',')
+              doc.querySelectorAll(selector).forEach((node) => node.remove())
+            }
+          },
+          args: [{ fileId, parentId, pickCode }],
+        })
+      }
+      catch {
+        // ignore per-tab sync failures
+      }
+    }
+  }
+
+  return { ok: true }
 }
 
 // ─── TRANSCODE_ACCELERATE ───

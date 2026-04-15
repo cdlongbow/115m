@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlaybackNavState, getPlaylistPosition } from './playlist-navigation'
+import { buildPlaybackNavState, getDeleteFallback, getPlaylistPosition } from './playlist-navigation'
 
 const items = [
   { pickCode: 'a', fileId: '1', name: '第一集' },
@@ -26,5 +26,11 @@ describe('playlist navigation helpers', () => {
       currentIndex: 1,
       totalCount: 3,
     })
+  })
+
+  it('prefers next item after delete, then previous', () => {
+    expect(getDeleteFallback(items, 'b')).toEqual({ nextPickCode: 'c' })
+    expect(getDeleteFallback(items, 'c')).toEqual({ nextPickCode: 'b' })
+    expect(getDeleteFallback([{ pickCode: 'a', fileId: '1', name: '第一集' }], 'a')).toEqual({ nextPickCode: null })
   })
 })

@@ -68,3 +68,21 @@ export async function updateFavoriteStatus(
 
   return !nextMarked
 }
+
+export async function deleteVideoFile(
+  sendMessage: SendMessage,
+  fileId: string,
+  parentId: string,
+  pickCode: string,
+): Promise<boolean> {
+  const response = await sendMessage<{ ok?: boolean, error?: string }>({
+    type: 'DELETE_FILE',
+    data: { fileId, parentId, pickCode },
+  })
+
+  if (response?.ok) {
+    return true
+  }
+
+  throw new Error(response?.error || '删除失败')
+}

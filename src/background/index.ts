@@ -6,6 +6,8 @@
 import type { RuntimeMessage } from '../shared/messages'
 import { executeInMainWorld } from './helpers'
 import {
+  handleDeleteFile,
+  handleDeleteSuccessRefresh,
   handleFetchM3u8,
   handleFetchPlaylist,
   handleMoveFile,
@@ -85,6 +87,9 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
     case 'MOVE_SUCCESS_REFRESH':
       return handleMoveSuccessRefresh()
 
+    case 'DELETE_SUCCESS_REFRESH':
+      return handleDeleteSuccessRefresh(message)
+
     case 'FETCH_M3U8':
       return handleFetchM3u8(message)
 
@@ -93,6 +98,9 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
 
     case 'MOVE_FILE':
       return handleMoveFile(message, sender)
+
+    case 'DELETE_FILE':
+      return handleDeleteFile(message, sender)
 
     case 'TRANSCODE_ACCELERATE':
       return handleTranscode(message)

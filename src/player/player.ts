@@ -39,8 +39,8 @@ import {
   readPlaylistCidFromLocation,
 } from './core/player-query'
 import { normalizePlaylistItems } from './core/playlist'
-import { fetchFavoriteStatus, fetchPlaylistResponse, updateFavoriteStatus } from './core/player-api'
-import { buildPlaybackNavState, getPlaylistPosition } from './core/playlist-navigation'
+import { deleteVideoFile, fetchFavoriteStatus, fetchPlaylistResponse, updateFavoriteStatus } from './core/player-api'
+import { buildPlaybackNavState, getDeleteFallback, getPlaylistPosition } from './core/playlist-navigation'
 
 interface PlayerConfig {
   pickCode: string
@@ -596,6 +596,7 @@ class PlayerManager {
           this.navigateToVideo(pickCode, keepPlaylistOpen)
         }
       },
+      onDeleteFile: async (fileId, parentId, pickCode) => await this.deleteCurrentVideo(fileId, parentId, pickCode),
       onPlayPrevious: () => this.playPrevious(),
       onPlayNext: () => this.playNext(),
       onReplay: () => this.replayCurrent(),
@@ -898,6 +899,30 @@ class PlayerManager {
       window.history.replaceState(null, '', buildUpdatedMarkedUrl(window.location.pathname, window.location.search, nextMarked))
     }
     return result
+  }
+
+  private async deleteCurrentVideo(fileId: string, parentId: string, pickCode: string): Promise<void> {
+    const items = await this.fetchPlaylistItems().catch(() => this.playlistItemsCache)
+    const { nextPickCode } = getDeleteFallback(items, pickCode)
+    const keepPlaylistOpen = this.keepPlaylistOpenOnInit || this.overlay?.isPlaylistExpanded() === true
+
+    await deleteVideoFile(sendRuntimeMessageSafe, fileId, parentId, pickCode)
+
+    this.playlistItemsCache = this.playlistItemsCache.filter(item => item.pickCode !== pickCode)
+    this.syncOverlayPlaybackNav()
+    this.overlay?.updatePlaylist(this.playlistItemsCache)
+
+    if (nextPickCode) {
+      this.navigateToVideo(nextPickCode, keepPlaylistOpen)
+      return
+    }
+
+    if (window.history.length > 1) {
+      window.history.back()
+      return
+    }
+
+    this.showError('当前视频已删除，请返回列表')
   }
 
   private navigateToVideo(pickCode: string, keepPlaylistOpen = false) {

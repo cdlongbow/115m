@@ -20,11 +20,38 @@ class HomeController {
     this.bindDocument(document)
     this.bindWangpanFrame()
     this.watchFrameAppear()
+    chrome.runtime.onMessage.addListener(this.handleRuntimeMessage)
   }
 
   destroy() {
     this.observers.forEach(o => o.disconnect())
     this.observers = []
+    chrome.runtime.onMessage.removeListener(this.handleRuntimeMessage)
+  }
+
+  private handleRuntimeMessage = (message: any) => {
+    if (message?.type !== 'DELETE_SUCCESS_REFRESH') return
+    this.removeDeletedItem(message.data?.fileId, message.data?.pickCode)
+  }
+
+  private removeDeletedItem(fileId?: string, pickCode?: string) {
+    if (!fileId && !pickCode) return
+
+    const docs = [document]
+    const frame = document.querySelector('iframe[name="wangpan"]') as HTMLIFrameElement | null
+    if (frame?.contentDocument) docs.push(frame.contentDocument)
+
+    for (const doc of docs) {
+      const selectors: string[] = []
+      if (fileId) {
+        selectors.push(`[file_id="${fileId}"]`, `[fid="${fileId}"]`, `[fileid="${fileId}"]`)
+      }
+      if (pickCode) {
+        selectors.push(`[pick_code="${pickCode}"]`, `[pickcode="${pickCode}"]`)
+      }
+      if (selectors.length === 0) continue
+      doc.querySelectorAll(selectors.join(',')).forEach(node => node.remove())
+    }
   }
 
   private bindWangpanFrame() {

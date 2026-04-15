@@ -72,6 +72,15 @@ export interface MsgMoveFile {
   }
 }
 
+export interface MsgDeleteFile {
+  type: 'DELETE_FILE'
+  data: {
+    fileId: string
+    parentId: string
+    pickCode: string
+  }
+}
+
 export interface MsgPing {
   type: 'PING'
 }
@@ -91,6 +100,15 @@ export interface MsgMoveSuccessRefresh {
   type: 'MOVE_SUCCESS_REFRESH'
 }
 
+export interface MsgDeleteSuccessRefresh {
+  type: 'DELETE_SUCCESS_REFRESH'
+  data: {
+    fileId: string
+    parentId: string
+    pickCode: string
+  }
+}
+
 export type RuntimeMessage =
   | MsgSetCookie
   | MsgDownload
@@ -102,6 +120,8 @@ export type RuntimeMessage =
   | MsgMainWorldGet
   | MsgFetchPlaylist
   | MsgMoveFile
+  | MsgDeleteFile
   | MsgPing
   | MsgMoveSuccessRefresh
+  | MsgDeleteSuccessRefresh
   | MsgTranscode
