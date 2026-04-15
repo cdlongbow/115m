@@ -212,6 +212,36 @@ export class PlayerOverlayController {
     this.renderPlaylist(items)
   }
 
+  updateCurrentPlaylistProgress(pickCode: string, progressSec: number, duration: number) {
+    if (!pickCode || !duration || duration <= 0) return
+
+    const item = this.playlistItems.find(entry => entry.pickCode === pickCode)
+    if (!item) return
+
+    const progressPercent = Math.max(0, Math.min(100, (progressSec / duration) * 100))
+    item.progressSec = progressSec
+    item.progressPercent = progressPercent
+
+    if (!this.playlistListEl) return
+    const node = this.playlistListEl.querySelector<HTMLElement>(`.m115-pl-item[data-pickcode="${esc(pickCode)}"]`)
+    if (!node) return
+
+    const container = node.querySelector<HTMLElement>('[data-role="playlist-progress"]')
+    const bar = node.querySelector<HTMLElement>('[data-role="playlist-progress-bar"]')
+    const text = node.querySelector<HTMLElement>('[data-role="playlist-progress-text"]')
+
+    if (container) {
+      container.style.display = progressPercent > 0 ? 'flex' : 'none'
+    }
+    if (bar) {
+      bar.style.width = `${Math.max(2, Math.min(100, progressPercent))}%`
+    }
+    if (text) {
+      text.textContent = this.formatSeconds(progressSec)
+      text.style.display = 'inline'
+    }
+  }
+
   isPlaylistExpanded() {
     return this.playlistOpen
   }
@@ -521,18 +551,18 @@ export class PlayerOverlayController {
   }
 
   private renderPlaylistProgress(item: OverlayPlaylistItem, active: boolean) {
-    if (!item.progressPercent || item.progressPercent <= 0) return ''
+    const visible = !!item.progressPercent && item.progressPercent > 0
 
     const progressText = typeof item.progressSec === 'number' && item.progressSec > 0
       ? this.formatSeconds(item.progressSec)
       : ''
 
     return `
-      <div style="margin-top:6px;display:flex;align-items:center;gap:8px;min-width:0;">
+      <div data-role="playlist-progress" style="margin-top:6px;display:${visible ? 'flex' : 'none'};align-items:center;gap:8px;min-width:0;">
         <div style="flex:1;height:4px;border-radius:999px;background:rgba(255,255,255,.12);overflow:hidden;">
-          <div style="width:${Math.max(2, Math.min(100, item.progressPercent))}%;height:100%;border-radius:999px;background:${active ? '#38bdf8' : 'rgba(255,255,255,.56)'};"></div>
+          <div data-role="playlist-progress-bar" style="width:${Math.max(2, Math.min(100, item.progressPercent || 0))}%;height:100%;border-radius:999px;background:${active ? '#38bdf8' : 'rgba(255,255,255,.56)'};"></div>
         </div>
-        ${progressText ? `<span style="flex:0 0 auto;font-size:10px;color:rgba(255,255,255,.42);font-variant-numeric:tabular-nums;">${progressText}</span>` : ''}
+        <span data-role="playlist-progress-text" style="flex:0 0 auto;font-size:10px;color:rgba(255,255,255,.42);font-variant-numeric:tabular-nums;display:${progressText ? 'inline' : 'none'};">${progressText}</span>
       </div>
     `
   }

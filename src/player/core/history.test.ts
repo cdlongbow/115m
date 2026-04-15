@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { isCompletedPlayback, shouldRestorePlayHistory } from './history'
+import { buildPlaylistProgressSnapshot, isCompletedPlayback, shouldRestorePlayHistory } from './history'
 
 describe('play history restore guard', () => {
   it('skips restoring progress near the end of playback', () => {
@@ -19,5 +19,14 @@ describe('play history restore guard', () => {
 
   it('does not restore empty progress', () => {
     expect(shouldRestorePlayHistory(0, 120)).toBe(false)
+  })
+
+  it('builds playlist progress only for resumable history', () => {
+    expect(buildPlaylistProgressSnapshot({ currentTime: 45, duration: 120 })).toEqual({
+      progressSec: 45,
+      progressPercent: 37.5,
+    })
+    expect(buildPlaylistProgressSnapshot({ currentTime: 118, duration: 120 })).toBeNull()
+    expect(buildPlaylistProgressSnapshot({ currentTime: 0, duration: 120 })).toBeNull()
   })
 })

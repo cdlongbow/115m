@@ -17,6 +17,11 @@ export interface PlayHistoryMap {
   [pickCode: string]: PlayHistoryRecord | undefined
 }
 
+export interface PlaylistProgressSnapshot {
+  progressSec: number
+  progressPercent: number
+}
+
 const QUALITY_PREF_STORAGE_KEY = '115m-quality-preferences'
 const PLAY_HISTORY_COMPLETED_REMAINING_SEC = 15
 const PLAY_HISTORY_COMPLETED_RATIO = 0.98
@@ -91,6 +96,19 @@ export async function loadPlayHistoryMap(): Promise<PlayHistoryMap> {
   }
 }
 
+export async function deletePlayHistory(pickCode: string): Promise<void> {
+  if (!pickCode) return
+  try {
+    await sendRuntimeMessageSafe({
+      type: 'DELETE_HISTORY',
+      data: { pickCode },
+    })
+  }
+  catch {
+    // ignore delete errors
+  }
+}
+
 export function shouldRestorePlayHistory(currentTime: number, duration?: number): boolean {
   if (!currentTime || currentTime <= 0) return false
   if (!duration || duration <= 0) return true
@@ -102,6 +120,26 @@ export function isCompletedPlayback(currentTime: number, duration: number): bool
   if (!duration || duration <= 0) return false
   const remaining = Math.max(0, duration - currentTime)
   return remaining <= PLAY_HISTORY_COMPLETED_REMAINING_SEC || currentTime / duration >= PLAY_HISTORY_COMPLETED_RATIO
+}
+
+export function buildPlaylistProgressSnapshot(history?: PlayHistoryRecord): PlaylistProgressSnapshot | null {
+  if (!history?.currentTime || !history.duration || history.duration <= 0) {
+    return null
+  }
+
+  if (!shouldRestorePlayHistory(history.currentTime, history.duration)) {
+    return null
+  }
+
+  const progressPercent = Math.max(0, Math.min(100, (history.currentTime / history.duration) * 100))
+  if (progressPercent <= 0) {
+    return null
+  }
+
+  return {
+    progressSec: history.currentTime,
+    progressPercent,
+  }
 }
 
 async function persistPlayHistory(params: {

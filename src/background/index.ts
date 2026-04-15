@@ -184,6 +184,22 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
       return { success: true }
     }
 
+    case 'DELETE_HISTORY': {
+      const result = await chrome.storage.local.get('data')
+      let data: any = {}
+      try {
+        data = result.data ? JSON.parse(result.data) : {}
+      }
+      catch { data = {} }
+
+      if (data.playHistory && typeof data.playHistory === 'object') {
+        delete data.playHistory[message.data.pickCode]
+      }
+
+      await chrome.storage.local.set({ data: JSON.stringify(data) })
+      return { success: true }
+    }
+
     default:
       return { error: 'Unknown message type' }
   }
