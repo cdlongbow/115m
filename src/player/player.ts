@@ -291,6 +291,7 @@ class PlayerManager {
         this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
         this.renderQualityPanel()
       }
+      this.setupProgressHoverPreview(url, this.currentPlaybackType)
       this.syncCenterPlayButton()
     })
 
@@ -317,7 +318,7 @@ class PlayerManager {
     }
 
     this.setupTopNav()
-    this.setupProgressHoverPreview()
+    this.setupProgressHoverPreview(videoUrl, type)
     void this.fetchBreadcrumbs()
 
     if (this.artplayer) {
@@ -581,10 +582,24 @@ class PlayerManager {
     }
   }
 
-  private setupProgressHoverPreview() {
+  private setupProgressHoverPreview(previewSourceUrl?: string, previewSourceType?: 'native' | 'hls') {
     if (!this.artplayer) return
+
+    const currentUrl = previewSourceUrl || this.artplayer.url || ''
+    const fallbackThumbnailSource = [...this.m3u8List].sort((a, b) => a.quality - b.quality)[0]?.url
+
+    if (fallbackThumbnailSource) {
+      void import('../lib/videoThumbnail').then(({ primeThumbnailSourceUrl }) => {
+        primeThumbnailSourceUrl(this.currentPickCode, fallbackThumbnailSource)
+      })
+    }
+
     this.hoverPreview?.destroy()
-    this.hoverPreview = new HoverPreviewController(this.artplayer, this.currentPickCode)
+    this.hoverPreview = new HoverPreviewController(
+      this.artplayer,
+      this.currentPickCode,
+      currentUrl || fallbackThumbnailSource || null,
+    )
     this.hoverPreview.setup()
   }
 
@@ -934,7 +949,7 @@ class PlayerManager {
       }))
       this.syncOverlayPlaybackNav()
       this.overlay?.updatePlaylist(this.playlistItemsCache)
-      this.setupProgressHoverPreview()
+      this.setupProgressHoverPreview(playback.initialPlayback.url, playback.initialPlayback.type)
       this.renderQualityPanel()
 
       this.artplayer.switchUrl(playback.initialPlayback.url)

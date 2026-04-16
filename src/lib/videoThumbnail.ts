@@ -65,6 +65,13 @@ async function getThumbnailSourceUrl(pickCode: string): Promise<string> {
   }
 }
 
+export function primeThumbnailSourceUrl(pickCode: string, url: string): void {
+  if (!pickCode || !url) {
+    return
+  }
+  sourceUrlCache.set(pickCode, Promise.resolve(url))
+}
+
 async function openClipper(pickCode: string): Promise<M3U8ClipperNew> {
   const url = await getThumbnailSourceUrl(pickCode)
   const clipper = new M3U8ClipperNew({ url })

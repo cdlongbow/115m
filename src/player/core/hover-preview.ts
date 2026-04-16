@@ -7,9 +7,10 @@ interface HoverCover {
   imgUrl: string
 }
 
-const PRECISE_COVER_BUCKET = 15
-const PRECISE_COVER_MIN_DELTA = 8
-const PRECISE_COVER_DEBOUNCE = 120
+const PRECISE_COVER_BUCKET = 1
+const PRECISE_COVER_MIN_DELTA = 0.8
+const PRECISE_COVER_DEBOUNCE = 50
+const COARSE_COVER_MAX_DELTA = 6
 
 export class HoverPreviewController {
   private covers: HoverCover[] = []
@@ -25,15 +26,24 @@ export class HoverPreviewController {
   private preciseCoverTimer: number | null = null
   private preciseCoverRequestKey: string | null = null
   private preciseCovers = new Map<number, HoverCover>()
+  private preloadTimer: number | null = null
+  private lastHoverBucketTime: number | null = null
+  private hoverActive = false
+  private lastPointerClientX: number | null = null
+  private lastPointerClientY: number | null = null
+  private pendingPreciseBucketTime: number | null = null
 
   constructor(
     private readonly art: Artplayer,
     private readonly pickCode: string,
+    private readonly previewSourceUrl: string | null = null,
   ) {}
 
   setup() {
     this.ensurePreviewElements()
     this.bindProgressHoverEventsWithRetry(0)
+    this.art.on('video:loadedmetadata', this.handleVideoLoadedmetadata)
+    this.scheduleThumbnailWarmup()
   }
 
   updateSize() {
@@ -71,11 +81,18 @@ export class HoverPreviewController {
       window.clearTimeout(this.preciseCoverTimer)
       this.preciseCoverTimer = null
     }
+    if (this.preloadTimer) {
+      window.clearTimeout(this.preloadTimer)
+      this.preloadTimer = null
+    }
+    this.art.off('video:loadedmetadata', this.handleVideoLoadedmetadata)
     this.cancelHide()
     // 事件绑定在 root 上
     const root = this.art.template.$player as HTMLElement
     root.removeEventListener('mousemove', this.handleRootMouseMove)
     root.removeEventListener('mouseleave', this.handleRootMouseLeave)
+    this.progressEl?.removeEventListener('mouseenter', this.handleProgressMouseEnter)
+    this.progressEl?.removeEventListener('mouseleave', this.handleProgressMouseLeave)
     this.progressEl = null
     if (this.hoverReticle) {
       this.hoverReticle.remove()
@@ -94,27 +111,21 @@ export class HoverPreviewController {
 
   private async loadThumbnails() {
     if (this.thumbnailsLoaded || this.thumbnailsLoading) return
+    const duration = this.art.duration
+    if (!duration || duration < 5) {
+      return
+    }
+
     this.thumbnailsLoading = true
     try {
       const { getVideoCovers } = await import('../../lib/videoThumbnail')
-
-      let duration = this.art.duration
-      if (!duration || duration < 5) {
-        await new Promise<void>((resolve) => {
-          this.art.once('video:loadedmetadata', () => resolve())
-          setTimeout(resolve, 5000)
-        })
-        duration = this.art.duration
-      }
-
-      if (!duration) return
-
       const covers = await getVideoCovers(this.pickCode, duration, this.getInitialCoverCount(duration))
       if (covers.length === 0) return
 
       this.covers = covers
       this.updateThumbnailTrack(duration)
       this.thumbnailsLoaded = true
+      this.refreshPreviewFromLastPointer()
     }
     catch {
       // ignore thumbnail errors
@@ -122,6 +133,24 @@ export class HoverPreviewController {
     finally {
       this.thumbnailsLoading = false
     }
+  }
+
+  private scheduleThumbnailWarmup() {
+    const tryWarmup = () => {
+      if (this.thumbnailsLoaded || this.thumbnailsLoading) {
+        return
+      }
+      void this.loadThumbnails()
+    }
+
+    if (this.art.duration >= 5) {
+      this.preloadTimer = window.setTimeout(tryWarmup, 180)
+      return
+    }
+
+    this.art.once('video:loadedmetadata', () => {
+      this.preloadTimer = window.setTimeout(tryWarmup, 180)
+    })
   }
 
   private ensurePreviewElements() {
@@ -144,6 +173,8 @@ export class HoverPreviewController {
     }
 
     this.progressEl = progress
+    progress.addEventListener('mouseenter', this.handleProgressMouseEnter)
+    progress.addEventListener('mouseleave', this.handleProgressMouseLeave)
 
     // 创建一个覆盖进度条上方的不可见容差区域，
     // 这样鼠标从进度条移到预览图时不会触发 mouseleave
@@ -182,12 +213,17 @@ export class HoverPreviewController {
     this.hoverReticle = reticle
   }
 
-  private handleProgressMouseEnter = () => {
+  private handleProgressMouseEnter = (event: MouseEvent) => {
+    this.hoverActive = true
     this.cancelHide()
+    this.rememberPointer(event)
     if (!this.thumbnailsLoaded && !this.thumbnailsLoading) {
       void this.loadThumbnails()
     }
-    if (this.previewEl && this.covers.length > 0) {
+    if (this.art.duration) {
+      this.updatePreviewPosition(event)
+    }
+    else if (this.previewEl && this.covers.length > 0) {
       this.previewEl.style.display = 'block'
     }
   }
@@ -200,6 +236,7 @@ export class HoverPreviewController {
   private handleRootMouseMove = (event: MouseEvent) => {
     // 取消隐藏定时器（鼠标还在播放器区域内）
     this.cancelHide()
+    this.rememberPointer(event)
 
     if (this.shouldSuspendPreview(event.target)) {
       this.hidePreview()
@@ -220,6 +257,7 @@ export class HoverPreviewController {
       && event.clientX <= progressRect.right + 10
 
     if (isNearProgress) {
+      this.hoverActive = true
       // 触发缩略图加载
       if (!this.thumbnailsLoaded && !this.thumbnailsLoading) {
         void this.loadThumbnails()
@@ -234,13 +272,21 @@ export class HoverPreviewController {
       }
     }
     else {
+      this.hoverActive = false
       // 鼠标远离进度条，隐藏预览图
       this.hidePreview()
     }
   }
 
   private handleRootMouseLeave = () => {
+    this.hoverActive = false
+    this.lastPointerClientX = null
+    this.lastPointerClientY = null
     this.hidePreview()
+  }
+
+  private handleVideoLoadedmetadata = () => {
+    this.refreshPreviewFromLastPointer()
   }
 
   private scheduleHide() {
@@ -258,9 +304,32 @@ export class HoverPreviewController {
   }
 
   private hidePreview() {
+    this.hoverActive = false
     if (this.previewEl) {
       this.previewEl.style.display = 'none'
     }
+  }
+
+  private rememberPointer(event: MouseEvent) {
+    this.lastPointerClientX = event.clientX
+    this.lastPointerClientY = event.clientY
+  }
+
+  private refreshPreviewFromLastPointer() {
+    if (!this.hoverActive || !this.progressEl || !this.previewEl || !this.art.duration) {
+      return
+    }
+    if (this.lastPointerClientX == null || this.lastPointerClientY == null) {
+      return
+    }
+
+    this.updatePreviewPosition(new MouseEvent('mousemove', {
+      clientX: this.lastPointerClientX,
+      clientY: this.lastPointerClientY,
+      bubbles: true,
+      cancelable: true,
+      view: window,
+    }))
   }
 
   private isFloatingMenuOpen() {
@@ -287,7 +356,7 @@ export class HoverPreviewController {
   }
 
   private getInitialCoverCount(duration: number): number {
-    return Math.max(18, Math.min(30, Math.ceil(duration / 180)))
+    return Math.max(8, Math.min(12, Math.ceil(duration / 300)))
   }
 
   private updateThumbnailTrack(duration: number) {
@@ -318,7 +387,7 @@ export class HoverPreviewController {
     }
   }
 
-  private schedulePreciseCover(hoverTime: number, nearest: HoverCover) {
+  private schedulePreciseCover(hoverTime: number, nearest: HoverCover | null) {
     if (!this.art.duration) {
       return
     }
@@ -330,9 +399,20 @@ export class HoverPreviewController {
       return
     }
 
-    if (Math.abs(nearest.time - hoverTime) < PRECISE_COVER_MIN_DELTA) {
+    if (nearest && Math.abs(nearest.time - hoverTime) < PRECISE_COVER_MIN_DELTA) {
       return
     }
+
+    const shouldLoadImmediately = !nearest || !this.thumbnailsLoaded
+    if (shouldLoadImmediately) {
+      if (this.preciseCoverTimer) {
+        window.clearTimeout(this.preciseCoverTimer)
+        this.preciseCoverTimer = null
+      }
+      void this.loadPreciseCover(bucketTime)
+      return
+    }
+
     if (this.preciseCoverTimer) {
       window.clearTimeout(this.preciseCoverTimer)
     }
@@ -348,14 +428,25 @@ export class HoverPreviewController {
     }
 
     const requestKey = `${this.pickCode}:${bucketTime}`
-    if (this.preciseCoverRequestKey === requestKey || this.preciseCovers.has(bucketTime)) {
+    if (this.preciseCovers.has(bucketTime)) {
+      return
+    }
+
+    if (this.preciseCoverRequestKey) {
+      if (this.preciseCoverRequestKey !== requestKey) {
+        this.pendingPreciseBucketTime = bucketTime
+      }
+      return
+    }
+
+    if (this.preciseCoverRequestKey === requestKey) {
       return
     }
 
     this.preciseCoverRequestKey = requestKey
+    this.pendingPreciseBucketTime = null
     try {
-      const { getVideoCoverAt } = await import('../../lib/videoThumbnail')
-      const cover = await getVideoCoverAt(this.pickCode, bucketTime, this.art.duration)
+      const cover = await this.loadFallbackPreciseCover(bucketTime)
       if (!cover) {
         return
       }
@@ -367,6 +458,12 @@ export class HoverPreviewController {
 
       this.preciseCovers.set(bucketTime, preciseCover)
       this.insertCover(preciseCover)
+
+      if (this.hoverActive && this.lastHoverBucketTime === bucketTime && this.previewEl && this.previewImgEl) {
+        this.previewImgEl.src = preciseCover.imgUrl
+        this.previewEl.style.display = 'block'
+        this.refreshPreviewFromLastPointer()
+      }
     }
     catch {
       // ignore thumbnail errors
@@ -375,7 +472,18 @@ export class HoverPreviewController {
       if (this.preciseCoverRequestKey === requestKey) {
         this.preciseCoverRequestKey = null
       }
+
+      const pendingBucketTime = this.pendingPreciseBucketTime
+      if (pendingBucketTime != null && pendingBucketTime !== bucketTime) {
+        this.pendingPreciseBucketTime = null
+        void this.loadPreciseCover(pendingBucketTime)
+      }
     }
+  }
+
+  private async loadFallbackPreciseCover(bucketTime: number) {
+    const { getVideoCoverAt } = await import('../../lib/videoThumbnail')
+    return await getVideoCoverAt(this.pickCode, bucketTime, this.art.duration)
   }
 
   private shouldSuspendPreview(target: EventTarget | null) {
@@ -395,7 +503,7 @@ export class HoverPreviewController {
     if (!this.progressEl || !this.previewEl || !this.previewImgEl || !this.previewTimeEl) {
       return
     }
-    if (this.covers.length === 0 || !this.art.duration) return
+    if (!this.art.duration) return
     if (this.shouldSuspendPreview(event.target)) {
       this.hidePreview()
       return
@@ -409,15 +517,11 @@ export class HoverPreviewController {
     const hoverTime = ratio * this.art.duration
 
     const preciseBucketTime = this.getPreciseBucketTime(hoverTime)
+    this.lastHoverBucketTime = preciseBucketTime
     const preciseCover = this.preciseCovers.get(preciseBucketTime)
-    const nearest = preciseCover ?? findNearestCover(this.covers, hoverTime)
-    if (!nearest) return
-
-    if (nearest.imgUrl) {
-      this.previewImgEl.src = nearest.imgUrl
-    }
-    this.previewTimeEl.textContent = formatTimeLabel(hoverTime)
-    this.schedulePreciseCover(hoverTime, nearest)
+    const coarseCover = findNearestCover(this.covers, hoverTime)
+    const nearest = preciseCover
+      ?? (coarseCover && Math.abs(coarseCover.time - hoverTime) <= COARSE_COVER_MAX_DELTA ? coarseCover : null)
 
     const containerRect = (this.art.template.$player as HTMLElement).getBoundingClientRect()
     const offsetX = event.clientX - containerRect.left
@@ -426,5 +530,23 @@ export class HoverPreviewController {
     const maxLeft = Math.max(minLeft, containerRect.width - minLeft)
     const clamped = clamp(offsetX, minLeft, maxLeft)
     this.previewEl.style.left = `${clamped}px`
+
+    if (nearest?.imgUrl) {
+      this.previewImgEl.src = nearest.imgUrl
+      this.previewEl.style.display = 'block'
+    }
+    else if (this.covers.length > 0) {
+      const fallbackCover = coarseCover ?? this.covers[0]
+      if (fallbackCover?.imgUrl) {
+        this.previewImgEl.src = fallbackCover.imgUrl
+        this.previewEl.style.display = 'block'
+      }
+    }
+    this.previewTimeEl.textContent = formatTimeLabel(hoverTime)
+    this.schedulePreciseCover(hoverTime, nearest)
+
+    if (!nearest) {
+      return
+    }
   }
 }
