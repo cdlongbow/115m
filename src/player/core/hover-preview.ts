@@ -11,6 +11,7 @@ const PRECISE_COVER_BUCKET = 1
 const PRECISE_COVER_MIN_DELTA = 0.8
 const PRECISE_COVER_DEBOUNCE = 50
 const COARSE_COVER_MAX_DELTA = 6
+const PRECISE_PREFETCH_RANGE = 1
 
 export class HoverPreviewController {
   private covers: HoverCover[] = []
@@ -27,12 +28,12 @@ export class HoverPreviewController {
   private preciseCoverTimer: number | null = null
   private preciseCoverRequestKey: string | null = null
   private preciseCovers = new Map<number, HoverCover>()
+  private preciseQueue: number[] = []
   private preloadTimer: number | null = null
   private lastHoverBucketTime: number | null = null
   private hoverActive = false
   private lastPointerClientX: number | null = null
   private lastPointerClientY: number | null = null
-  private pendingPreciseBucketTime: number | null = null
 
   constructor(
     private readonly art: Artplayer,
@@ -108,6 +109,7 @@ export class HoverPreviewController {
     }
     this.covers = []
     this.preciseCovers.clear()
+    this.preciseQueue = []
     this.preciseCoverRequestKey = null
   }
 
@@ -410,7 +412,7 @@ export class HoverPreviewController {
     const bucketTime = this.getPreciseBucketTime(hoverTime)
     const cacheHit = this.preciseCovers.get(bucketTime)
     if (cacheHit) {
-      this.insertCover(cacheHit)
+      this.prefetchNearbyPreciseCovers(bucketTime)
       return
     }
 
@@ -424,7 +426,8 @@ export class HoverPreviewController {
         window.clearTimeout(this.preciseCoverTimer)
         this.preciseCoverTimer = null
       }
-      void this.loadPreciseCover(bucketTime)
+      this.enqueuePreciseCover(bucketTime, true)
+      this.prefetchNearbyPreciseCovers(bucketTime)
       return
     }
 
@@ -433,8 +436,49 @@ export class HoverPreviewController {
     }
 
     this.preciseCoverTimer = window.setTimeout(() => {
-      void this.loadPreciseCover(bucketTime)
+      this.enqueuePreciseCover(bucketTime, true)
+      this.prefetchNearbyPreciseCovers(bucketTime)
     }, PRECISE_COVER_DEBOUNCE)
+  }
+
+  private enqueuePreciseCover(bucketTime: number, prioritize = false) {
+    if (this.preciseCovers.has(bucketTime)) {
+      return
+    }
+
+    const requestKey = `${this.pickCode}:${bucketTime}`
+    if (this.preciseCoverRequestKey === requestKey) {
+      return
+    }
+
+    if (!this.preciseQueue.includes(bucketTime)) {
+      if (prioritize) {
+        this.preciseQueue.unshift(bucketTime)
+      }
+      else {
+        this.preciseQueue.push(bucketTime)
+      }
+    }
+
+    if (!this.preciseCoverRequestKey) {
+      const nextBucketTime = this.preciseQueue.shift()
+      if (nextBucketTime != null) {
+        void this.loadPreciseCover(nextBucketTime)
+      }
+    }
+  }
+
+  private prefetchNearbyPreciseCovers(bucketTime: number) {
+    if (!this.art.duration) {
+      return
+    }
+
+    for (let offset = 1; offset <= PRECISE_PREFETCH_RANGE; offset += 1) {
+      const previousBucket = this.getPreciseBucketTime(Math.max(0, bucketTime - offset * PRECISE_COVER_BUCKET))
+      const nextBucket = this.getPreciseBucketTime(Math.min(this.art.duration, bucketTime + offset * PRECISE_COVER_BUCKET))
+      this.enqueuePreciseCover(previousBucket)
+      this.enqueuePreciseCover(nextBucket)
+    }
   }
 
   private async loadPreciseCover(bucketTime: number) {
@@ -448,18 +492,10 @@ export class HoverPreviewController {
     }
 
     if (this.preciseCoverRequestKey) {
-      if (this.preciseCoverRequestKey !== requestKey) {
-        this.pendingPreciseBucketTime = bucketTime
-      }
-      return
-    }
-
-    if (this.preciseCoverRequestKey === requestKey) {
       return
     }
 
     this.preciseCoverRequestKey = requestKey
-    this.pendingPreciseBucketTime = null
     try {
       const cover = await this.loadFallbackPreciseCover(bucketTime)
       if (!cover) {
@@ -472,7 +508,6 @@ export class HoverPreviewController {
       }
 
       this.preciseCovers.set(bucketTime, preciseCover)
-      this.insertCover(preciseCover)
 
       if (this.hoverActive && this.lastHoverBucketTime === bucketTime && this.previewEl && this.previewImgEl) {
         this.previewImgEl.src = preciseCover.imgUrl
@@ -492,10 +527,9 @@ export class HoverPreviewController {
         this.preciseCoverRequestKey = null
       }
 
-      const pendingBucketTime = this.pendingPreciseBucketTime
-      if (pendingBucketTime != null && pendingBucketTime !== bucketTime) {
-        this.pendingPreciseBucketTime = null
-        void this.loadPreciseCover(pendingBucketTime)
+      const nextBucketTime = this.preciseQueue.shift()
+      if (nextBucketTime != null && nextBucketTime !== bucketTime) {
+        void this.loadPreciseCover(nextBucketTime)
       }
     }
   }
