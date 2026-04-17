@@ -12,6 +12,7 @@ const PRECISE_EARLY_SUCCESS_DELTA = 0.45
 const sourceUrlCache = new Map<string, Promise<string>>()
 const memoryCoverCache = new Map<string, VideoThumbnail[]>()
 const memorySingleCoverCache = new Map<string, Promise<VideoThumbnail | null>>()
+const memoryTimelineCache = new Map<string, VideoThumbnail[]>()
 
 function isContextInvalidatedError(error: unknown): boolean {
   return String(error).includes('Extension context invalidated')
@@ -38,6 +39,10 @@ function getBatchCacheKey(pickCode: string, coverNum: number): string {
 
 function getSingleCacheKey(pickCode: string, time: number): string {
   return `115m_cover_${CACHE_VERSION}_${pickCode}_${Math.round(time * 10) / 10}`
+}
+
+function getTimelineCacheKey(pickCode: string): string {
+  return `115m_timeline_${CACHE_VERSION}_${pickCode}`
 }
 
 async function getThumbnailSourceUrl(pickCode: string): Promise<string> {
@@ -265,6 +270,93 @@ function sortAndDedupeCovers(covers: VideoThumbnail[]): VideoThumbnail[] {
   })
 }
 
+function selectCoverSet(covers: VideoThumbnail[], duration: number, coverNum: number): VideoThumbnail[] {
+  if (covers.length <= coverNum) {
+    return covers
+  }
+
+  const targetTimes = calculateTimes(duration, coverNum)
+  const picked = new Map<string, VideoThumbnail>()
+
+  for (const targetTime of targetTimes) {
+    const nearest = covers.reduce<VideoThumbnail | null>((best, current) => {
+      if (!best) return current
+      return Math.abs(current.time - targetTime) < Math.abs(best.time - targetTime) ? current : best
+    }, null)
+    if (nearest) {
+      picked.set(`${nearest.time}-${nearest.imgUrl.slice(0, 32)}`, nearest)
+    }
+  }
+
+  return sortAndDedupeCovers(Array.from(picked.values()))
+}
+
+async function readTimelineCovers(pickCode: string): Promise<VideoThumbnail[]> {
+  const cacheKey = getTimelineCacheKey(pickCode)
+  const inMemory = memoryTimelineCache.get(cacheKey)
+  if (inMemory && inMemory.length > 0) {
+    return inMemory
+  }
+
+  const storageArea = getStorageArea()
+  if (!storageArea) {
+    return []
+  }
+
+  try {
+    const cached = await storageArea.get(cacheKey)
+    const hit = cached[cacheKey] as VideoThumbnail[] | undefined
+    if (hit && hit.length > 0) {
+      memoryTimelineCache.set(cacheKey, hit)
+      return hit
+    }
+  }
+  catch (error) {
+    if (!isContextInvalidatedError(error)) {
+      console.warn('[115m] 读取时间轴缓存失败:', error)
+    }
+  }
+
+  return []
+}
+
+async function writeTimelineCovers(pickCode: string, covers: VideoThumbnail[]): Promise<void> {
+  const cacheKey = getTimelineCacheKey(pickCode)
+  memoryTimelineCache.set(cacheKey, covers)
+
+  const storageArea = getStorageArea()
+  if (!storageArea) {
+    return
+  }
+
+  const storableResults = await Promise.all(
+    covers.map(async (cover) => {
+      if (cover.imgUrl.startsWith('data:')) {
+        return cover
+      }
+      const response = await fetch(cover.imgUrl)
+      const blob = await response.blob()
+      const base64 = await new Promise<string>((resolve) => {
+        const reader = new FileReader()
+        reader.onloadend = () => resolve(reader.result as string)
+        reader.readAsDataURL(blob)
+      })
+      return { ...cover, imgUrl: base64 }
+    }),
+  )
+  await storageArea.set({ [cacheKey]: storableResults })
+}
+
+function getMissingTimes(targetTimes: number[], existingCovers: VideoThumbnail[], tolerance = 2): number[] {
+  return targetTimes.filter(targetTime =>
+    !existingCovers.some(cover => Math.abs(cover.time - targetTime) <= tolerance),
+  )
+}
+
+export async function getTimelineCovers(pickCode: string): Promise<VideoThumbnail[]> {
+  return await readTimelineCovers(pickCode)
+}
+
 export async function getVideoCoverAt(
   pickCode: string,
   time: number,
@@ -309,6 +401,13 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
     return inMemory
   }
 
+  const timelineCovers = await readTimelineCovers(pickCode)
+  const timelineSelection = selectCoverSet(timelineCovers, duration, coverNum)
+  if (timelineSelection.length >= coverNum) {
+    memoryCoverCache.set(cacheKey, timelineSelection)
+    return timelineSelection
+  }
+
   const storageArea = getStorageArea()
   try {
     if (storageArea) {
@@ -333,13 +432,18 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
 
   try {
     const times = calculateTimes(duration, coverNum)
+    const missingTimes = getMissingTimes(times, timelineCovers)
     const fallbackWindow = Math.max(3, Math.min(20, duration / Math.max(coverNum * 4, 1)))
-    console.log('[115m] 截取时间点:', times)
+    console.log('[115m] 截取时间点:', missingTimes)
 
-    const covers = await mapWithConcurrency(times, SEEK_CONCURRENCY, async time =>
+    const covers = await mapWithConcurrency(missingTimes, SEEK_CONCURRENCY, async time =>
       generateCoverWithFallbacks(clipper, time, duration, fallbackWindow, false),
     )
-    const results = sortAndDedupeCovers(covers.filter((item): item is VideoThumbnail => item !== null))
+    const mergedTimeline = sortAndDedupeCovers([
+      ...timelineCovers,
+      ...covers.filter((item): item is VideoThumbnail => item !== null),
+    ])
+    const results = selectCoverSet(mergedTimeline, duration, coverNum)
 
     console.log('[115m] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
     if (results.length === 0) {
@@ -365,6 +469,7 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
         await storageArea.set({ [cacheKey]: storableResults })
         console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
       }
+      await writeTimelineCovers(pickCode, mergedTimeline)
     }
     catch (error) {
       if (isContextInvalidatedError(error)) {

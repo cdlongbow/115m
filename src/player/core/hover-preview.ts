@@ -7,11 +7,24 @@ interface HoverCover {
   imgUrl: string
 }
 
+function mergeCovers(covers: HoverCover[]): HoverCover[] {
+  return [...covers]
+    .sort((a, b) => a.time - b.time)
+    .filter((cover, index, list) => {
+      const previous = list[index - 1]
+      if (!previous) {
+        return true
+      }
+      return Math.abs(previous.time - cover.time) >= 0.5 || previous.imgUrl !== cover.imgUrl
+    })
+}
+
 const PRECISE_COVER_BUCKET = 1
 const PRECISE_COVER_MIN_DELTA = 0.8
 const PRECISE_COVER_DEBOUNCE = 50
 const COARSE_COVER_MAX_DELTA = 6
 const PRECISE_PREFETCH_RANGE = 1
+const PRECISE_SEEK_MAX_DELTA = 2.5
 
 export class HoverPreviewController {
   private covers: HoverCover[] = []
@@ -31,6 +44,7 @@ export class HoverPreviewController {
   private preciseQueue: number[] = []
   private preloadTimer: number | null = null
   private lastHoverBucketTime: number | null = null
+  private lastDisplayedCoverTime: number | null = null
   private hoverActive = false
   private lastPointerClientX: number | null = null
   private lastPointerClientY: number | null = null
@@ -95,6 +109,7 @@ export class HoverPreviewController {
     root.removeEventListener('mouseleave', this.handleRootMouseLeave)
     this.progressEl?.removeEventListener('mouseenter', this.handleProgressMouseEnter)
     this.progressEl?.removeEventListener('mouseleave', this.handleProgressMouseLeave)
+    this.progressEl?.removeEventListener('click', this.handleProgressClick, true)
     this.progressEl = null
     if (this.hoverReticle) {
       this.hoverReticle.remove()
@@ -111,6 +126,7 @@ export class HoverPreviewController {
     this.preciseCovers.clear()
     this.preciseQueue = []
     this.preciseCoverRequestKey = null
+    this.lastDisplayedCoverTime = null
   }
 
   private async loadThumbnails() {
@@ -122,11 +138,25 @@ export class HoverPreviewController {
 
     this.thumbnailsLoading = true
     try {
-      const { getVideoCovers } = await import('../../lib/videoThumbnail')
+      const { getTimelineCovers, getVideoCovers } = await import('../../lib/videoThumbnail')
+      const timelineCovers = await getTimelineCovers(this.pickCode)
+      if (timelineCovers.length > 0) {
+        this.covers = mergeCovers([
+          ...this.covers,
+          ...timelineCovers.map(cover => ({ imgUrl: cover.imgUrl, time: cover.time })),
+        ])
+        this.updateThumbnailTrack(duration)
+        this.thumbnailsLoaded = true
+        this.refreshPreviewFromLastPointer()
+      }
+
       const covers = await getVideoCovers(this.pickCode, duration, this.getInitialCoverCount(duration))
       if (covers.length === 0) return
 
-      this.covers = covers
+      this.covers = mergeCovers([
+        ...this.covers,
+        ...covers.map(cover => ({ imgUrl: cover.imgUrl, time: cover.time })),
+      ])
       this.updateThumbnailTrack(duration)
       this.thumbnailsLoaded = true
       this.refreshPreviewFromLastPointer()
@@ -180,6 +210,7 @@ export class HoverPreviewController {
     this.progressEl = progress
     progress.addEventListener('mouseenter', this.handleProgressMouseEnter)
     progress.addEventListener('mouseleave', this.handleProgressMouseLeave)
+    progress.addEventListener('click', this.handleProgressClick, true)
 
     // 创建一个覆盖进度条上方的不可见容差区域，
     // 这样鼠标从进度条移到预览图时不会触发 mouseleave
@@ -231,6 +262,31 @@ export class HoverPreviewController {
     else if (this.previewEl && this.covers.length > 0) {
       this.previewEl.style.display = 'block'
     }
+  }
+
+  private handleProgressClick = (event: MouseEvent) => {
+    if (!this.progressEl || !this.art.duration) {
+      return
+    }
+
+    const hoverTime = this.getHoverTimeFromClientX(event.clientX)
+    if (hoverTime == null) {
+      return
+    }
+
+    const preciseBucketTime = this.getPreciseBucketTime(hoverTime)
+    const preciseCover = this.preciseCovers.get(preciseBucketTime)
+    if (!preciseCover) {
+      return
+    }
+
+    if (Math.abs(preciseCover.time - hoverTime) > PRECISE_SEEK_MAX_DELTA) {
+      return
+    }
+
+    event.preventDefault()
+    event.stopImmediatePropagation()
+    this.art.seek = preciseCover.time
   }
 
   private handleProgressMouseLeave = () => {
@@ -287,6 +343,7 @@ export class HoverPreviewController {
     this.hoverActive = false
     this.lastPointerClientX = null
     this.lastPointerClientY = null
+    this.lastDisplayedCoverTime = null
     this.hidePreview()
   }
 
@@ -562,12 +619,8 @@ export class HoverPreviewController {
       return
     }
 
-    const progressRect = this.progressEl.getBoundingClientRect()
-    if (progressRect.width <= 0) return
-
-    const raw = (event.clientX - progressRect.left) / progressRect.width
-    const ratio = clamp(raw, 0, 1)
-    const hoverTime = ratio * this.art.duration
+    const hoverTime = this.getHoverTimeFromClientX(event.clientX)
+    if (hoverTime == null) return
 
     const preciseBucketTime = this.getPreciseBucketTime(hoverTime)
     this.lastHoverBucketTime = preciseBucketTime
@@ -591,6 +644,7 @@ export class HoverPreviewController {
         this.previewLoadingEl.style.display = 'none'
       }
       this.previewEl.style.display = 'block'
+      this.lastDisplayedCoverTime = nearest.time
     }
     else if (coarseCover?.imgUrl) {
       this.previewImgEl.src = coarseCover.imgUrl
@@ -599,6 +653,7 @@ export class HoverPreviewController {
         this.previewLoadingEl.style.display = 'none'
       }
       this.previewEl.style.display = 'block'
+      this.lastDisplayedCoverTime = coarseCover.time
     }
     else {
       this.previewImgEl.style.visibility = 'hidden'
@@ -606,12 +661,28 @@ export class HoverPreviewController {
         this.previewLoadingEl.style.display = 'flex'
       }
       this.previewEl.style.display = 'block'
+      this.lastDisplayedCoverTime = null
     }
-    this.previewTimeEl.textContent = formatTimeLabel(hoverTime)
+    this.previewTimeEl.textContent = formatTimeLabel(this.lastDisplayedCoverTime ?? hoverTime)
     this.schedulePreciseCover(hoverTime, nearest)
 
     if (!nearest) {
       return
     }
+  }
+
+  private getHoverTimeFromClientX(clientX: number): number | null {
+    if (!this.progressEl || !this.art.duration) {
+      return null
+    }
+
+    const progressRect = this.progressEl.getBoundingClientRect()
+    if (progressRect.width <= 0) {
+      return null
+    }
+
+    const raw = (clientX - progressRect.left) / progressRect.width
+    const ratio = clamp(raw, 0, 1)
+    return ratio * this.art.duration
   }
 }

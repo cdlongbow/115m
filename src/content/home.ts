@@ -6,6 +6,7 @@ import { addDownloadIntercept } from './core/download-intercept'
 
 import { renderPreview } from './core/preview'
 import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
+import { sendRuntimeMessageSafe } from './core/runtime'
 
 class HomeController {
   private boundDocs = new WeakSet<Document>()
@@ -20,13 +21,13 @@ class HomeController {
     this.bindDocument(document)
     this.bindWangpanFrame()
     this.watchFrameAppear()
-    chrome.runtime.onMessage.addListener(this.handleRuntimeMessage)
+    globalThis.chrome?.runtime?.onMessage?.addListener(this.handleRuntimeMessage)
   }
 
   destroy() {
     this.observers.forEach(o => o.disconnect())
     this.observers = []
-    chrome.runtime.onMessage.removeListener(this.handleRuntimeMessage)
+    globalThis.chrome?.runtime?.onMessage?.removeListener(this.handleRuntimeMessage)
   }
 
   private handleRuntimeMessage = (message: any) => {
@@ -200,7 +201,7 @@ else {
 
 // 监听来自 TreeDG callback 的移动成功事件
 window.addEventListener('115m-move-success', () => {
-  chrome.runtime.sendMessage({ type: 'MOVE_SUCCESS_REFRESH' }).catch(() => {})
+  void sendRuntimeMessageSafe({ type: 'MOVE_SUCCESS_REFRESH' })
 })
 
 window.addEventListener('beforeunload', () => {
