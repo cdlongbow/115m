@@ -17,6 +17,12 @@ export interface BindPlayerEventsOptions {
   onError: () => void
 }
 
+function safePlay(art: Artplayer) {
+  void art.play().catch(() => {
+    // Ignore autoplay/source-switch play rejections; player error events handle real failures.
+  })
+}
+
 export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
   const {
     art,
@@ -131,7 +137,7 @@ export function bindPlayerEvents(options: BindPlayerEventsOptions): () => void {
     // 其他所有区域（包括 video、poster、mask、controls 空白处、header 空白处）→ toggle 播放
     event.stopImmediatePropagation()
     if (art.video.paused) {
-      void art.play()
+      safePlay(art)
     }
     else {
       art.pause()

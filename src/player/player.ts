@@ -57,6 +57,13 @@ interface PlayerConfig {
   keepPlaylistOpen?: boolean
 }
 
+function safePlay(art: Artplayer | null) {
+  if (!art) return
+  void art.play().catch(() => {
+    // Ignore native play promise rejections during source switches and transient media reloads.
+  })
+}
+
 class PlayerManager {
   private static readonly QUALITY_CONTROL_NAME = 'm115-quality-control'
   private static readonly CENTER_CONTROL_NAME = 'm115-center-control'
@@ -464,7 +471,7 @@ class PlayerManager {
     this.centerPlayBtnEl?.addEventListener('click', () => {
       if (!this.artplayer) return
       if (this.artplayer.video.paused) {
-        void this.artplayer.play()
+        safePlay(this.artplayer)
       }
       else {
         this.artplayer.pause()
@@ -528,7 +535,7 @@ class PlayerManager {
       if (!this.artplayer) return
       this.artplayer.seek = currentTime
       if (wasPlaying) {
-        void this.artplayer.play()
+        safePlay(this.artplayer)
       }
     })
   }
@@ -835,7 +842,7 @@ class PlayerManager {
     this.clearPlaybackEndState()
     if (!this.artplayer) return
     this.artplayer.seek = 0
-    void this.artplayer.play()
+    safePlay(this.artplayer)
   }
 
   /**

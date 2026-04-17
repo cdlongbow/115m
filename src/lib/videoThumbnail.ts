@@ -7,6 +7,8 @@ const MAX_WIDTH = 720
 const MAX_HEIGHT = 720
 const CACHE_VERSION = 'v3'
 const SEEK_CONCURRENCY = 3
+const PRECISE_TARGET_ACCEPT_DELTA = 2.5
+const PRECISE_EARLY_SUCCESS_DELTA = 0.45
 const sourceUrlCache = new Map<string, Promise<string>>()
 const memoryCoverCache = new Map<string, VideoThumbnail[]>()
 const memorySingleCoverCache = new Map<string, Promise<VideoThumbnail | null>>()
@@ -186,6 +188,52 @@ async function generateCoverWithFallbacks(
   return null
 }
 
+async function generateAccurateCover(
+  clipper: M3U8ClipperNew,
+  time: number,
+  duration: number,
+): Promise<VideoThumbnail | null> {
+  const candidateTimes = uniqueTimes([
+    clampTime(time, duration),
+    clampTime(time - 0.4, duration),
+    clampTime(time + 0.4, duration),
+    clampTime(time - 0.8, duration),
+    clampTime(time + 0.8, duration),
+    clampTime(time - 1.2, duration),
+    clampTime(time + 1.2, duration),
+    clampTime(time - 1.8, duration),
+    clampTime(time + 1.8, duration),
+    clampTime(time - 2.4, duration),
+    clampTime(time + 2.4, duration),
+  ])
+
+  let bestCover: VideoThumbnail | null = null
+  let bestDelta = Number.POSITIVE_INFINITY
+
+  for (const candidateTime of candidateTimes) {
+    const cover = await generateSingleCover(clipper, candidateTime, true)
+    if (!cover) {
+      continue
+    }
+
+    const delta = Math.abs(cover.time - time)
+    if (delta < bestDelta) {
+      bestDelta = delta
+      bestCover = cover
+    }
+
+    if (delta <= PRECISE_EARLY_SUCCESS_DELTA) {
+      return cover
+    }
+  }
+
+  if (bestCover && bestDelta <= PRECISE_TARGET_ACCEPT_DELTA) {
+    return bestCover
+  }
+
+  return null
+}
+
 async function mapWithConcurrency<T, R>(
   items: T[],
   limit: number,
@@ -230,12 +278,10 @@ export async function getVideoCoverAt(
     pending = (async () => {
       const clipper = await openClipper(pickCode)
       try {
-        return await generateCoverWithFallbacks(
+        return await generateAccurateCover(
           clipper,
           normalizedTime,
           duration ?? normalizedTime + 30,
-          4,
-          true,
         )
       }
       finally {

@@ -17,6 +17,7 @@ export class HoverPreviewController {
   private previewEl: HTMLDivElement | null = null
   private previewImgEl: HTMLImageElement | null = null
   private previewTimeEl: HTMLDivElement | null = null
+  private previewLoadingEl: HTMLDivElement | null = null
   private progressEl: HTMLElement | null = null
   private bindRetryTimer: number | null = null
   private hideTimer: number | null = null
@@ -103,6 +104,7 @@ export class HoverPreviewController {
       this.previewEl = null
       this.previewImgEl = null
       this.previewTimeEl = null
+      this.previewLoadingEl = null
     }
     this.covers = []
     this.preciseCovers.clear()
@@ -160,6 +162,7 @@ export class HoverPreviewController {
     this.previewEl = refs.preview
     this.previewImgEl = refs.image
     this.previewTimeEl = refs.time
+    this.previewLoadingEl = refs.loading
   }
 
   private bindProgressHoverEventsWithRetry(retry: number) {
@@ -308,6 +311,9 @@ export class HoverPreviewController {
     if (this.previewEl) {
       this.previewEl.style.display = 'none'
     }
+    if (this.previewLoadingEl) {
+      this.previewLoadingEl.style.display = 'none'
+    }
   }
 
   private rememberPointer(event: MouseEvent) {
@@ -356,7 +362,16 @@ export class HoverPreviewController {
   }
 
   private getInitialCoverCount(duration: number): number {
-    return Math.max(8, Math.min(12, Math.ceil(duration / 300)))
+    if (duration <= 10 * 60) {
+      return 18
+    }
+    if (duration <= 30 * 60) {
+      return 24
+    }
+    if (duration <= 60 * 60) {
+      return 30
+    }
+    return 36
   }
 
   private updateThumbnailTrack(duration: number) {
@@ -461,6 +476,10 @@ export class HoverPreviewController {
 
       if (this.hoverActive && this.lastHoverBucketTime === bucketTime && this.previewEl && this.previewImgEl) {
         this.previewImgEl.src = preciseCover.imgUrl
+        this.previewImgEl.style.visibility = 'visible'
+        if (this.previewLoadingEl) {
+          this.previewLoadingEl.style.display = 'none'
+        }
         this.previewEl.style.display = 'block'
         this.refreshPreviewFromLastPointer()
       }
@@ -533,14 +552,26 @@ export class HoverPreviewController {
 
     if (nearest?.imgUrl) {
       this.previewImgEl.src = nearest.imgUrl
+      this.previewImgEl.style.visibility = 'visible'
+      if (this.previewLoadingEl) {
+        this.previewLoadingEl.style.display = 'none'
+      }
       this.previewEl.style.display = 'block'
     }
-    else if (this.covers.length > 0) {
-      const fallbackCover = coarseCover ?? this.covers[0]
-      if (fallbackCover?.imgUrl) {
-        this.previewImgEl.src = fallbackCover.imgUrl
-        this.previewEl.style.display = 'block'
+    else if (coarseCover?.imgUrl) {
+      this.previewImgEl.src = coarseCover.imgUrl
+      this.previewImgEl.style.visibility = 'visible'
+      if (this.previewLoadingEl) {
+        this.previewLoadingEl.style.display = 'none'
       }
+      this.previewEl.style.display = 'block'
+    }
+    else {
+      this.previewImgEl.style.visibility = 'hidden'
+      if (this.previewLoadingEl) {
+        this.previewLoadingEl.style.display = 'flex'
+      }
+      this.previewEl.style.display = 'block'
     }
     this.previewTimeEl.textContent = formatTimeLabel(hoverTime)
     this.schedulePreciseCover(hoverTime, nearest)

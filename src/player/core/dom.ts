@@ -5,6 +5,7 @@ export interface HoverPreviewRefs {
   preview: HTMLDivElement
   image: HTMLImageElement
   time: HTMLDivElement
+  loading: HTMLDivElement
 }
 
 export function applyTopNavFromQuery(art?: Artplayer): void {
@@ -92,6 +93,24 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
     'background:#111',
   ].join(';')
 
+  const loading = document.createElement('div')
+  loading.style.cssText = [
+    'position:absolute',
+    'top:6px',
+    'left:6px',
+    'width:170px',
+    'height:96px',
+    'display:none',
+    'align-items:center',
+    'justify-content:center',
+    'border-radius:6px',
+    'background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03))',
+    'color:rgba(255,255,255,.82)',
+    'font-size:12px',
+    'letter-spacing:.2px',
+  ].join(';')
+  loading.textContent = '加载预览中'
+
   const time = document.createElement('div')
   time.style.cssText = [
     'margin-top:4px',
@@ -104,8 +123,9 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
   time.textContent = '00:00'
 
   preview.appendChild(image)
+  preview.appendChild(loading)
   preview.appendChild(time)
   container.appendChild(preview)
 
-  return { preview, image, time }
+  return { preview, image, time, loading }
 }
