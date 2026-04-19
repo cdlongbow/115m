@@ -18,7 +18,7 @@ import {
   removeDeletedNodeIn115Tab,
   showMoveFileDialogIn115Page,
 } from '../platform/115/file-actions'
-import { find115TabId, query115Tabs, queryPlayerTabs } from '../platform/115/main-world'
+import { find115TabId, query115Tabs, queryPlayerTabs, runIn115MainWorld } from '../platform/115/main-world'
 
 // ─── FETCH_M3U8 ───
 export async function handleFetchM3u8(message: MsgFetchM3u8) {
@@ -185,47 +185,65 @@ export async function handleTranscode(message: MsgTranscode) {
     pushFormData.append('pickcode', pickCode)
     pushFormData.append('sha1', sha1)
 
-    const pushUrl = 'https://115vod.com/site/?ct=play&ac=push'
-    console.log('[115m] Triggering push:', pushUrl, pushFormData.toString())
+    const result = await runIn115MainWorld({
+      tabId,
+      args: [pickCode, sha1, pushFormData.toString()],
+      func: async (currentPickCode: string, currentSha1: string, pushBody: string) => {
+        const parseJsonSafely = async (res: Response) => {
+          const text = await res.text()
+          if (!text) return null
+          try {
+            return JSON.parse(text)
+          }
+          catch {
+            return { raw: text }
+          }
+        }
 
-    const pushHeaders = {
-      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
-      Accept: 'application/json, text/javascript, */*; q=0.01',
-      Origin: 'https://115vod.com',
-      Referer: `https://115vod.com/?pickcode=${pickCode}&share_id=0`,
-      'X-Requested-With': 'XMLHttpRequest',
-    }
+        const referer = `https://115vod.com/?pickcode=${currentPickCode}&share_id=0`
 
-    const pushRes = await fetch(pushUrl, {
-      method: 'POST',
-      credentials: 'include',
-      headers: pushHeaders,
-      body: pushFormData.toString(),
-    })
+        const pushRes = await fetch('https://115vod.com/site/?ct=play&ac=push', {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/x-www-form-urlencoded',
+          },
+          body: pushBody,
+          referrer: referer,
+        })
+        const pushResult = await parseJsonSafely(pushRes)
 
-    const pushResult = await pushRes.json().catch(() => null)
-    console.log('[115m] vip_push result:', pushResult)
+        const transcodeRes = await fetch(`https://115vod.com/transcode/api/1.0/web/1.0/trans_code/check_transcode_job?sha1=${currentSha1}&priority=100`, {
+          method: 'POST',
+          credentials: 'include',
+          headers: {
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({ fid: currentSha1, priority: 1 }),
+          referrer: referer,
+        })
+        const data = await parseJsonSafely(transcodeRes)
 
-    if (!pushResult || !pushResult.state) {
-      console.warn('[115m] vip_push failed or returned false state:', pushResult)
-    }
-
-    const transcodeUrl = `https://115vod.com/transcode/api/1.0/web/1.0/trans_code/check_transcode_job?sha1=${sha1}&priority=100`
-    const transcodeRes = await fetch(transcodeUrl, {
-      method: 'POST',
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        Origin: 'https://115vod.com',
-        Referer: `https://115vod.com/?pickcode=${pickCode}&share_id=0`,
-        'X-Requested-With': 'XMLHttpRequest',
+        return {
+          pushResult,
+          data,
+          pushStatus: pushRes.status,
+          transcodeStatus: transcodeRes.status,
+        }
       },
-      body: JSON.stringify({ fid: sha1, priority: 1 }),
-    })
+    }) as any
 
-    const result = await transcodeRes.json()
+    if (!result) {
+      return { ok: false, error: '未找到可用的 115 页面上下文' }
+    }
+
+    console.log('[115m] vip_push result:', result.pushResult)
+    if (!result.pushResult || !result.pushResult.state) {
+      console.warn('[115m] vip_push failed or returned false state:', result.pushResult)
+    }
+
     console.log('[115m] transcode check result:', result)
-    return { ok: true, data: result, pushResult }
+    return { ok: true, data: result.data, pushResult: result.pushResult }
   }
   catch (e: any) {
     console.error('[115m] transcode error:', e)
