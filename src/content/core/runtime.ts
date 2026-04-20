@@ -49,7 +49,7 @@ export async function sendRuntimeMessageSafe<T = unknown>(
     }
     catch (error) {
       if (isContextInvalidated(error)) {
-        console.warn(`[115m] Extension context invalidated while sending ${messageLabel}, stop retrying`)
+        // Extension reload invalidates the old page context. Show a refresh tip without polluting error panels.
         showContextInvalidatedTip()
         return null
       }

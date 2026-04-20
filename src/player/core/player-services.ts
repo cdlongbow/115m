@@ -21,20 +21,36 @@ export async function resolvePlaybackBundle(
   pickCode: string,
 ): Promise<ResolvedPlaybackBundle> {
   const qualityPreference = await loadQualityPreference(pickCode)
+  let m3u8Error: unknown = null
+  let ultraError: unknown = null
 
   const m3u8Promise = fetchM3u8WithRetry(pickCode).catch((error) => {
-    console.warn('[115m] fetchM3u8WithRetry failed:', error)
+    m3u8Error = error
     return [] as M3u8Item[]
   })
 
   const ultraPromise = fetchBestDownloadResult(sendMessage, pickCode).catch((error) => {
-    console.warn('[115m] fetchUltraSource failed:', error)
+    ultraError = error
     return null
   })
 
   const [downloadResult, m3u8List] = await Promise.all([ultraPromise, m3u8Promise])
   const ultraUrl = downloadResult?.url?.url || null
   const resolvedM3u8List = Array.isArray(m3u8List) ? m3u8List : []
+
+  if (m3u8Error && !ultraUrl) {
+    console.warn('[115m] fetchM3u8WithRetry failed:', m3u8Error)
+  }
+  else if (m3u8Error) {
+    console.debug('[115m] m3u8 unavailable, fallback to ultra source')
+  }
+
+  if (ultraError && resolvedM3u8List.length === 0) {
+    console.warn('[115m] fetchUltraSource failed:', ultraError)
+  }
+  else if (ultraError) {
+    console.debug('[115m] ultra source unavailable, fallback to m3u8 source')
+  }
 
   if (downloadResult?.url?.auth_cookie) {
     await sendMessage({

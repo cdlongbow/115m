@@ -47,7 +47,7 @@ export async function ensureServiceWorkerReady(maxRetries = 5, delay = 500): Pro
     }
     catch (e) {
       if (isContextInvalidated(e)) {
-        console.warn('[115m] Extension context invalidated, please reload page')
+        // Extension reload invalidates the old page context. Show a refresh tip without polluting error panels.
         showContextInvalidatedTip()
         return
       }
@@ -80,7 +80,7 @@ export async function sendRuntimeMessageSafe<T = unknown>(
     }
     catch (e) {
       if (isContextInvalidated(e)) {
-        console.warn('[115m] Extension context invalidated, stop retrying')
+        // Extension reload invalidates the old page context. Show a refresh tip without polluting error panels.
         showContextInvalidatedTip()
         return null
       }
