@@ -8,6 +8,7 @@ import type {
   MsgFetchPlaylist,
   MsgMoveFile,
   MsgTranscode,
+  MsgTranscodeStatus,
 } from '../shared/messages'
 import { parseM3u8Text } from '../lib/m3u8-parser'
 import {
@@ -18,7 +19,156 @@ import {
   removeDeletedNodeIn115Tab,
   showMoveFileDialogIn115Page,
 } from '../platform/115/file-actions'
-import { find115TabId, query115Tabs, queryPlayerTabs, runIn115MainWorld } from '../platform/115/main-world'
+import { find115TabId, query115Tabs, queryPlayerTabs } from '../platform/115/main-world'
+
+interface TranscodeCheckResult {
+  result?: number
+  status?: number
+  count?: number
+  time?: number
+  priority?: number
+}
+
+interface TranscodePushResult {
+  state?: boolean
+  msg?: string
+  msg_code?: number
+}
+
+interface IsTranscodedResult {
+  state?: number
+  message?: string
+  code?: number
+  data?: string
+  count?: number
+}
+
+function buildQueuedResponse(job: TranscodeCheckResult | null | undefined, detail: string, pushAccepted?: boolean) {
+  return {
+    ok: true,
+    state: 'queued' as const,
+    queueCount: job?.count,
+    etaSeconds: job?.time,
+    priority: job?.priority,
+    pushAccepted,
+    detail,
+  }
+}
+
+async function getTranscodeContext(pickCode: string) {
+  const tabs = await query115Tabs()
+  const tabId = tabs[0]?.id
+  if (!tabId) return { error: '未找到 115.com 页面' }
+
+  const videoResult = await fetchVideoInfoByPickCode(tabId, pickCode) as any
+  if (!videoResult?.state) {
+    return { error: '获取视频信息失败' }
+  }
+
+  const sha1 = videoResult.sha1
+  if (!sha1) {
+    return { error: '无法获取 SHA1' }
+  }
+
+  return { pickCode, sha1 }
+}
+
+export async function handleTranscodeStatus(message: MsgTranscodeStatus) {
+  try {
+    const context = await getTranscodeContext(message.data.pickCode)
+    if ('error' in context) {
+      return { ok: false, state: 'failed', error: context.error }
+    }
+
+    const job = await checkTranscodeJob(context.sha1, context.pickCode)
+    if (job?.status === 3) {
+      return buildQueuedResponse(job, 'queue status refreshed')
+    }
+
+    const transcoded = await checkIsTranscoded(context.pickCode)
+    if (transcoded?.state === 1) {
+      return {
+        ok: true,
+        state: 'manual_required',
+        detail: '转码队列已结束，可刷新重试',
+      }
+    }
+
+    return {
+      ok: true,
+      state: 'pending_check',
+      detail: '等待队列状态更新',
+    }
+  }
+  catch (e: any) {
+    console.error('[115m] transcode status error:', e)
+    return { ok: false, state: 'failed', error: e?.message || String(e) }
+  }
+}
+
+async function parseJsonResponse<T>(response: Response): Promise<T | null> {
+  const text = await response.text()
+  if (!text) return null
+  try {
+    return JSON.parse(text) as T
+  }
+  catch {
+    return null
+  }
+}
+
+async function checkTranscodeJob(sha1: string, pickCode: string): Promise<TranscodeCheckResult | null> {
+  const response = await fetch(`https://115vod.com/transcode/api/1.0/web/1.0/trans_code/check_transcode_job?sha1=${sha1}&priority=100`, {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+    },
+    referrer: `https://115vod.com/?pickcode=${pickCode}&share_id=0`,
+    body: JSON.stringify({ fid: sha1, priority: 1 }),
+  })
+  return await parseJsonResponse<TranscodeCheckResult>(response)
+}
+
+async function pushVipTranscode(sha1: string, pickCode: string): Promise<TranscodePushResult | null> {
+  const body = new URLSearchParams()
+  body.append('op', 'vip_push')
+  body.append('pickcode', pickCode)
+  body.append('sha1', sha1)
+
+  const response = await fetch('https://115vod.com/site/?ct=play&ac=push', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+    },
+    referrer: `https://115vod.com/?pickcode=${pickCode}&share_id=0`,
+    body: body.toString(),
+  })
+  return await parseJsonResponse<TranscodePushResult>(response)
+}
+
+async function checkIsTranscoded(pickCode: string): Promise<IsTranscodedResult | null> {
+  const body = new URLSearchParams()
+  body.append('pick_code', pickCode)
+
+  const response = await fetch('https://115vod.com/webapi/files/is_transcoded', {
+    method: 'POST',
+    credentials: 'include',
+    headers: {
+      'Content-Type': 'application/x-www-form-urlencoded; charset=UTF-8',
+      'X-Requested-With': 'XMLHttpRequest',
+      'Accept': 'application/json, text/javascript, */*; q=0.01',
+    },
+    referrer: `https://115vod.com/?pickcode=${pickCode}&share_id=0`,
+    body: body.toString(),
+  })
+  return await parseJsonResponse<IsTranscodedResult>(response)
+}
 
 // ─── FETCH_M3U8 ───
 export async function handleFetchM3u8(message: MsgFetchM3u8) {
@@ -166,87 +316,53 @@ export async function handleDeleteSuccessRefresh(message: MsgDeleteSuccessRefres
 // ─── TRANSCODE_ACCELERATE ───
 export async function handleTranscode(message: MsgTranscode) {
   try {
-    const { pickCode } = message.data
-
-    const tabs = await query115Tabs()
-    const tabId = tabs[0]?.id
-    if (!tabId) return { ok: false, error: '未找到 115.com 页面' }
-
-    const videoResult = await fetchVideoInfoByPickCode(tabId, pickCode) as any
-    if (!videoResult?.state) {
-      return { ok: false, error: '获取视频信息失败' }
+    const context = await getTranscodeContext(message.data.pickCode)
+    if ('error' in context) {
+      return { ok: false, state: 'failed', error: context.error }
     }
 
-    const sha1 = videoResult.sha1
-    if (!sha1) return { ok: false, error: '无法获取 SHA1' }
+    const { pickCode, sha1 } = context
 
-    const pushFormData = new URLSearchParams()
-    pushFormData.append('op', 'vip_push')
-    pushFormData.append('pickcode', pickCode)
-    pushFormData.append('sha1', sha1)
-
-    const result = await runIn115MainWorld({
-      tabId,
-      args: [pickCode, sha1, pushFormData.toString()],
-      func: async (currentPickCode: string, currentSha1: string, pushBody: string) => {
-        const parseJsonSafely = async (res: Response) => {
-          const text = await res.text()
-          if (!text) return null
-          try {
-            return JSON.parse(text)
-          }
-          catch {
-            return { raw: text }
-          }
-        }
-
-        const referer = `https://115vod.com/?pickcode=${currentPickCode}&share_id=0`
-
-        const pushRes = await fetch('https://115vod.com/site/?ct=play&ac=push', {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/x-www-form-urlencoded',
-          },
-          body: pushBody,
-          referrer: referer,
-        })
-        const pushResult = await parseJsonSafely(pushRes)
-
-        const transcodeRes = await fetch(`https://115vod.com/transcode/api/1.0/web/1.0/trans_code/check_transcode_job?sha1=${currentSha1}&priority=100`, {
-          method: 'POST',
-          credentials: 'include',
-          headers: {
-            'Content-Type': 'application/json',
-          },
-          body: JSON.stringify({ fid: currentSha1, priority: 1 }),
-          referrer: referer,
-        })
-        const data = await parseJsonSafely(transcodeRes)
-
-        return {
-          pushResult,
-          data,
-          pushStatus: pushRes.status,
-          transcodeStatus: transcodeRes.status,
-        }
-      },
-    }) as any
-
-    if (!result) {
-      return { ok: false, error: '未找到可用的 115 页面上下文' }
+    const before = await checkTranscodeJob(sha1, pickCode)
+    if (before?.status === 3) {
+      return buildQueuedResponse(before, 'already queued')
     }
 
-    console.log('[115m] vip_push result:', result.pushResult)
-    if (!result.pushResult || !result.pushResult.state) {
-      console.warn('[115m] vip_push failed or returned false state:', result.pushResult)
+    const pushResult = await pushVipTranscode(sha1, pickCode)
+    const after = await checkTranscodeJob(sha1, pickCode)
+    const transcoded = await checkIsTranscoded(pickCode)
+
+    if (after?.status === 3 || (typeof before?.priority === 'number' && typeof after?.priority === 'number' && after.priority > before.priority)) {
+      return buildQueuedResponse(after, pushResult?.msg || 'queued after vip push', !!pushResult?.state)
     }
 
-    console.log('[115m] transcode check result:', result)
-    return { ok: true, data: result.data, pushResult: result.pushResult }
+    if (transcoded?.state === 1 && after?.status !== 3) {
+      return {
+        ok: true,
+        state: 'manual_required',
+        pushAccepted: !!pushResult?.state,
+        detail: pushResult?.msg || 'transcode not queued automatically',
+      }
+    }
+
+    if (pushResult?.state) {
+      return {
+        ok: true,
+        state: 'pending_check',
+        pushAccepted: true,
+        detail: pushResult.msg || 'vip push accepted',
+      }
+    }
+
+    return {
+      ok: true,
+      state: 'manual_required',
+      pushAccepted: false,
+      detail: pushResult?.msg || 'vip push rejected',
+    }
   }
   catch (e: any) {
     console.error('[115m] transcode error:', e)
-    return { ok: false, error: e?.message || String(e) }
+    return { ok: false, state: 'failed', error: e?.message || String(e) }
   }
 }

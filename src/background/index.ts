@@ -14,6 +14,7 @@ import {
   handleMoveFile,
   handleMoveSuccessRefresh,
   handleTranscode,
+  handleTranscodeStatus,
 } from './handlers'
 
 console.log('[115m] Service Worker starting...')
@@ -105,6 +106,9 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
 
     case 'TRANSCODE_ACCELERATE':
       return handleTranscode(message)
+
+    case 'TRANSCODE_STATUS':
+      return handleTranscodeStatus(message)
 
     case 'SET_COOKIE': {
       const { data } = message

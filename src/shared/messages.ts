@@ -101,6 +101,11 @@ export interface MsgTranscode {
   data: { pickCode: string }
 }
 
+export interface MsgTranscodeStatus {
+  type: 'TRANSCODE_STATUS'
+  data: { pickCode: string }
+}
+
 export interface MsgFetchPlaylistResponse {
   list?: FileItem[]
   path?: Array<{ cid: string, name: string }>
@@ -138,3 +143,4 @@ export type RuntimeMessage =
   | MsgMoveSuccessRefresh
   | MsgDeleteSuccessRefresh
   | MsgTranscode
+  | MsgTranscodeStatus

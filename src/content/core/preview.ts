@@ -10,6 +10,7 @@ import {
 } from './utils'
 
 const coverScheduler = new Scheduler(3)
+const TRANSCODE_STATUS_POLL_MS = 15000
 
 interface CoverItem {
   imgUrl: string
@@ -115,6 +116,65 @@ function getLightboxController(doc: Document): LightboxController {
   const created = createLightboxController(doc)
   lightboxByDoc.set(doc, created)
   return created
+}
+
+function showPreviewUnavailable(container: HTMLElement) {
+  container.innerHTML = ''
+}
+
+interface TranscodeResponse {
+  ok?: boolean
+  state?: 'queued' | 'manual_required' | 'pending_check' | 'failed'
+  error?: string
+  detail?: string
+  queueCount?: number
+  etaSeconds?: number
+  priority?: number
+  pushAccepted?: boolean
+}
+
+function formatTranscodeEta(etaSeconds: number): string {
+  const safeSeconds = Math.max(0, Math.floor(etaSeconds))
+  if (safeSeconds <= 60) {
+    return `${safeSeconds} 秒`
+  }
+
+  return `${Math.floor(safeSeconds / 60)} 分钟`
+}
+
+function formatTranscodeStatus(res: TranscodeResponse): { text: string, color: string } {
+  if (res.state === 'queued') {
+    const parts: string[] = []
+    if (typeof res.queueCount === 'number') {
+      parts.push(`前方 ${res.queueCount} 个`)
+    }
+    if (typeof res.etaSeconds === 'number') {
+      parts.push(`预计 ${formatTranscodeEta(res.etaSeconds)}`)
+    }
+    return {
+      text: parts.length > 0 ? `VIP 加速排队中: ${parts.join('，')}` : 'VIP 加速排队中',
+      color: '#52c41a',
+    }
+  }
+
+  if (res.state === 'pending_check') {
+    return {
+      text: 'VIP 自动加速已发起，等待队列确认',
+      color: '#52c41a',
+    }
+  }
+
+  if (res.state === 'manual_required') {
+    return {
+      text: res.detail || '自动加速未命中，可手动转码',
+      color: '#faad14',
+    }
+  }
+
+  return {
+    text: res.error || res.detail || '自动加速失败，可手动重试',
+    color: '#fa8c16',
+  }
 }
 
 /** 预览图加载状态 */
@@ -314,48 +374,133 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
   label.className = 'm115-transcode-label'
   label.textContent = 'VIP 自动加速转码中...'
 
+  const button = document.createElement('button')
+  button.type = 'button'
+  button.className = 'm115-transcode-btn'
+  button.textContent = 'VIP加速转码'
+  button.style.cssText = [
+    'margin-top:10px',
+    'padding:8px 14px',
+    'border:none',
+    'border-radius:6px',
+    'background:#ff6a00',
+    'color:#fff',
+    'font-size:12px',
+    'cursor:pointer',
+  ].join(';')
+  button.hidden = true
+
   wrapper.appendChild(label)
+  wrapper.appendChild(button)
   container.appendChild(wrapper)
 
-  const lsKey = 'm115_tc_' + pickCode
+  let pollTimer: number | undefined
 
-  // 避免跨页面/跨刷新重复触发
-  if (acceleratedSet.has(pickCode) || localStorage.getItem(lsKey)) {
-    label.textContent = '✓ VIP 加速转码中'
-    label.style.color = '#52c41a'
+  const stopPolling = () => {
+    if (typeof pollTimer === 'number') {
+      clearTimeout(pollTimer)
+      pollTimer = undefined
+    }
+  }
+
+  const schedulePoll = () => {
+    stopPolling()
+    pollTimer = window.setTimeout(() => {
+      if (!wrapper.isConnected) {
+        stopPolling()
+        return
+      }
+      runStatusCheck()
+    }, TRANSCODE_STATUS_POLL_MS)
+  }
+
+  const setManualFallback = (message: string) => {
+    stopPolling()
+    label.textContent = message
+    label.style.color = '#fa8c16'
+    button.hidden = false
+    button.disabled = false
+    button.textContent = 'VIP加速转码'
+  }
+
+  const applyStatus = (res: TranscodeResponse) => {
+    if (res.ok && res.state && res.state !== 'manual_required') {
+      const status = formatTranscodeStatus(res)
+      label.textContent = status.text
+      label.style.color = status.color
+      button.hidden = true
+      if (res.state === 'queued' || res.state === 'pending_check') {
+        schedulePoll()
+      }
+      else {
+        stopPolling()
+      }
+      return true
+    }
+
+    if (res.state === 'manual_required') {
+      const status = formatTranscodeStatus(res)
+      setManualFallback(status.text)
+      return true
+    }
+
+    return false
+  }
+
+  const runStatusCheck = () => {
+    sendRuntimeMessageSafe<TranscodeResponse>({
+      type: 'TRANSCODE_STATUS',
+      data: { pickCode },
+    }).then((res) => {
+      if (res && applyStatus(res)) {
+        return
+      }
+
+      acceleratedSet.delete(pickCode)
+      setManualFallback(res?.error || '转码状态刷新失败，可手动重试')
+    }).catch(() => {
+      acceleratedSet.delete(pickCode)
+      setManualFallback('转码状态刷新异常，可手动重试')
+    })
+  }
+
+  const runTranscode = (manual = false) => {
+    stopPolling()
+    if (manual) {
+      button.disabled = true
+      button.textContent = '加速中...'
+      label.textContent = '正在请求 VIP 加速转码...'
+      label.style.color = '#1677ff'
+    }
+
+    sendRuntimeMessageSafe<TranscodeResponse>({
+      type: 'TRANSCODE_ACCELERATE',
+      data: { pickCode },
+    }).then((res) => {
+      if (res && applyStatus(res)) {
+        return
+      }
+
+      acceleratedSet.delete(pickCode)
+      setManualFallback(res?.error || '自动加速失败，可手动重试')
+    }).catch(() => {
+      acceleratedSet.delete(pickCode)
+      setManualFallback('自动加速异常，可手动重试')
+    })
+  }
+
+  button.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    acceleratedSet.add(pickCode)
+    runTranscode(true)
+  })
+
+  if (acceleratedSet.has(pickCode)) {
+    runStatusCheck()
     return
   }
   acceleratedSet.add(pickCode)
 
-  // 自动触发加速请求
-  sendRuntimeMessageSafe<{ ok?: boolean, error?: string, data?: any, pushResult?: any }>({
-    type: 'TRANSCODE_ACCELERATE',
-    data: { pickCode },
-  }).then(res => {
-    if (res?.ok) {
-      if (res.pushResult && res.pushResult.state) {
-        label.textContent = '✓ VIP 成功加入加速队列'
-        label.style.color = '#52c41a'
-      } else if (res.pushResult && !res.pushResult.state) {
-        label.textContent = `! 队列拒绝: ${res.pushResult.msg || '未知'}`
-        label.style.color = '#faad14'
-      } else {
-        label.textContent = '✓ VIP 自动加速转码请求发出'
-        label.style.color = '#52c41a'
-      }
-      try {
-        localStorage.setItem(lsKey, '1')
-      } catch (e) {
-        // ignore storage errors
-      }
-    } else {
-      label.textContent = res?.error || '加速请求失败'
-      label.style.color = '#ff4d4f'
-      acceleratedSet.delete(pickCode)  // 允许重试
-    }
-  }).catch(() => {
-    label.textContent = '加速请求异常'
-    label.style.color = '#ff4d4f'
-    acceleratedSet.delete(pickCode)
-  })
+  runTranscode(false)
 }
