@@ -124,7 +124,7 @@ function showPreviewUnavailable(container: HTMLElement) {
 
 interface TranscodeResponse {
   ok?: boolean
-  state?: 'queued' | 'manual_required' | 'pending_check' | 'failed'
+  state?: 'queued' | 'manual_required' | 'pending_check' | 'completed_refresh' | 'failed'
   error?: string
   detail?: string
   queueCount?: number
@@ -168,6 +168,13 @@ function formatTranscodeStatus(res: TranscodeResponse): { text: string, color: s
     return {
       text: res.detail || '自动加速未命中，可手动转码',
       color: '#faad14',
+    }
+  }
+
+  if (res.state === 'completed_refresh') {
+    return {
+      text: res.detail || 'VIP 加速已完成，刷新页面后可预览',
+      color: '#52c41a',
     }
   }
 

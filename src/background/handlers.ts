@@ -89,8 +89,8 @@ export async function handleTranscodeStatus(message: MsgTranscodeStatus) {
     if (transcoded?.state === 1) {
       return {
         ok: true,
-        state: 'manual_required',
-        detail: '转码队列已结束，可刷新重试',
+        state: 'completed_refresh',
+        detail: 'VIP 加速已完成，刷新页面后可预览',
       }
     }
 
