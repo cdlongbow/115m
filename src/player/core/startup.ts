@@ -13,14 +13,16 @@ export interface InitialPlaybackPlan {
 export function resolveInitialPlayback(params: {
   qualityPreference: QualityPreference | null
   ultraUrl: string | null
+  canUseNativeUltraSource?: boolean
   m3u8List: M3u8Item[]
 }): InitialPlaybackPlan | null {
-  const { qualityPreference, ultraUrl, m3u8List } = params
+  const { qualityPreference, ultraUrl, canUseNativeUltraSource = true, m3u8List } = params
+  const playableUltraUrl = canUseNativeUltraSource ? ultraUrl : null
 
   if (qualityPreference) {
-    if (qualityPreference.label === '无损' && ultraUrl) {
+    if (qualityPreference.label === '无损' && playableUltraUrl) {
       return {
-        url: ultraUrl,
+        url: playableUltraUrl,
         type: 'native',
         currentQuality: 9999,
         currentQualityLabel: '无损',
@@ -33,19 +35,23 @@ export function resolveInitialPlayback(params: {
       : m3u8List.find(item => item.quality === qualityPreference.quality)
 
     if (preferredItem) {
+      const preferredLabel = qualityPreference.label === '无损' && !playableUltraUrl
+        ? getQualityDisplayName(preferredItem.quality, true)
+        : qualityPreference.label
+
       return {
         url: preferredItem.url,
         type: 'hls',
         currentQuality: preferredItem.quality,
-        currentQualityLabel: qualityPreference.label,
+        currentQualityLabel: preferredLabel,
         isNativeVideo: false,
       }
     }
   }
 
-  if (ultraUrl) {
+  if (playableUltraUrl) {
     return {
-      url: ultraUrl,
+      url: playableUltraUrl,
       type: 'native',
       currentQuality: 9999,
       currentQualityLabel: '无损',

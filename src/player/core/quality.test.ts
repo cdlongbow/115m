@@ -40,4 +40,18 @@ describe('quality helpers', () => {
     expect(getQualityDisplayName(9999, true)).toBe('115原画')
     expect(getQualityDisplayName(1080, true)).toBe('1080P')
   })
+
+  it('does not expose lossless option when native ultra is disabled', () => {
+    const options = buildQualityOptions(
+      '',
+      null,
+      [{ name: 'YH', quality: 9999, url: 'https://origin.example/master.m3u8' }],
+      9999,
+      '115原画',
+    )
+
+    expect(options).toEqual([
+      { label: '115原画', quality: 9999, url: 'https://origin.example/master.m3u8' },
+    ])
+  })
 })

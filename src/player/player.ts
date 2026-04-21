@@ -50,6 +50,7 @@ import {
 import { deleteVideoFile, fetchFavoriteStatus, updateFavoriteStatus } from './core/player-api'
 import { buildPlaybackNavState, getDeleteFallback, getPlaylistPosition } from './core/playlist-navigation'
 import { readTemporaryPlayerPlaylist } from '../shared/player-playlist-cache'
+import { canUseNativeUltraSource, shouldRetryNativePlayback } from './core/native-playback'
 
 interface PlayerConfig {
   pickCode: string
@@ -95,6 +96,7 @@ class PlayerManager {
   private cleanupKeyboard: (() => void) | null = null
   private readonly keepPlaylistOpenOnInit: boolean
   private readonly playlistToken?: string
+  private readonly nativeUltraSupported: boolean
   private currentPlaybackType: 'native' | 'hls' = 'hls'
   private centerControlEl: HTMLElement | null = null
   private centerPlayBtnEl: HTMLButtonElement | null = null
@@ -102,6 +104,7 @@ class PlayerManager {
   private centerNextBtnEl: HTMLButtonElement | null = null
   private nativePlayObserver: MutationObserver | null = null
   private lastPlaylistProgressSyncSec = -1
+  private nativePlaybackRetryCount = 0
   private readonly handleRuntimeMessage = (message: any) => {
     if (message?.type === 'MOVE_SUCCESS_REFRESH') {
       void this.refreshBreadcrumbs()
@@ -120,6 +123,10 @@ class PlayerManager {
     this.clickTs = config.clickTs || 0
     this.keepPlaylistOpenOnInit = config.keepPlaylistOpen === true
     this.playlistToken = config.playlistToken
+    this.nativeUltraSupported = canUseNativeUltraSource(
+      new URLSearchParams(window.location.search).get('title') || '',
+      null,
+    )
     this.initStartTs = performance.now()
     this.perfMarks.init = this.initStartTs
     runPlayerSmokeChecks()
@@ -370,6 +377,7 @@ class PlayerManager {
         onPlaying: () => {
           this.clearPlaybackEndState()
           this.syncCenterPlayButton()
+          this.nativePlaybackRetryCount = 0
           this.perfMarks.playing = performance.now()
           this.reportFirstFrameSummary()
         },
@@ -379,7 +387,7 @@ class PlayerManager {
         onError: () => {
           this.syncCenterPlayButton()
           if (this.isNativeVideo) {
-            void this.fallbackToHls()
+            void this.handleNativePlaybackError()
           }
         },
       })
@@ -525,8 +533,8 @@ class PlayerManager {
 
     if (this.artplayer.url === opt.url) return
 
-    const currentTime = this.artplayer.currentTime || 0
-    const wasPlaying = !this.artplayer.video.paused
+    this.nativePlaybackRetryCount = 0
+    this.currentPlaybackType = !!this.ultraUrl && opt.url === this.ultraUrl ? 'native' : 'hls'
 
     this.applyPlaybackStatePatch(applySelectedQualityOption(this.getPlaybackState(), opt))
     this.renderQualityPanel()
@@ -534,14 +542,15 @@ class PlayerManager {
     // 记住用户手动选择的画质
     saveQualityPreference(this.currentPickCode, opt.label, opt.quality)
 
-    this.artplayer.switchUrl(opt.url)
-    this.artplayer.once('video:loadedmetadata', () => {
+    try {
+      await this.artplayer.switchQuality(opt.url)
+    }
+    catch (error) {
       if (!this.artplayer) return
-      this.artplayer.seek = currentTime
-      if (wasPlaying) {
-        safePlay(this.artplayer)
-      }
-    })
+      this.updateQualityByUrl(this.artplayer.url || '')
+      this.renderQualityPanel()
+      this.overlay?.showToast(error instanceof Error ? error.message : '切换画质失败')
+    }
   }
 
   private setupTopNav() {
@@ -677,6 +686,7 @@ class PlayerManager {
 
     const { url: bestQualityUrl, patch } = applyFallbackToHlsState(this.getPlaybackState())
     this.applyPlaybackStatePatch(patch)
+    this.currentPlaybackType = 'hls'
     if (!bestQualityUrl) {
       this.showError('播放失败，无可用的视频源')
       return
@@ -684,7 +694,53 @@ class PlayerManager {
     
     console.log('[115m] fallbackToHls: switching to', bestQualityUrl.substring(0, 80) + '...')
     this.renderQualityPanel()
-    this.artplayer.switchUrl(bestQualityUrl)
+    try {
+      await this.artplayer.switchUrl(bestQualityUrl)
+    }
+    catch (error) {
+      console.error('[115m] fallbackToHls switchUrl failed:', error)
+      this.showError('播放失败，无可用的视频源')
+    }
+  }
+
+  private async handleNativePlaybackError() {
+    if (!this.artplayer) return
+
+    const hasStartedPlaying = !!this.perfMarks.playing
+    if (shouldRetryNativePlayback({ retryCount: this.nativePlaybackRetryCount, hasStartedPlaying })) {
+      this.nativePlaybackRetryCount += 1
+      this.retryNativePlayback()
+      return
+    }
+
+    if (hasStartedPlaying) {
+      this.overlay?.showToast('无损播放出现波动，请稍后重试，或手动切换 115原画')
+      return
+    }
+
+    await this.fallbackToHls()
+  }
+
+  private retryNativePlayback() {
+    if (!this.artplayer) return
+
+    const retryUrl = this.ultraUrl || this.artplayer.url || ''
+    if (!retryUrl) return
+
+    const currentTime = this.artplayer.currentTime || 0
+    const shouldResume = !this.artplayer.video.paused || currentTime <= 0
+
+    this.artplayer.once('video:loadedmetadata', () => {
+      if (!this.artplayer) return
+      if (currentTime > 0) {
+        this.artplayer.seek = currentTime
+      }
+      if (shouldResume) {
+        safePlay(this.artplayer)
+      }
+    })
+
+    this.artplayer.url = retryUrl
   }
 
   private async ensureOriginalSourceLoaded(): Promise<string | null> {
@@ -994,7 +1050,7 @@ class PlayerManager {
   }
 
   private async resolvePlaybackForPickCode(pickCode: string) {
-    const playback = await resolvePlaybackBundle(sendRuntimeMessageSafe, pickCode)
+    const playback = await resolvePlaybackBundle(sendRuntimeMessageSafe, pickCode, this.nativeUltraSupported)
 
     console.log('[115m] Source fetch result:', {
       pickCode,
@@ -1008,6 +1064,7 @@ class PlayerManager {
   }
 
   private applyResolvedPlayback(playback: ResolvedPlaybackBundle) {
+    this.nativePlaybackRetryCount = 0
     this.ultraUrl = playback.ultraUrl
     this.m3u8List = playback.m3u8List
     this.isNativeVideo = playback.initialPlayback.isNativeVideo
@@ -1016,7 +1073,7 @@ class PlayerManager {
     this.currentQualityLabel = playback.initialPlayback.currentQualityLabel
     this.qualityOptions = buildQualityOptions(
       '',
-      playback.initialPlayback.type === 'native' ? playback.initialPlayback.url : playback.ultraUrl,
+      this.nativeUltraSupported ? (playback.initialPlayback.type === 'native' ? playback.initialPlayback.url : playback.ultraUrl) : null,
       this.m3u8List,
       this.currentQuality,
       this.currentQualityLabel,

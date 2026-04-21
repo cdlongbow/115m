@@ -19,6 +19,7 @@ export interface ResolvedPlaybackBundle {
 export async function resolvePlaybackBundle(
   sendMessage: RuntimeSender,
   pickCode: string,
+  canUseNativeUltraSource = true,
 ): Promise<ResolvedPlaybackBundle> {
   const qualityPreference = await loadQualityPreference(pickCode)
   let m3u8Error: unknown = null
@@ -70,6 +71,7 @@ export async function resolvePlaybackBundle(
   const initialPlayback = resolveInitialPlayback({
     qualityPreference,
     ultraUrl,
+    canUseNativeUltraSource,
     m3u8List: resolvedM3u8List,
   })
 
