@@ -340,6 +340,18 @@
   font-size: 15px;
   color: #111827;
   border-bottom: 1px solid rgba(15,23,42,.06);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.m115-sidebar-settings-close {
+  border: 0;
+  background: transparent;
+  color: #9ca3af;
+  font-size: 24px;
+  line-height: 1;
+  cursor: pointer;
 }
 
 .m115-sidebar-settings-body {
@@ -350,11 +362,31 @@
 }
 
 .m115-sidebar-settings-row {
-  display: inline-flex;
+  display: flex;
   align-items: center;
+  justify-content: space-between;
   gap: 8px;
   font-size: 14px;
   color: #374151;
+  padding: 10px 12px;
+  border: 1px solid rgba(15,23,42,.08);
+  border-radius: 10px;
+  background: #fff;
+}
+
+.m115-sidebar-settings-item-main {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.m115-sidebar-settings-item-icon {
+  width: 22px;
+  height: 22px;
+  display: inline-block;
+  background-repeat: no-repeat;
+  background-position: center;
+  background-size: contain;
 }
 
 .m115-sidebar-settings-footer {

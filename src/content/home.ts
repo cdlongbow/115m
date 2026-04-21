@@ -190,14 +190,34 @@ class HomeController {
 
 let controller: HomeController | null = null
 
+function primeSidebarPrehide() {
+  injectSidebarPrehide(document)
+
+  const tryInjectFrame = () => {
+    const frame = document.querySelector('iframe[name="wangpan"]') as HTMLIFrameElement | null
+    const doc = frame?.contentDocument
+    if (doc) {
+      injectSidebarPrehide(doc)
+    }
+  }
+
+  tryInjectFrame()
+
+  const observer = new MutationObserver(() => tryInjectFrame())
+  observer.observe(document.documentElement, { childList: true, subtree: true })
+
+  window.setTimeout(() => observer.disconnect(), 15000)
+}
+
 function init() {
   if (window.top !== window) return
   if (/\/web\/lixian\/master\/video\//.test(window.location.pathname)) return
-  injectSidebarPrehide(document)
   initSidebar(document)
   controller = new HomeController()
   controller.init()
 }
+
+primeSidebarPrehide()
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init)

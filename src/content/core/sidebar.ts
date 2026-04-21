@@ -24,6 +24,20 @@ const NAV_ITEMS: SidebarNavItem[] = [
   { id: 'share', title: '链接分享', icon: `${ICON_BASE}/storage_link_shared.svg`, href: '//115.com/?mode=share_save', dataNav: 'share_save', defaultEnabled: false },
 ]
 
+function getSortedItems(items: SidebarNavItem[]): SidebarNavItem[] {
+  const specialOrder = ['receive', 'upload', 'recyclebin']
+  const specialItems: SidebarNavItem[] = []
+  const normalItems: SidebarNavItem[] = []
+
+  items.forEach((item) => {
+    if (specialOrder.includes(item.id)) specialItems.push(item)
+    else normalItems.push(item)
+  })
+
+  specialItems.sort((a, b) => specialOrder.indexOf(a.id) - specialOrder.indexOf(b.id))
+  return [...normalItems, ...specialItems]
+}
+
 function getEnabledIds(doc: Document): Set<string> {
   try {
     const raw = doc.defaultView?.localStorage?.getItem(SIDEBAR_STORAGE_KEY)
@@ -52,6 +66,19 @@ export function injectSidebarPrehide(doc: Document) {
   const style = doc.createElement('style')
   style.id = SIDEBAR_PREHIDE_ID
   style.textContent = `
+    .container-leftside .top-side .navigation-ceiling ul,
+    .container-leftside .bottom-side .navigation-ceiling ul {
+      visibility: hidden !important;
+    }
+
+    .container-leftside .top-side .navigation-ceiling ul .m115-nav-item,
+    .container-leftside .top-side .navigation-ceiling ul .m115-nav-link,
+    .container-leftside .top-side .navigation-ceiling ul #${SIDEBAR_ID},
+    .container-leftside .bottom-side .navigation-ceiling ul .m115-sidebar-settings-item,
+    .container-leftside .bottom-side .navigation-ceiling ul .m115-nav-link {
+      visibility: visible !important;
+    }
+
     .container-leftside .top-side .navigation-ceiling ul li[mode_btn="wangpan"],
     .container-leftside .top-side .navigation-ceiling ul li[mode_btn="home"],
     .container-leftside .top-side .navigation-ceiling ul li[mode_btn="vip"],
@@ -59,7 +86,7 @@ export function injectSidebarPrehide(doc: Document) {
     .container-leftside .bottom-side .navigation-ceiling ul li:has(#js_left_notice),
     .container-leftside .bottom-side .navigation-ceiling ul li:has(#js_feedback_main),
     .container-leftside .bottom-side .navigation-ceiling ul li:has(a[onclick*="CommonHeader.showClientDownLoad"]) {
-      visibility: hidden !important;
+      display: none !important;
     }
   `
   doc.head?.appendChild(style)
@@ -143,14 +170,29 @@ function openSettings(doc: Document, enabledIds: Set<string>) {
 
   const header = doc.createElement('div')
   header.className = 'm115-sidebar-settings-header'
-  header.innerHTML = '<strong>左侧栏设置</strong>'
+  const title = doc.createElement('strong')
+  title.textContent = '115左侧栏设置'
+  const closeX = doc.createElement('button')
+  closeX.type = 'button'
+  closeX.className = 'm115-sidebar-settings-close'
+  closeX.textContent = '×'
+  closeX.addEventListener('click', () => closeSettings(doc))
+  header.appendChild(title)
+  header.appendChild(closeX)
 
   const body = doc.createElement('div')
   body.className = 'm115-sidebar-settings-body'
 
-  NAV_ITEMS.filter(item => item.id !== 'wangpan').forEach((item) => {
+  getSortedItems(NAV_ITEMS.filter(item => item.id !== 'wangpan')).forEach((item) => {
     const row = doc.createElement('label')
     row.className = 'm115-sidebar-settings-row'
+
+    const itemMain = doc.createElement('span')
+    itemMain.className = 'm115-sidebar-settings-item-main'
+
+    const itemIcon = doc.createElement('i')
+    itemIcon.className = 'm115-sidebar-settings-item-icon'
+    itemIcon.style.backgroundImage = `url("${item.icon}")`
 
     const checkbox = doc.createElement('input')
     checkbox.type = 'checkbox'
@@ -165,8 +207,10 @@ function openSettings(doc: Document, enabledIds: Set<string>) {
     const text = doc.createElement('span')
     text.textContent = item.title
 
+    itemMain.appendChild(itemIcon)
+    itemMain.appendChild(text)
+    row.appendChild(itemMain)
     row.appendChild(checkbox)
-    row.appendChild(text)
     body.appendChild(row)
   })
 
