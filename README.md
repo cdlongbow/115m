@@ -1,7 +1,10 @@
-<img width="1040" height="850" alt="QQ20260421-174247" src="https://github.com/user-attachments/assets/f13c87eb-d852-4b23-876d-897cab9b11b2" />
 # 115m
 
 `115m` 是一个 115 网盘增强扩展。
+
+<p align="center">
+  <img width="880" alt="115m preview" src="https://github.com/user-attachments/assets/f13c87eb-d852-4b23-876d-897cab9b11b2" />
+</p>
 
 主要围绕三块体验增强：
 - 列表页媒体增强：文件夹封面、图片区、视频预览
