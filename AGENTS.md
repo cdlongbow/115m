@@ -28,6 +28,7 @@
 
 - 涉及发布、文档整理、输出风格、协作方式：先看 `docs/AI-PREFERENCES.md`
 - 涉及播放器核心、平台层、消息链路：先看 `docs/AI-HANDOFF.md`
+- 涉及图片图墙、文件夹封面、图片查看器、混合目录展示策略：先看 `docs/runbooks/image-wall.md`
 - 涉及 GitHub Release、版本打包、发布说明：先看 `docs/runbooks/release.md`
 - 只做普通代码修改时：先看本文件，再直接看相关代码，不默认通读全部文档
 - 发现某类任务反复出现且步骤固定时，应补一份新的 `docs/runbooks/*.md`
