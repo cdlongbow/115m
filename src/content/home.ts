@@ -9,6 +9,7 @@ import { renderMediaWall } from './core/media-wall'
 import { initSidebar, injectSidebarPrehide } from './core/sidebar'
 import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
 import { sendRuntimeMessageSafe } from './core/runtime'
+import type { StoredPlayerPlaylistItem } from '../shared/player-playlist-cache'
 
 class HomeController {
   private boundDocs = new WeakSet<Document>()
@@ -125,12 +126,45 @@ class HomeController {
       event.preventDefault()
       event.stopPropagation()
       event.stopImmediatePropagation()
-      void openPlayer(file)
+      void openPlayer(file, this.collectVisiblePlaylistItems(item.ownerDocument, file.pickCode))
     }
 
     fileNameNode.addEventListener('click', handleClickPlayer as EventListener, true)
     item.addEventListener('dblclick', handleClickPlayer as EventListener, true)
     this.playBoundItems.add(item)
+  }
+
+  private collectVisiblePlaylistItems(doc: Document, _currentPickCode: string): StoredPlayerPlaylistItem[] {
+    const list = doc.querySelector('.list-contents')
+    if (!list) return []
+
+    const items = Array.from(list.querySelectorAll<HTMLElement>('li[rel="item"],div[rel="item"],li[pick_code],li[pickcode],div[pick_code],div[pickcode]'))
+      .filter(item => this.isRenderablePlaylistItem(item))
+      .map((item) => {
+        const file = extractFileInfo(item)
+        if (!file?.isVideo) return null
+        return {
+          pickCode: file.pickCode,
+          fileId: file.fileId || '',
+          name: file.fileName,
+          size: file.fileSize,
+          isMarked: file.isMarked,
+          duration: file.duration,
+        } satisfies StoredPlayerPlaylistItem
+      })
+      .filter((item): item is StoredPlayerPlaylistItem => !!item)
+
+    return items
+  }
+
+  private isRenderablePlaylistItem(item: HTMLElement) {
+    if (!item.isConnected) return false
+    if (item.closest('.m115-media-wall')) return false
+
+    const style = item.ownerDocument.defaultView?.getComputedStyle(item)
+    if (!style || style.display === 'none' || style.visibility === 'hidden') return false
+    if (item.hidden || item.getAttribute('aria-hidden') === 'true') return false
+    return item.getClientRects().length > 0
   }
 
   /**

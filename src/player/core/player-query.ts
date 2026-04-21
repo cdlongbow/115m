@@ -5,6 +5,7 @@ export interface PlayerBootstrapConfig {
   traceId?: string
   clickTs?: number
   keepPlaylistOpen?: boolean
+  playlistToken?: string
 }
 
 export interface OverlayMetaQuery {
@@ -32,8 +33,9 @@ export function readPlayerBootstrapConfig(search: string): PlayerBootstrapConfig
   const clickTsRaw = params.get('clickTs')
   const clickTs = clickTsRaw ? Number(clickTsRaw) : undefined
   const keepPlaylistOpen = params.get('playlistOpen') === '1'
+  const playlistToken = params.get('playlistToken') || undefined
 
-  return { pickCode, traceId, clickTs, keepPlaylistOpen }
+  return { pickCode, traceId, clickTs, keepPlaylistOpen, playlistToken }
 }
 
 export function readPlaylistCidFromLocation(search: string): string {

@@ -49,12 +49,14 @@ import {
 } from './core/player-query'
 import { deleteVideoFile, fetchFavoriteStatus, updateFavoriteStatus } from './core/player-api'
 import { buildPlaybackNavState, getDeleteFallback, getPlaylistPosition } from './core/playlist-navigation'
+import { readTemporaryPlayerPlaylist } from '../shared/player-playlist-cache'
 
 interface PlayerConfig {
   pickCode: string
   traceId?: string
   clickTs?: number
   keepPlaylistOpen?: boolean
+  playlistToken?: string
 }
 
 function safePlay(art: Artplayer | null) {
@@ -92,6 +94,7 @@ class PlayerManager {
   private _initUrl = ''
   private cleanupKeyboard: (() => void) | null = null
   private readonly keepPlaylistOpenOnInit: boolean
+  private readonly playlistToken?: string
   private currentPlaybackType: 'native' | 'hls' = 'hls'
   private centerControlEl: HTMLElement | null = null
   private centerPlayBtnEl: HTMLButtonElement | null = null
@@ -116,6 +119,7 @@ class PlayerManager {
     this.traceId = config.traceId || `${config.pickCode}-${Date.now()}`
     this.clickTs = config.clickTs || 0
     this.keepPlaylistOpenOnInit = config.keepPlaylistOpen === true
+    this.playlistToken = config.playlistToken
     this.initStartTs = performance.now()
     this.perfMarks.init = this.initStartTs
     runPlayerSmokeChecks()
@@ -739,6 +743,11 @@ class PlayerManager {
   }
 
   private async fetchPlaylistItemsInternal(): Promise<OverlayPlaylistItem[]> {
+    const temporaryPlaylist = readTemporaryPlayerPlaylist(this.playlistToken)
+    if (temporaryPlaylist.some(item => item.pickCode === this.currentPickCode)) {
+      return temporaryPlaylist
+    }
+
     const cid = readPlaylistCidFromLocation(window.location.search)
 
     return await fetchPlaylistData({
@@ -1053,7 +1062,7 @@ class PlayerManager {
 let playerManager: PlayerManager | null = null
 
 function initPlayer() {
-  const { pickCode, traceId, clickTs, keepPlaylistOpen } = readPlayerBootstrapConfig(window.location.search)
+  const { pickCode, traceId, clickTs, keepPlaylistOpen, playlistToken } = readPlayerBootstrapConfig(window.location.search)
 
   if (!pickCode) {
     const el = document.getElementById('artplayer-app')
@@ -1063,7 +1072,7 @@ function initPlayer() {
     return
   }
 
-  playerManager = new PlayerManager({ pickCode, traceId, clickTs, keepPlaylistOpen })
+  playerManager = new PlayerManager({ pickCode, traceId, clickTs, keepPlaylistOpen, playlistToken })
 }
 
 if (document.readyState === 'loading') {

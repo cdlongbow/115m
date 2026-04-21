@@ -15,11 +15,13 @@ describe('player query helpers', () => {
       traceId: 't1',
       clickTs: 123,
       keepPlaylistOpen: false,
+      playlistToken: undefined,
     })
 
-    expect(readPlayerBootstrapConfig('?pickCode=abc&playlistOpen=1')).toEqual({
+    expect(readPlayerBootstrapConfig('?pickCode=abc&playlistOpen=1&playlistToken=p1')).toEqual({
       pickCode: 'abc',
       keepPlaylistOpen: true,
+      playlistToken: 'p1',
     })
   })
 

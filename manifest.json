@@ -1,7 +1,7 @@
 {
   "manifest_version": 3,
   "name": "115m",
-  "version": "1.2.15",
+  "version": "1.2.16",
   "description": "115m | 列表预览图 + 无损播放",
   "permissions": [
     "storage",
@@ -34,7 +34,9 @@
         "*://*.115.com/*",
         "*://115.com/*"
       ],
-      "js": ["src/content/home.ts"],
+      "js": [
+        "src/content/home.ts"
+      ],
       "run_at": "document_end",
       "all_frames": true,
       "match_about_blank": true
@@ -44,17 +46,27 @@
         "https://115.com/web/lixian/master/video/*",
         "https://*.115.com/web/lixian/master/video/*"
       ],
-      "js": ["src/content/video-page.ts"],
+      "js": [
+        "src/content/video-page.ts"
+      ],
       "run_at": "document_start"
     },
     {
-      "matches": ["https://dl.115cdn.net/video/token*"],
-      "js": ["src/content/video-token.ts"],
+      "matches": [
+        "https://dl.115cdn.net/video/token*"
+      ],
+      "js": [
+        "src/content/video-token.ts"
+      ],
       "run_at": "document_start"
     },
     {
-      "matches": ["https://115vod.com/*"],
-      "js": ["src/content/vod-fullscreen.ts"],
+      "matches": [
+        "https://115vod.com/*"
+      ],
+      "js": [
+        "src/content/vod-fullscreen.ts"
+      ],
       "run_at": "document_end"
     }
   ],
