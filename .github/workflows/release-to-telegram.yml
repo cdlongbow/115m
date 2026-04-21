@@ -1,0 +1,79 @@
+name: release-to-telegram
+
+on:
+  release:
+    types: [published]
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Send Telegram message and pin it
+        env:
+          TG_BOT_TOKEN: ${{ secrets.TG_BOT_TOKEN }}
+          TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+          RELEASE_NAME: ${{ github.event.release.name || github.event.release.tag_name }}
+          RELEASE_BODY: ${{ github.event.release.body }}
+          RELEASE_URL: ${{ github.event.release.html_url }}
+          GITHUB_EVENT_PATH: ${{ github.event_path }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import sys
+          import urllib.parse
+          import urllib.request
+
+          token = os.environ.get('TG_BOT_TOKEN', '').strip()
+          chat_id = os.environ.get('TG_CHAT_ID', '').strip()
+          release_name = os.environ.get('RELEASE_NAME', 'release').strip()
+          release_body = os.environ.get('RELEASE_BODY', '').strip()
+          release_url = os.environ.get('RELEASE_URL', '').strip()
+          event_path = os.environ.get('GITHUB_EVENT_PATH', '').strip()
+
+          if not token or not chat_id:
+              raise SystemExit('TG_BOT_TOKEN or TG_CHAT_ID is missing')
+
+          asset_url = ''
+          if event_path and os.path.exists(event_path):
+              with open(event_path, 'r', encoding='utf-8') as fp:
+                  event = json.load(fp)
+              assets = (event.get('release') or {}).get('assets') or []
+              if assets:
+                  asset_url = assets[0].get('browser_download_url', '').strip()
+
+          text = f"115m 更新了\n\n版本：{release_name}\n\n更新内容：\n{release_body[:3500]}"
+
+          buttons = [[{'text': '查看 Release', 'url': release_url}]] if release_url else []
+          if asset_url:
+              buttons.append([{'text': '下载文件', 'url': asset_url}])
+
+          def post(method: str, payload: dict):
+              url = f'https://api.telegram.org/bot{token}/{method}'
+              data = urllib.parse.urlencode(payload).encode('utf-8')
+              req = urllib.request.Request(url, data=data, method='POST')
+              with urllib.request.urlopen(req, timeout=30) as resp:
+                  body = resp.read().decode('utf-8')
+              result = json.loads(body)
+              if not result.get('ok'):
+                  raise RuntimeError(f'{method} failed: {body}')
+              return result
+
+          payload = {
+              'chat_id': chat_id,
+              'text': text,
+          }
+          if buttons:
+              payload['reply_markup'] = json.dumps({'inline_keyboard': buttons}, ensure_ascii=False)
+
+          send_result = post('sendMessage', payload)
+          message_id = send_result['result']['message_id']
+
+          post('pinChatMessage', {
+              'chat_id': chat_id,
+              'message_id': message_id,
+              'disable_notification': 'true',
+          })
+
+          print(f'sent_and_pinned {message_id}')
+          PY
