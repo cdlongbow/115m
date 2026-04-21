@@ -910,7 +910,7 @@ class PlayerManager {
     this.overlay?.updatePlaylist(this.playlistItemsCache)
 
     if (nextPickCode) {
-      this.navigateToVideo(nextPickCode, keepPlaylistOpen)
+      this.navigateToVideo(nextPickCode, keepPlaylistOpen, true)
       return
     }
 
@@ -922,11 +922,11 @@ class PlayerManager {
     window.close()
   }
 
-  private navigateToVideo(pickCode: string, keepPlaylistOpen = false) {
-    void this.switchToVideo(pickCode, keepPlaylistOpen)
+  private navigateToVideo(pickCode: string, keepPlaylistOpen = false, autoPlay = false) {
+    void this.switchToVideo(pickCode, keepPlaylistOpen, autoPlay)
   }
 
-  private async switchToVideo(pickCode: string, keepPlaylistOpen = false) {
+  private async switchToVideo(pickCode: string, keepPlaylistOpen = false, autoPlay = false) {
     if (!this.artplayer || !pickCode || pickCode === this.currentPickCode) return
 
     const requestId = ++this.switchVideoRequestId
@@ -959,7 +959,12 @@ class PlayerManager {
       this.setupProgressHoverPreview(playback.initialPlayback.url, playback.initialPlayback.type)
       this.renderQualityPanel()
 
-      this.artplayer.switchUrl(playback.initialPlayback.url)
+      await this.artplayer.switchUrl(playback.initialPlayback.url)
+      if (requestId !== this.switchVideoRequestId || !this.artplayer) return
+
+      if (autoPlay) {
+        safePlay(this.artplayer)
+      }
 
       void loadPlayHistory(pickCode, (time) => {
         if (requestId === this.switchVideoRequestId && this.artplayer) {

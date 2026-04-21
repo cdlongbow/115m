@@ -517,12 +517,8 @@ export class PlayerOverlayController {
       const fileId = this.options.meta.fileId
       const parentId = this.options.meta.cid
       const pickCode = this.options.getCurrentPickCode()
-      const titleText = this.options.meta.title || '当前视频'
       if (!fileId || !parentId || !pickCode) {
         this.showToast('缺少删除参数')
-        return
-      }
-      if (!window.confirm(`确认删除“${titleText}”吗？`)) {
         return
       }
       try {
