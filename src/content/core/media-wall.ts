@@ -262,13 +262,9 @@ function createLightboxController(doc: Document): LightboxController {
   const mediaFrame = doc.createElement('div')
   mediaFrame.className = 'm115-viewer-frame'
 
-  const imageBg = doc.createElement('div')
-  imageBg.className = 'm115-viewer-image-bg'
-
   const imageEl = doc.createElement('img')
   imageEl.className = 'm115-viewer-image'
 
-  mediaFrame.appendChild(imageBg)
   mediaFrame.appendChild(imageEl)
   stage.appendChild(prevBtn)
   stage.appendChild(mediaFrame)
@@ -327,7 +323,6 @@ function createLightboxController(doc: Document): LightboxController {
     if (!current) return
     titleEl.textContent = current.title
     imageEl.src = current.originalUrl
-    imageBg.style.backgroundImage = `url("${current.originalUrl}")`
     imageEl.alt = current.title
     zoomScale = 1
     applyZoom()
@@ -338,7 +333,6 @@ function createLightboxController(doc: Document): LightboxController {
   const close = () => {
     overlay.classList.remove('active')
     imageEl.src = ''
-    imageBg.style.backgroundImage = ''
   }
 
   const move = (step: number) => {
@@ -354,7 +348,6 @@ function createLightboxController(doc: Document): LightboxController {
       createToast(doc, '当前图片缺少删除信息')
       return
     }
-    if (!doc.defaultView?.confirm(`删除「${current.title}」到回收站？`)) return
 
     const result = await sendRuntimeMessageSafe<{ ok?: boolean, error?: string }>({
       type: 'DELETE_FILE',
