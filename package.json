@@ -5,9 +5,11 @@
   "private": true,
   "type": "module",
   "scripts": {
-    "build": "vite build",
+    "build": "node scripts/sync-manifest-version.mjs && vite build",
+    "doctor": "node scripts/doctor.mjs",
+    "release:check": "node scripts/release-check.mjs",
     "test": "vitest run",
-    "zip": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"$v=(Get-Content package.json -Raw | ConvertFrom-Json).version; if (!(Test-Path release)) { New-Item -ItemType Directory -Path release | Out-Null }; $out='release/115m-v' + $v + '.zip'; Compress-Archive -Path 'dist/*' -DestinationPath $out -Force\""
+    "zip": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (!(Test-Path release)) { New-Item -ItemType Directory -Path release | Out-Null } else { Get-ChildItem release -File | Remove-Item -Force }; $v=(Get-Content package.json -Raw | ConvertFrom-Json).version; $out='release/115m-v' + $v + '.zip'; Compress-Archive -Path 'dist/*' -DestinationPath $out -Force\""
   },
   "dependencies": {
     "@cbingbing/demuxer": "^2.4.1",
