@@ -5,6 +5,8 @@ import { injectActionButtons } from './core/action-buttons'
 import { addDownloadIntercept } from './core/download-intercept'
 
 import { renderPreview } from './core/preview'
+import { renderMediaWall } from './core/media-wall'
+import { initSidebar, injectSidebarPrehide } from './core/sidebar'
 import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
 import { sendRuntimeMessageSafe } from './core/runtime'
 
@@ -72,6 +74,7 @@ class HomeController {
     if (this.boundDocs.has(doc)) return
     this.boundDocs.add(doc)
 
+    injectSidebarPrehide(doc)
     this.injectStyles(doc)
     this.scanAndRender(doc)
     this.initScrollHistory(doc)
@@ -162,6 +165,8 @@ class HomeController {
     const list = doc.querySelector('.list-contents')
     if (!list) return
 
+    renderMediaWall(doc)
+
     const items = doc.querySelectorAll('li[pick_code],li[pickcode],div[pick_code],div[pickcode]')
     items.forEach((node) => {
       const item = node as HTMLElement
@@ -188,6 +193,8 @@ let controller: HomeController | null = null
 function init() {
   if (window.top !== window) return
   if (/\/web\/lixian\/master\/video\//.test(window.location.pathname)) return
+  injectSidebarPrehide(document)
+  initSidebar(document)
   controller = new HomeController()
   controller.init()
 }
