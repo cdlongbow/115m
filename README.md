@@ -81,6 +81,7 @@ pnpm zip
 
 ## 说明
 
-本项目参考 `https://github.com/cbingb666/115master`，整理为谷歌扩展形态，当前主要实现基础预览和播放功能。
+感谢 [115master](https://github.com/cbingb666/115master) 的开源有了此项目的基础。
+后续又整合 [115-魔改](https://sleazyfork.org/zh-CN/scripts/560291-115-%E9%AD%94%E6%94%B9) 进 Chrome 扩展 主要为自用的情况 进行发展。
 
 项目作者不懂编程，项目代码主要由 AI 按需求协助开发和维护。
