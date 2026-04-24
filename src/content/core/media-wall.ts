@@ -98,6 +98,39 @@ function scheduleMediaWallRefresh(doc: Document) {
   refreshTimersByDoc.set(doc, timers)
 }
 
+function openNativeFolder(sourceItem: HTMLElement) {
+  const anchor = (sourceItem.querySelector('.file-name .name,[menu="open"],[rel="view_folder"]') as HTMLElement | null) || sourceItem
+  sourceItem.classList.remove(HIDDEN_CLASS)
+
+  const previousStyle = sourceItem.getAttribute('style') || ''
+  sourceItem.style.setProperty('position', 'fixed', 'important')
+  sourceItem.style.setProperty('left', '-9999px', 'important')
+  sourceItem.style.setProperty('top', '0', 'important')
+  sourceItem.style.setProperty('width', '1px', 'important')
+  sourceItem.style.setProperty('height', '1px', 'important')
+  sourceItem.style.setProperty('overflow', 'hidden', 'important')
+  sourceItem.style.setProperty('opacity', '0', 'important')
+  sourceItem.style.setProperty('pointer-events', 'none', 'important')
+
+  const init: MouseEventInit = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    button: 0,
+    buttons: 1,
+  }
+
+  anchor.dispatchEvent(new MouseEvent('mousedown', init))
+  anchor.dispatchEvent(new MouseEvent('mouseup', init))
+  anchor.dispatchEvent(new MouseEvent('click', init))
+
+  window.setTimeout(() => {
+    if (previousStyle) sourceItem.setAttribute('style', previousStyle)
+    else sourceItem.removeAttribute('style')
+    sourceItem.classList.add(HIDDEN_CLASS)
+  }, 0)
+}
+
 function buildFolderItem(item: HTMLElement): MediaWallFolderItem | null {
   if (item.getAttribute('file_type') !== '0') return null
 
@@ -118,7 +151,7 @@ function buildFolderItem(item: HTMLElement): MediaWallFolderItem | null {
     hasRemark: !!remarkAction && getComputedStyle(remarkAction).display !== 'none',
     starAction,
     remarkAction,
-    open: () => link?.click(),
+    open: () => openNativeFolder(item),
   }
 }
 
@@ -484,21 +517,6 @@ function renderFoldersSection(doc: Document, folders: MediaWallFolderItem[]) {
 
     footer.appendChild(name)
 
-    if (folder.hasRemark) {
-      const remarkBtn = doc.createElement('button')
-      remarkBtn.type = 'button'
-      remarkBtn.className = 'm115-folder-remark-btn'
-      remarkBtn.title = '备注'
-      remarkBtn.textContent = '注'
-      remarkBtn.addEventListener('click', (event) => {
-        event.preventDefault()
-        event.stopPropagation()
-        folder.remarkAction?.click()
-        scheduleMediaWallRefresh(doc)
-      })
-      footer.appendChild(remarkBtn)
-    }
-
     const actions = doc.createElement('span')
     actions.className = 'm115-folder-actions'
 
@@ -507,17 +525,40 @@ function renderFoldersSection(doc: Document, folders: MediaWallFolderItem[]) {
     starBtn.className = `m115-folder-action-btn ${folder.isStarred ? 'is-active' : ''}`
     starBtn.dataset.role = 'star'
     starBtn.title = folder.isStarred ? '取消星标' : '星标'
-    starBtn.textContent = '★'
+    starBtn.setAttribute('aria-label', folder.isStarred ? '取消星标' : '星标')
+    const starIcon = doc.createElement('span')
+    starIcon.className = 'm115-folder-icon'
+    starIcon.setAttribute('aria-hidden', 'true')
+    starIcon.innerHTML = '<svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M8 2.2L9.68 5.6L13.43 6.14L10.72 8.77L11.36 12.5L8 10.73L4.64 12.5L5.28 8.77L2.57 6.14L6.32 5.6L8 2.2Z" stroke="currentColor" stroke-width="1.25" stroke-linejoin="round"/></svg>'
+    starBtn.appendChild(starIcon)
     starBtn.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
       const nextActive = !starBtn.classList.contains('is-active')
       starBtn.classList.toggle('is-active', nextActive)
       starBtn.title = nextActive ? '取消星标' : '星标'
+      starBtn.setAttribute('aria-label', nextActive ? '取消星标' : '星标')
       folder.starAction?.click()
       scheduleMediaWallRefresh(doc)
     })
     actions.appendChild(starBtn)
+
+    if (folder.hasRemark) {
+      const remarkBtn = doc.createElement('button')
+      remarkBtn.type = 'button'
+      remarkBtn.className = 'm115-folder-action-btn m115-folder-remark-badge'
+      remarkBtn.dataset.role = 'remark'
+      remarkBtn.title = '备注'
+      remarkBtn.setAttribute('aria-label', '备注')
+      remarkBtn.textContent = '备注'
+      remarkBtn.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        folder.remarkAction?.click()
+        scheduleMediaWallRefresh(doc)
+      })
+      actions.appendChild(remarkBtn)
+    }
 
     body.appendChild(coverWrap)
     body.appendChild(footer)
