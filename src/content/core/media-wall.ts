@@ -98,6 +98,39 @@ function scheduleMediaWallRefresh(doc: Document) {
   refreshTimersByDoc.set(doc, timers)
 }
 
+function openNativeFolder(sourceItem: HTMLElement) {
+  const anchor = (sourceItem.querySelector('.file-name .name,[menu="open"],[rel="view_folder"]') as HTMLElement | null) || sourceItem
+  sourceItem.classList.remove(HIDDEN_CLASS)
+
+  const previousStyle = sourceItem.getAttribute('style') || ''
+  sourceItem.style.setProperty('position', 'fixed', 'important')
+  sourceItem.style.setProperty('left', '-9999px', 'important')
+  sourceItem.style.setProperty('top', '0', 'important')
+  sourceItem.style.setProperty('width', '1px', 'important')
+  sourceItem.style.setProperty('height', '1px', 'important')
+  sourceItem.style.setProperty('overflow', 'hidden', 'important')
+  sourceItem.style.setProperty('opacity', '0', 'important')
+  sourceItem.style.setProperty('pointer-events', 'none', 'important')
+
+  const init: MouseEventInit = {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    button: 0,
+    buttons: 1,
+  }
+
+  anchor.dispatchEvent(new MouseEvent('mousedown', init))
+  anchor.dispatchEvent(new MouseEvent('mouseup', init))
+  anchor.dispatchEvent(new MouseEvent('click', init))
+
+  window.setTimeout(() => {
+    if (previousStyle) sourceItem.setAttribute('style', previousStyle)
+    else sourceItem.removeAttribute('style')
+    sourceItem.classList.add(HIDDEN_CLASS)
+  }, 0)
+}
+
 function buildFolderItem(item: HTMLElement): MediaWallFolderItem | null {
   if (item.getAttribute('file_type') !== '0') return null
 
@@ -118,7 +151,7 @@ function buildFolderItem(item: HTMLElement): MediaWallFolderItem | null {
     hasRemark: !!remarkAction && getComputedStyle(remarkAction).display !== 'none',
     starAction,
     remarkAction,
-    open: () => link?.click(),
+    open: () => openNativeFolder(item),
   }
 }
 

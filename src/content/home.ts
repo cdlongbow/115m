@@ -13,6 +13,7 @@ import type { StoredPlayerPlaylistItem } from '../shared/player-playlist-cache'
 
 class HomeController {
   private boundDocs = new WeakSet<Document>()
+  private boundFrames = new WeakSet<HTMLIFrameElement>()
   private scannedItems = new WeakSet<HTMLElement>()
   private playBoundItems = new WeakSet<HTMLElement>()
   private observers: MutationObserver[] = []
@@ -60,6 +61,10 @@ class HomeController {
 
   private bindWangpanFrame() {
     const frame = document.querySelector('iframe[name="wangpan"]') as HTMLIFrameElement | null
+    if (frame && !this.boundFrames.has(frame)) {
+      frame.addEventListener('load', () => this.bindWangpanFrame())
+      this.boundFrames.add(frame)
+    }
     const doc = frame?.contentDocument
     if (!doc) return
     this.bindDocument(doc)

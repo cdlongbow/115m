@@ -79,13 +79,28 @@
   position: relative;
   display: block;
   min-height: 168px;
-  padding: 6px;
-  overflow: hidden;
-  border-radius: 12px;
-  background: linear-gradient(180deg, #fff9eb 0%, #fffdf7 16%, #fbfcfe 100%);
-  box-shadow: 0 6px 16px rgba(15, 23, 42, 0.045);
-  border: 1px solid rgba(246, 212, 122, 0.34);
+  padding: 4px;
+  overflow: visible;
+  border-radius: 10px;
+  background: linear-gradient(180deg, #ffe082 0%, #ffd153 12%, #ffea9d 100%);
+  box-shadow: 0 3px 10px rgba(15, 23, 42, 0.03);
+  border: 1px solid rgba(242, 186, 32, 0.58);
   box-sizing: border-box;
+}
+
+.m115-folder-card::before {
+  content: '';
+  position: absolute;
+  left: 10px;
+  top: -1px;
+  width: 52px;
+  height: 12px;
+  border-radius: 7px 7px 0 0;
+  background: linear-gradient(180deg, #ffc93c 0%, #ffbf1a 100%);
+  border: 1px solid rgba(233, 171, 12, 0.62);
+  border-bottom: 0;
+  box-sizing: border-box;
+  z-index: 2;
 }
 
 .m115-folder-body {
@@ -96,12 +111,29 @@
   max-width: 100%;
   min-height: 154px;
   position: relative;
-  border-radius: 10px;
+  margin-top: 8px;
+  border-radius: 8px;
   overflow: hidden;
-  background: linear-gradient(180deg, rgba(255, 249, 229, 0.88) 0%, rgba(255, 253, 247, 0.96) 12px, #ffffff 24px, #fcfdff 100%);
-  border: 1px solid rgba(239, 213, 137, 0.34);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.7);
+  background: linear-gradient(180deg, rgba(255, 241, 188, 0.78) 0%, rgba(255, 247, 216, 0.88) 16%, #ffffff 34%, #fcfdff 100%);
+  border: 1px solid rgba(242, 204, 104, 0.66);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.34);
   box-sizing: border-box;
+  z-index: 0;
+}
+
+.m115-folder-body::before {
+  content: '';
+  position: absolute;
+  left: 52px;
+  right: 0;
+  top: -8px;
+  height: 10px;
+  background: linear-gradient(180deg, rgba(255, 232, 156, 0.92) 0%, rgba(255, 242, 198, 0.9) 100%);
+  border-top: 1px solid rgba(240, 196, 76, 0.52);
+  border-left: 1px solid rgba(240, 196, 76, 0.24);
+  border-top-right-radius: 8px;
+  box-sizing: border-box;
+  z-index: 0;
 }
 
 .m115-folder-actions {
@@ -183,12 +215,13 @@
   position: absolute;
   top: 3px;
   left: 12px;
-  width: 40px;
-  height: 8px;
-  border-radius: 8px 8px 0 0;
-  background: linear-gradient(180deg, #fcd34d 0%, #fbbf24 100%);
-  box-shadow: 0 1px 2px rgba(245, 158, 11, 0.08);
-  opacity: 0.98;
+  width: 34px;
+  height: 6px;
+  border-radius: 5px 5px 0 0;
+  background: linear-gradient(180deg, rgba(255, 236, 169, 0.92) 0%, rgba(255, 217, 107, 0.94) 100%);
+  box-shadow: none;
+  opacity: 0.95;
+  z-index: 3;
 }
 
 .m115-folder-cover-wrap {
@@ -196,13 +229,14 @@
   align-items: center;
   justify-content: center;
   height: 124px;
-  width: calc(100% - 12px);
-  margin: 11px 6px 6px;
-  border-radius: 10px;
-  background: linear-gradient(180deg, #f9fafb 0%, #f3f5f7 100%);
-  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.9);
+  width: calc(100% - 8px);
+  margin: 10px 4px 4px;
+  border-radius: 8px;
+  background: linear-gradient(180deg, rgba(33, 37, 44, 0.18) 0%, rgba(24, 28, 34, 0.22) 100%);
+  box-shadow: inset 0 0 0 1px rgba(226, 232, 240, 0.76);
   overflow: hidden;
   position: relative;
+  z-index: 1;
 }
 
 .m115-folder-cover-wrap::before {
@@ -212,9 +246,17 @@
   background-image: var(--m115-folder-cover-url);
   background-size: cover;
   background-position: center;
-  filter: blur(16px) saturate(0.84) brightness(0.97);
-  transform: scale(1.12);
-  opacity: 0.18;
+  filter: blur(20px) saturate(0.86) brightness(0.82);
+  transform: scale(1.16);
+  opacity: 0.72;
+}
+
+.m115-folder-cover-wrap::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(12, 14, 18, 0.06) 0%, rgba(12, 14, 18, 0.12) 100%);
+  z-index: 0;
 }
 
 .m115-folder-cover {
@@ -246,12 +288,14 @@
   align-items: center;
   gap: 5px;
   min-height: 22px;
-  padding: 0 6px 2px;
-  background: linear-gradient(180deg, rgba(255, 253, 246, 0) 0%, rgba(255, 253, 246, 0.54) 100%);
+  padding: 0 4px 2px;
+  background: linear-gradient(180deg, rgba(248, 250, 252, 0) 0%, rgba(248, 250, 252, 0.56) 100%);
+  position: relative;
+  z-index: 1;
 }
 
 .m115-folder-name {
-  padding: 0;
+  padding: 0 2px;
   font-size: 12px;
   font-weight: 500;
   color: #1f2937;
