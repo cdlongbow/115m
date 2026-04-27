@@ -1,5 +1,6 @@
 @import "tailwindcss";
 
+@import "./core/player-skin.css";
 @import "./core/ui-layer.css";
 
 html, body {
@@ -10,11 +11,4 @@ html, body {
   background-color: #000;
 }
 
-/* Compensate for removed art-fullscreen-web — use same enlarged control variables */
-.art-video-player {
-  --art-progress-height: 8px;
-  --art-indicator-size: 20px;
-  --art-control-height: 60px;
-  --art-control-icon-scale: 1.3;
-}
 

@@ -6,19 +6,15 @@ console.log('[115m] player.ts loading...')
 
 import Artplayer from 'artplayer'
 import type HlsType from 'hls.js'
+import playerSkinCss from './core/player-skin.css?inline'
+import uiLayerCss from './core/ui-layer.css?inline'
 import type { M3u8Item } from '../lib/types'
 import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { buildQualityControlItem as buildQualityControlConfig, updateArtplayerControl } from './core/player-quality'
+import { buildSpeedControlItem as buildSpeedControlConfig } from './core/player-speed'
 import { fetchM3u8WithRetry } from './core/source'
-import { deletePlayHistory, loadPlayHistory, saveQualityPreference } from './core/history'
-import {
-  applyCenterControlContainerStyle,
-  applyNavButtonState,
-  buildCenterControlsHtml,
-  buildPlayButtonState,
-  createCenterHoverBinder,
-  queryCenterControlElements,
-} from './core/player-center-controls'
+import { deletePlayHistory, loadPlayHistory, loadVideoRotation, saveQualityPreference, saveVideoRotation } from './core/history'
+import { buildNavControlItem } from './core/player-center-controls'
 import type { QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { renderPlayerError } from './core/dom'
@@ -51,6 +47,17 @@ import { deleteVideoFile, fetchFavoriteStatus, updateFavoriteStatus } from './co
 import { buildPlaybackNavState, getDeleteFallback, getPlaylistPosition } from './core/playlist-navigation'
 import { readTemporaryPlayerPlaylist } from '../shared/player-playlist-cache'
 import { canUseNativeUltraSource, shouldRetryNativePlayback } from './core/native-playback'
+import { applyRotationToVideo, buildRotateControlItem, getNextRotationDegrees } from './core/player-rotation'
+
+function injectPlayerSkinStyles() {
+  if (document.getElementById('m115-player-skin-style')) return
+  const style = document.createElement('style')
+  style.id = 'm115-player-skin-style'
+  style.textContent = `${playerSkinCss}\n${uiLayerCss}`
+  document.head.appendChild(style)
+}
+
+injectPlayerSkinStyles()
 
 interface PlayerConfig {
   pickCode: string
@@ -69,7 +76,10 @@ function safePlay(art: Artplayer | null) {
 
 class PlayerManager {
   private static readonly QUALITY_CONTROL_NAME = 'm115-quality-control'
-  private static readonly CENTER_CONTROL_NAME = 'm115-center-control'
+  private static readonly SPEED_CONTROL_NAME = 'm115-speed-control'
+  private static readonly ROTATE_CONTROL_NAME = 'm115-rotate-control'
+  private static readonly PREV_CONTROL_NAME = 'm115-prev-control'
+  private static readonly NEXT_CONTROL_NAME = 'm115-next-control'
   private artplayer: Artplayer | null = null
   private hlsInstance: HlsType | null = null
   private m3u8List: M3u8Item[] = []
@@ -98,13 +108,11 @@ class PlayerManager {
   private readonly playlistToken?: string
   private readonly nativeUltraSupported: boolean
   private currentPlaybackType: 'native' | 'hls' = 'hls'
-  private centerControlEl: HTMLElement | null = null
-  private centerPlayBtnEl: HTMLButtonElement | null = null
-  private centerPrevBtnEl: HTMLButtonElement | null = null
-  private centerNextBtnEl: HTMLButtonElement | null = null
-  private nativePlayObserver: MutationObserver | null = null
+  private cleanupResize: (() => void) | null = null
   private lastPlaylistProgressSyncSec = -1
   private nativePlaybackRetryCount = 0
+  private currentRotation = 0
+  private currentPlaybackRate = 1
   private readonly handleRuntimeMessage = (message: any) => {
     if (message?.type === 'MOVE_SUCCESS_REFRESH') {
       void this.refreshBreadcrumbs()
@@ -186,6 +194,7 @@ class PlayerManager {
 
       const playback = await this.resolvePlaybackForPickCode(this.currentPickCode)
       this.applyResolvedPlayback(playback)
+      this.currentRotation = loadVideoRotation(this.currentPickCode)
 
       this.perfMarks.ultraReady = performance.now()
       this.perf('ultra-source-ready', { ok: !!playback.ultraUrl, m3u8Count: this.m3u8List.length })
@@ -199,6 +208,9 @@ class PlayerManager {
       const currentUrl = this.artplayer?.url || ''
       this.refreshQualityState(currentUrl)
       this.renderQualityPanel()
+      this.renderPlaybackNavControls()
+      this.renderRotateControl()
+      this.renderSpeedControl()
 
       void loadPlayHistory(this.currentPickCode, (time) => {
         if (this.artplayer) {
@@ -234,6 +246,9 @@ class PlayerManager {
 
     this.refreshQualityState(videoUrl)
 
+    // YouTube-like idle delay: keep controls visible for a few seconds after mouse movement.
+    Artplayer.CONTROL_HIDE_TIME = 6000
+
     this.artplayer = new Artplayer({
       container: container as HTMLDivElement,
       url: videoUrl,
@@ -242,15 +257,17 @@ class PlayerManager {
       pip: false,
       autoMini: true,
       screenshot: false,
-      setting: true,
+      setting: false,
       controls: [
-        this.buildCenterControlItem(),
+        this.buildPrevControlItem(),
+        this.buildNextControlItem(),
+        this.buildRotateControlItem(),
         this.buildQualityControlItem(),
+        this.buildSpeedControlItem(),
       ],
       loop: false,
-      flip: true,
-      playbackRate: true,
-      aspectRatio: true,
+      playbackRate: false,
+      aspectRatio: false,
       fullscreen: true,
       miniProgressBar: true,
       theme: '#1890ff',
@@ -301,7 +318,6 @@ class PlayerManager {
     Artplayer.FULLSCREEN_WEB_IN_BODY = false
 
     this.artplayer.on('restart', (url) => {
-      this.hideNativePlayControl()
       if (typeof url !== 'string' || url === ORIGINAL_PLACEHOLDER_URL) return
       const opt = this.qualityOptions.find(o => o.url === url)
       if (opt && this.perfMarks.loadedmetadata) {
@@ -310,25 +326,20 @@ class PlayerManager {
         this.renderQualityPanel()
       }
       this.setupProgressHoverPreview(url, this.currentPlaybackType)
-      this.syncCenterPlayButton()
     })
 
     this.artplayer.on('video:pause', () => {
-      this.hideNativePlayControl()
-      this.syncCenterPlayButton()
       this.syncCurrentPlaylistProgress(true)
     })
 
-    this.artplayer.on('video:play', () => {
-      this.hideNativePlayControl()
-      this.syncCenterPlayButton()
-    })
+    this.artplayer.on('video:play', () => {})
 
     this.artplayer.on('video:timeupdate', () => {
       this.syncCurrentPlaylistProgress()
     })
 
-    this.observeNativeControls()
+    this.bindWindowResize()
+    this.applyVideoRotation()
 
     if (type === 'native') {
       this.currentQuality = 9999
@@ -352,11 +363,11 @@ class PlayerManager {
         getQualityLabel: () => this.currentQualityLabel,
         onPerf: (stage, extra) => this.perf(stage, extra),
         onReady: () => {
-          this.artplayer!.contextmenu.remove('playbackRate')
-          this.artplayer!.contextmenu.remove('aspectRatio')
-          this.artplayer!.contextmenu.remove('flip')
-          this.artplayer!.contextmenu.remove('info')
-          this.artplayer!.contextmenu.remove('close')
+          this.safeRemoveContextmenuItem('playbackRate')
+          this.safeRemoveContextmenuItem('aspectRatio')
+          this.safeRemoveContextmenuItem('flip')
+          this.safeRemoveContextmenuItem('info')
+          this.safeRemoveContextmenuItem('close')
           this.artplayer!.contextmenu.add({
             name: 'videoStats',
             index: 40,
@@ -364,11 +375,16 @@ class PlayerManager {
             mounted: ($el: HTMLElement) => { this.infoMenuEl = $el },
           })
           this.renderQualityPanel()
+          this.renderPlaybackNavControls()
+          this.renderRotateControl()
+          this.renderSpeedControl()
         },
         onLoadedmetadata: () => {
           this.perfMarks.loadedmetadata = performance.now()
           this.updateQualityByUrl(this.artplayer?.url || '')
           this.renderQualityPanel()
+          this.renderSpeedControl()
+          this.applyVideoRotation()
           this.hoverPreview?.updateSize()
         },
         onCanplay: () => {
@@ -376,7 +392,6 @@ class PlayerManager {
         },
         onPlaying: () => {
           this.clearPlaybackEndState()
-          this.syncCenterPlayButton()
           this.nativePlaybackRetryCount = 0
           this.perfMarks.playing = performance.now()
           this.reportFirstFrameSummary()
@@ -385,7 +400,6 @@ class PlayerManager {
           this.handlePlaybackEnded()
         },
         onError: () => {
-          this.syncCenterPlayButton()
           if (this.isNativeVideo) {
             void this.handleNativePlaybackError()
           }
@@ -432,86 +446,110 @@ class PlayerManager {
     this.updateQualityControl()
   }
 
-  private buildCenterControlItem(): any {
-    return {
-      name: PlayerManager.CENTER_CONTROL_NAME,
-      position: 'left' as const,
-      index: 200,
-      html: buildCenterControlsHtml(),
-      mounted: ($control: HTMLElement) => {
-        this.centerControlEl = $control
-        applyCenterControlContainerStyle($control)
+  private buildSpeedControlItem(): any {
+    return buildSpeedControlConfig({
+      controlName: PlayerManager.SPEED_CONTROL_NAME,
+      currentPlaybackRate: this.currentPlaybackRate,
+      onSelectPlaybackRate: value => this.applyPlaybackRate(value),
+    })
+  }
 
-        this.hideNativePlayControl()
-        this.bindCenterControlElements($control)
-      },
+  private renderSpeedControl() {
+    if (!this.artplayer) return
+    updateArtplayerControl(this.artplayer, PlayerManager.SPEED_CONTROL_NAME, this.buildSpeedControlItem())
+  }
+
+  private buildRotateControlItem(): any {
+    return buildRotateControlItem({
+      controlName: PlayerManager.ROTATE_CONTROL_NAME,
+      rotation: this.currentRotation,
+      onRotate: () => this.rotateVideoClockwise(),
+    })
+  }
+
+  private renderRotateControl() {
+    if (!this.artplayer) return
+    updateArtplayerControl(this.artplayer, PlayerManager.ROTATE_CONTROL_NAME, this.buildRotateControlItem())
+  }
+
+  private safeRemoveContextmenuItem(name: string) {
+    try {
+      this.artplayer?.contextmenu.remove(name)
+    }
+    catch {
+      // Some built-in items only exist when the related feature is enabled.
     }
   }
 
-  private observeNativeControls() {
-    this.nativePlayObserver?.disconnect()
-    const controlsLeft = this.artplayer?.template.$controlsLeft as HTMLElement | null
-    if (!controlsLeft || typeof MutationObserver === 'undefined') return
-
-    this.nativePlayObserver = new MutationObserver(() => {
-      this.hideNativePlayControl()
-    })
-    this.nativePlayObserver.observe(controlsLeft, { childList: true, subtree: false })
-    this.hideNativePlayControl()
-  }
-
-  private hideNativePlayControl() {
-    const controlsLeft = this.artplayer?.template.$controlsLeft as HTMLElement | null
-    const nativePlayControl = controlsLeft?.firstElementChild as HTMLElement | null
-    if (!nativePlayControl || nativePlayControl === this.centerControlEl) return
-    nativePlayControl.style.display = 'none'
-    nativePlayControl.style.pointerEvents = 'none'
-    nativePlayControl.style.width = '0'
-    nativePlayControl.style.margin = '0'
-    nativePlayControl.style.padding = '0'
-    nativePlayControl.style.overflow = 'hidden'
-  }
-
-  private bindCenterControlElements(container: HTMLElement) {
-    const controls = queryCenterControlElements(container)
-    this.centerPrevBtnEl = controls.prev
-    this.centerPlayBtnEl = controls.play
-    this.centerNextBtnEl = controls.next
-
-    this.centerPrevBtnEl?.addEventListener('click', () => { void this.playPrevious() })
-    this.centerNextBtnEl?.addEventListener('click', () => { void this.playNext() })
-    this.centerPlayBtnEl?.addEventListener('click', () => {
-      if (!this.artplayer) return
-      if (this.artplayer.video.paused) {
-        safePlay(this.artplayer)
-      }
-      else {
-        this.artplayer.pause()
-      }
-      this.syncCenterPlayButton()
-    })
-
-    const bindHover = createCenterHoverBinder(this.centerPlayBtnEl)
-
-    bindHover(this.centerPrevBtnEl)
-    bindHover(this.centerPlayBtnEl)
-    bindHover(this.centerNextBtnEl)
-
-    this.syncCenterPlayButton()
-    this.syncCenterPlaybackNav()
-  }
-
-  private syncCenterPlayButton() {
-    if (!this.centerPlayBtnEl || !this.artplayer) return
-    const state = buildPlayButtonState(this.artplayer.video.paused)
-    this.centerPlayBtnEl.title = state.title
-    this.centerPlayBtnEl.innerHTML = state.html
-  }
-
-  private syncCenterPlaybackNav() {
+  private buildPrevControlItem(): any {
     const state = buildPlaybackNavState(getPlaylistPosition(this.playlistItemsCache, this.currentPickCode))
-    applyNavButtonState(this.centerPrevBtnEl, state.hasPrevious, state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集')
-    applyNavButtonState(this.centerNextBtnEl, state.hasNext, state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集')
+    return buildNavControlItem({
+      controlName: PlayerManager.PREV_CONTROL_NAME,
+      direction: 'prev',
+      index: 9,
+      enabled: state.hasPrevious,
+      title: state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集',
+      onClick: () => { void this.playPrevious() },
+    })
+  }
+
+  private buildNextControlItem(): any {
+    const state = buildPlaybackNavState(getPlaylistPosition(this.playlistItemsCache, this.currentPickCode))
+    return buildNavControlItem({
+      controlName: PlayerManager.NEXT_CONTROL_NAME,
+      direction: 'next',
+      index: 11,
+      enabled: state.hasNext,
+      title: state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集',
+      onClick: () => { void this.playNext() },
+    })
+  }
+
+  private bindWindowResize() {
+    if (this.cleanupResize) return
+    const handleResize = () => this.applyVideoRotation()
+    window.addEventListener('resize', handleResize)
+    this.cleanupResize = () => {
+      window.removeEventListener('resize', handleResize)
+      this.cleanupResize = null
+    }
+  }
+
+  private applyVideoRotation() {
+    if (!this.artplayer) return
+    applyRotationToVideo({
+      video: this.artplayer.video,
+      container: this.artplayer.video.parentElement as HTMLElement | null,
+      rotation: this.currentRotation,
+    })
+  }
+
+  private rotateVideoClockwise() {
+    this.currentRotation = getNextRotationDegrees(this.currentRotation)
+    saveVideoRotation(this.currentPickCode, this.currentRotation)
+    this.applyVideoRotation()
+    this.renderRotateControl()
+    this.overlay?.showToast(this.currentRotation === 0 ? '画面旋转已重置' : `画面已旋转 ${this.currentRotation}°`)
+  }
+
+  private applyPlaybackRate(value: number) {
+    this.currentPlaybackRate = value
+    if (this.artplayer) {
+      this.artplayer.video.playbackRate = value
+      try {
+        ;(this.artplayer as any).playbackRate = value
+      }
+      catch {
+        // Fallback to direct video playbackRate when the public setter is unavailable.
+      }
+    }
+    this.renderSpeedControl()
+  }
+
+  private renderPlaybackNavControls() {
+    if (!this.artplayer) return
+    updateArtplayerControl(this.artplayer, PlayerManager.PREV_CONTROL_NAME, this.buildPrevControlItem())
+    updateArtplayerControl(this.artplayer, PlayerManager.NEXT_CONTROL_NAME, this.buildNextControlItem())
   }
 
   private updateQualityControl() {
@@ -816,7 +854,7 @@ class PlayerManager {
   }
 
   private syncOverlayPlaybackNav() {
-    this.syncCenterPlaybackNav()
+    this.renderPlaybackNavControls()
     this.overlay?.updatePlaybackNav(buildPlaybackNavState(
       getPlaylistPosition(this.playlistItemsCache, this.currentPickCode),
     ))
@@ -1004,6 +1042,7 @@ class PlayerManager {
       if (requestId !== this.switchVideoRequestId || !this.artplayer) return
 
       this.currentPickCode = pickCode
+      this.currentRotation = loadVideoRotation(pickCode)
       this.perfMarks = { init: performance.now() }
       this.firstPlayingReported = false
       this.lastPlaylistProgressSyncSec = -1
@@ -1023,6 +1062,9 @@ class PlayerManager {
       this.overlay?.updatePlaylist(this.playlistItemsCache)
       this.setupProgressHoverPreview(playback.initialPlayback.url, playback.initialPlayback.type)
       this.renderQualityPanel()
+      this.renderPlaybackNavControls()
+      this.renderRotateControl()
+      this.applyVideoRotation()
 
       await this.artplayer.switchUrl(playback.initialPlayback.url)
       if (requestId !== this.switchVideoRequestId || !this.artplayer) return
@@ -1099,11 +1141,12 @@ class PlayerManager {
       this.infoMenuTimer = null
     }
     this.infoMenuEl = null
-    this.nativePlayObserver?.disconnect()
-    this.nativePlayObserver = null
     if (this.cleanupKeyboard) {
       this.cleanupKeyboard()
       this.cleanupKeyboard = null
+    }
+    if (this.cleanupResize) {
+      this.cleanupResize()
     }
     if (this.hlsInstance) {
       this.hlsInstance.destroy()

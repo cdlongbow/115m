@@ -112,7 +112,12 @@ function renderSidebar(doc: Document, enabledIds: Set<string>) {
   topList.querySelectorAll('.m115-nav-item').forEach(node => node.remove())
   bottomList.querySelectorAll('.m115-sidebar-settings-item').forEach(node => node.remove())
 
-  NAV_ITEMS.filter(item => item.id === 'wangpan' || enabledIds.has(item.id)).forEach((item) => {
+  const visibleItems = NAV_ITEMS.filter(item => item.id === 'wangpan' || enabledIds.has(item.id))
+  const orderedItems = visibleItems[0]?.id === 'wangpan'
+    ? [visibleItems[0], ...getSortedItems(visibleItems.slice(1))]
+    : getSortedItems(visibleItems)
+
+  orderedItems.forEach((item) => {
     const li = doc.createElement('li')
     li.className = 'm115-nav-item'
     li.dataset.id = item.id
