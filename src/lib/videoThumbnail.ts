@@ -95,12 +95,12 @@ export interface VideoThumbnail {
 
 function calculateTimes(duration: number, count = 5): number[] {
   if (count <= 1) {
-    return [Math.floor(clampTime(duration / 2, duration))]
+    return [Math.round(clampTime(duration / 2, duration) * 10) / 10]
   }
 
   const interval = duration / count
   return Array.from({ length: count }, (_, i) =>
-    Math.floor(clampTime(interval / 2 + interval * i, duration))
+    Math.round(clampTime(interval / 2 + interval * i, duration) * 10) / 10
   )
 }
 

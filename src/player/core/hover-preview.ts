@@ -1,6 +1,6 @@
 import type Artplayer from 'artplayer'
 import { createHoverPreviewElements, findProgressElement } from './dom'
-import { clamp, findNearestCover, formatTimeLabel, formatVttTime } from './hover-utils'
+import { blurTime, clamp, findNearestCover, formatTimeLabel, formatVttTime } from './hover-utils'
 
 interface HoverCover {
   time: number
@@ -22,9 +22,9 @@ function mergeCovers(covers: HoverCover[]): HoverCover[] {
 const PRECISE_COVER_BUCKET = 0.5
 const PRECISE_COVER_MIN_DELTA = 1.5
 const PRECISE_COVER_DEBOUNCE = 50
-const COARSE_COVER_MAX_DELTA = 15
 const PRECISE_PREFETCH_RANGE = 1
-const PRECISE_SEEK_MAX_DELTA = 2.5
+const MIN_COARSE_COVER_COUNT = 40
+const MAX_COARSE_COVER_COUNT = 220
 
 export class HoverPreviewController {
   private covers: HoverCover[] = []
@@ -45,9 +45,12 @@ export class HoverPreviewController {
   private preloadTimer: number | null = null
   private lastHoverBucketTime: number | null = null
   private lastDisplayedCoverTime: number | null = null
+  private latestHoverTime: number | null = null
+  private hoverRequestVersion = 0
   private hoverActive = false
   private lastPointerClientX: number | null = null
   private lastPointerClientY: number | null = null
+  private pendingPreciseBucketTime: number | null = null
 
   constructor(
     private readonly art: Artplayer,
@@ -126,7 +129,10 @@ export class HoverPreviewController {
     this.preciseCovers.clear()
     this.preciseQueue = []
     this.preciseCoverRequestKey = null
+    this.pendingPreciseBucketTime = null
     this.lastDisplayedCoverTime = null
+    this.latestHoverTime = null
+    this.hoverRequestVersion = 0
   }
 
   private async loadThumbnails() {
@@ -333,6 +339,7 @@ export class HoverPreviewController {
     this.lastPointerClientX = null
     this.lastPointerClientY = null
     this.lastDisplayedCoverTime = null
+    this.latestHoverTime = null
     this.hidePreview()
   }
 
@@ -409,24 +416,23 @@ export class HoverPreviewController {
     })
   }
 
-  private getInitialCoverCount(duration: number): number {
-    // 目标：每张封面覆盖 10-15 秒
-    if (duration <= 2 * 60) {
-      return 12  // 2分钟 → 12张，每张约10秒
-    }
-    if (duration <= 5 * 60) {
-      return 24  // 5分钟 → 24张，每张约12秒
-    }
+  private getCoarseSamplingInterval(duration: number): number {
     if (duration <= 10 * 60) {
-      return 48  // 10分钟 → 48张，每张约12秒
+      return 4
     }
     if (duration <= 30 * 60) {
-      return 90  // 30分钟 → 90张，每张约20秒
+      return 5
     }
     if (duration <= 60 * 60) {
-      return 150 // 1小时 → 150张，每张约24秒
+      return 6
     }
-    return 200   // 超过1小时 → 200张
+    return 8
+  }
+
+  private getInitialCoverCount(duration: number): number {
+    const targetInterval = this.getCoarseSamplingInterval(duration)
+    const count = Math.ceil(duration / targetInterval)
+    return Math.max(MIN_COARSE_COVER_COUNT, Math.min(count, MAX_COARSE_COVER_COUNT))
   }
 
   private updateThumbnailTrack(duration: number) {
@@ -447,7 +453,7 @@ export class HoverPreviewController {
   }
 
   private getPreciseBucketTime(hoverTime: number): number {
-    return Math.round(hoverTime / PRECISE_COVER_BUCKET) * PRECISE_COVER_BUCKET
+    return blurTime(hoverTime, PRECISE_COVER_BUCKET, this.art.duration || hoverTime)
   }
 
   private insertCover(cover: HoverCover) {
@@ -462,6 +468,8 @@ export class HoverPreviewController {
       return
     }
 
+    const requestVersion = ++this.hoverRequestVersion
+    this.latestHoverTime = hoverTime
     const bucketTime = this.getPreciseBucketTime(hoverTime)
     const cacheHit = this.preciseCovers.get(bucketTime)
     if (cacheHit) {
@@ -474,9 +482,18 @@ export class HoverPreviewController {
       return
     }
 
-    // 立即加载精确封面（不等待）
-    this.enqueuePreciseCover(bucketTime, true)
-    this.prefetchNearbyPreciseCovers(bucketTime)
+    if (this.preciseCoverTimer) {
+      window.clearTimeout(this.preciseCoverTimer)
+    }
+
+    const wait = nearest ? PRECISE_COVER_DEBOUNCE : 0
+    this.preciseCoverTimer = window.setTimeout(() => {
+      if (requestVersion !== this.hoverRequestVersion) {
+        return
+      }
+      this.enqueuePreciseCover(bucketTime, true)
+      this.prefetchNearbyPreciseCovers(bucketTime)
+    }, wait)
   }
 
   private enqueuePreciseCover(bucketTime: number, prioritize = false) {
@@ -484,12 +501,17 @@ export class HoverPreviewController {
       return
     }
 
+    if (prioritize) {
+      this.pendingPreciseBucketTime = bucketTime
+      this.preciseQueue = this.preciseQueue.filter(time => time !== bucketTime)
+    }
+
     const requestKey = `${this.pickCode}:${bucketTime}`
     if (this.preciseCoverRequestKey === requestKey) {
       return
     }
 
-    if (!this.preciseQueue.includes(bucketTime)) {
+    if (!prioritize && !this.preciseQueue.includes(bucketTime) && this.pendingPreciseBucketTime !== bucketTime) {
       if (prioritize) {
         this.preciseQueue.unshift(bucketTime)
       }
@@ -499,7 +521,8 @@ export class HoverPreviewController {
     }
 
     if (!this.preciseCoverRequestKey) {
-      const nextBucketTime = this.preciseQueue.shift()
+      const nextBucketTime = this.pendingPreciseBucketTime ?? this.preciseQueue.shift()
+      this.pendingPreciseBucketTime = null
       if (nextBucketTime != null) {
         void this.loadPreciseCover(nextBucketTime)
       }
@@ -570,8 +593,8 @@ export class HoverPreviewController {
         this.preciseCoverRequestKey = null
       }
 
-      // 处理队列中的下一个请求
-      const nextBucketTime = this.preciseQueue.shift()
+      const nextBucketTime = this.pendingPreciseBucketTime ?? this.preciseQueue.shift()
+      this.pendingPreciseBucketTime = null
       if (nextBucketTime != null && nextBucketTime !== bucketTime) {
         void this.loadPreciseCover(nextBucketTime)
       }
@@ -611,10 +634,15 @@ export class HoverPreviewController {
 
     const preciseBucketTime = this.getPreciseBucketTime(hoverTime)
     this.lastHoverBucketTime = preciseBucketTime
+    this.latestHoverTime = hoverTime
     const preciseCover = this.preciseCovers.get(preciseBucketTime)
-    const coarseCover = findNearestCover(this.covers, hoverTime)
+    const coarseCover = findNearestCover(
+      this.covers,
+      hoverTime,
+      Math.max(2, Math.min(8, this.getCoarseSamplingInterval(this.art.duration) * 1.5)),
+    )
     const nearest = preciseCover
-      ?? (coarseCover && Math.abs(coarseCover.time - hoverTime) <= COARSE_COVER_MAX_DELTA ? coarseCover : null)
+      ?? coarseCover
 
     const containerRect = (this.art.template.$player as HTMLElement).getBoundingClientRect()
     const offsetX = event.clientX - containerRect.left
@@ -643,7 +671,7 @@ export class HoverPreviewController {
       this.previewEl.style.display = 'block'
       this.lastDisplayedCoverTime = null
     }
-    this.previewTimeEl.textContent = formatTimeLabel(this.lastDisplayedCoverTime ?? hoverTime)
+    this.previewTimeEl.textContent = formatTimeLabel(hoverTime)
     this.schedulePreciseCover(hoverTime, nearest)
 
     if (!nearest) {
