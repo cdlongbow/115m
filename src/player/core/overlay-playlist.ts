@@ -35,8 +35,8 @@ export function buildPlaylistHtml(items: OverlayPlaylistItem[], currentPickCode:
     const active = item.pickCode === currentPickCode
     const num = index + 1
     return `
-      <div class="m115-pl-item" data-pickcode="${esc(item.pickCode)}" data-index="${index}"
-        style="display:flex;align-items:center;gap:10px;padding:6px 8px;border-radius:8px;cursor:pointer;transition:background .15s;${active ? 'background:rgba(255,255,255,.12)' : ''}">
+      <button type="button" class="m115-pl-item${active ? ' is-active' : ''}" data-pickcode="${esc(item.pickCode)}" data-index="${index}" ${active ? 'aria-current="true"' : ''}
+        style="display:flex;align-items:center;gap:10px;width:100%;padding:6px 8px;border:none;border-radius:8px;cursor:pointer;transition:background .15s;background:${active ? 'rgba(255,255,255,.12)' : 'transparent'};text-align:left;">
         <span style="flex-shrink:0;width:22px;text-align:center;font-size:11px;font-variant-numeric:tabular-nums;${active ? 'color:#38bdf8;font-weight:600' : 'color:rgba(255,255,255,.35)'}">${num}</span>
         <div class="m115-pl-thumb" style="position:relative;width:120px;height:68px;border-radius:6px;flex-shrink:0;background:#1a1a1a;overflow:hidden;display:flex;align-items:center;justify-content:center">
           <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="rgba(255,255,255,.15)" stroke-width="1.5"><polygon points="5 3 19 12 5 21 5 3"/></svg>
@@ -46,7 +46,7 @@ export function buildPlaylistHtml(items: OverlayPlaylistItem[], currentPickCode:
           ${item.size ? `<div style="font-size:11px;color:rgba(255,255,255,.35);margin-top:2px">${escapeHtml(item.size)}</div>` : ''}
           ${renderPlaylistProgress(item, active)}
         </div>
-      </div>
+      </button>
     `
   }).join('')
 }

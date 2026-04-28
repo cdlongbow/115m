@@ -3,6 +3,7 @@ import { UI_LAYER } from './ui-layer'
 export function createHeaderActionButton(title: string, icon: string) {
   const button = document.createElement('button')
   button.type = 'button'
+  button.className = 'm115-header-action'
   button.title = title
   button.style.cssText = 'display:flex;align-items:center;justify-content:center;width:36px;height:36px;border-radius:999px;border:none;background:transparent;color:rgba(255,255,255,.82);cursor:pointer;transition:background .15s,color .15s,opacity .15s;'
   button.innerHTML = icon
@@ -23,6 +24,7 @@ export function getFavoriteButtonIcon(marked: boolean) {
 
 export function createOverlayHeaderScaffold() {
   const header = document.createElement('div')
+  header.classList.add('m115-layer-header')
   header.style.cssText = [
     'position:absolute',
     'top:0',
@@ -38,13 +40,13 @@ export function createOverlayHeaderScaffold() {
     'transition:opacity .2s ease',
     'box-sizing:border-box',
   ].join(';')
-  header.classList.add('m115-layer-header')
-
   const left = document.createElement('div')
+  left.className = 'm115-header-main'
   left.style.cssText = 'min-width:0;max-width:min(72vw,800px);display:flex;align-items:flex-start;gap:12px;'
 
   const back = document.createElement('button')
   back.type = 'button'
+  back.className = 'm115-header-back'
   back.title = '返回'
   back.style.cssText = [
     'pointer-events:auto',
@@ -63,12 +65,15 @@ export function createOverlayHeaderScaffold() {
   back.innerHTML = '<svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M19 12H5M12 19l-7-7 7-7"/></svg>'
 
   const info = document.createElement('div')
+  info.className = 'm115-header-info'
   info.style.cssText = 'min-width:0;flex:0 1 auto;padding-top:2px;max-width:min(62vw,760px);'
 
   const titleRow = document.createElement('div')
+  titleRow.className = 'm115-header-title-row'
   titleRow.style.cssText = 'display:inline-flex;align-items:center;gap:10px;min-width:0;max-width:100%;vertical-align:top;'
 
   const title = document.createElement('div')
+  title.className = 'm115-header-title'
   title.style.cssText = [
     'flex:0 1 auto',
     'min-width:0',
@@ -85,6 +90,7 @@ export function createOverlayHeaderScaffold() {
   ].join(';')
 
   const index = document.createElement('div')
+  index.className = 'm115-header-index'
   index.style.cssText = [
     'display:none',
     'align-items:center',
@@ -104,6 +110,7 @@ export function createOverlayHeaderScaffold() {
   ].join(';')
 
   const stats = document.createElement('div')
+  stats.className = 'm115-header-stats'
   stats.style.cssText = [
     'flex:0 0 auto',
     'font-size:12px',
@@ -117,6 +124,7 @@ export function createOverlayHeaderScaffold() {
   ].join(';')
 
   const breadcrumbs = document.createElement('div')
+  breadcrumbs.className = 'm115-header-breadcrumbs'
   breadcrumbs.style.cssText = [
     'margin-top:6px',
     'font-size:12px',
@@ -131,9 +139,11 @@ export function createOverlayHeaderScaffold() {
   ].join(';')
 
   const right = document.createElement('div')
+  right.className = 'm115-header-actions-wrap'
   right.style.cssText = 'display:flex;align-items:center;gap:8px;margin-left:auto;flex-shrink:0;pointer-events:auto;padding-top:2px;'
 
   const pillGroup = document.createElement('div')
+  pillGroup.className = 'm115-header-pill-group'
   pillGroup.style.cssText = 'display:flex;align-items:center;border-radius:999px;border:1px solid rgba(255,255,255,.18);background:rgba(0,0,0,.42);padding:2px;gap:0;'
 
   titleRow.appendChild(index)

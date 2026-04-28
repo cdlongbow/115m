@@ -167,8 +167,12 @@ export class PlayerOverlayController {
     this.root.removeEventListener('mouseleave', this.handleMouseLeave)
     this.controlsEl.removeEventListener('mouseenter', this.handleOverlayEnter)
     this.controlsEl.removeEventListener('mouseleave', this.handleOverlayLeave)
+    this.progressEl.removeEventListener('mouseenter', this.handleProgressEnter)
+    this.progressEl.removeEventListener('mouseleave', this.handleProgressLeave)
     this.headerEl?.removeEventListener('mouseenter', this.handleOverlayEnter)
     this.headerEl?.removeEventListener('mouseleave', this.handleOverlayLeave)
+    this.playlistTabEl?.remove()
+    this.headerEl?.remove()
     this.endPanelEl?.remove()
   }
 
@@ -531,7 +535,6 @@ export class PlayerOverlayController {
 
     this.favBtnEl = favBtn
     this.moveBtnEl = moveBtn
-    this.options.meta.isMarked = false
     this.updateFavoriteIcon()
 
     pillGroup.appendChild(moveBtn)
@@ -561,7 +564,9 @@ export class PlayerOverlayController {
   // ── Playlist toggle tab (right edge, vertically centered) ──
 
   private mountPlaylistTab() {
-    const tab = document.createElement('div')
+    const tab = document.createElement('button')
+    tab.type = 'button'
+    tab.className = 'm115-playlist-tab'
     tab.style.cssText = [
       'position:absolute',
       'right:0',
@@ -584,6 +589,8 @@ export class PlayerOverlayController {
       'opacity:0.6',
     ].join(';')
     tab.title = '播放列表'
+    tab.setAttribute('aria-label', '播放列表')
+    tab.setAttribute('aria-expanded', 'false')
     tab.classList.add('m115-interactive', 'm115-layer-playlist-tab')
     tab.innerHTML = '<svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 6h16"/><path d="M4 12h16"/><path d="M4 18h10"/></svg>'
 
@@ -620,17 +627,21 @@ export class PlayerOverlayController {
 
     this.sidebarEl.innerHTML = ''
     this.sidebarEl.style.cssText = 'width:0;min-width:0;flex:0 0 0;overflow:hidden;transition:width .25s ease, flex-basis .25s ease;background:#0a0a0a;border-left:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;box-sizing:border-box;height:100%;'
+    this.sidebarEl.classList.add('m115-playlist-sidebar')
 
     // Panel header
     const panelHeader = document.createElement('div')
+    panelHeader.className = 'm115-playlist-panel-header'
     panelHeader.style.cssText = 'display:flex;align-items:center;justify-content:space-between;padding:14px 14px 10px;flex-shrink:0;width:100%;box-sizing:border-box;'
 
     const panelTitle = document.createElement('div')
+    panelTitle.className = 'm115-playlist-panel-title'
     panelTitle.style.cssText = 'font-size:14px;font-weight:600;color:rgba(255,255,255,.9)'
     panelTitle.textContent = '播放列表'
 
     const closeBtn = document.createElement('button')
     closeBtn.type = 'button'
+    closeBtn.className = 'm115-playlist-close'
     closeBtn.title = '关闭'
     closeBtn.style.cssText = 'display:flex;align-items:center;justify-content:center;width:28px;height:28px;border:none;border-radius:6px;background:transparent;color:rgba(255,255,255,.5);cursor:pointer;transition:background .15s,color .15s'
     closeBtn.innerHTML = '<svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M18 6 6 18"/><path d="m6 6 12 12"/></svg>'
@@ -643,6 +654,7 @@ export class PlayerOverlayController {
 
     // List container
     const listContainer = document.createElement('div')
+    listContainer.className = 'm115-pl-scroll m115-playlist-list'
     listContainer.style.cssText = 'flex:1;overflow-y:auto;padding:0 8px 12px;width:100%;box-sizing:border-box;'
 
     // Custom scrollbar
@@ -653,8 +665,6 @@ export class PlayerOverlayController {
       .m115-pl-scroll::-webkit-scrollbar-thumb { background: rgba(255,255,255,.15); border-radius: 4px; }
       .m115-pl-scroll::-webkit-scrollbar-thumb:hover { background: rgba(255,255,255,.3); }
     `
-    listContainer.classList.add('m115-pl-scroll')
-
     this.sidebarEl.appendChild(scrollStyle)
     this.sidebarEl.appendChild(panelHeader)
     this.sidebarEl.appendChild(listContainer)
@@ -665,10 +675,10 @@ export class PlayerOverlayController {
     this.playlistOpen = open
     // Expand/collapse the external sidebar — the video area shrinks/grows via flex
     if (this.sidebarEl) {
-      const width = open ? '360px' : '0px'
+      const width = open ? `${this.getPlaylistSidebarWidth()}px` : '0px'
       this.sidebarEl.style.width = width
       this.sidebarEl.style.minWidth = width
-      this.sidebarEl.style.flex = open ? '0 0 360px' : '0 0 0px'
+      this.sidebarEl.style.flex = open ? `0 0 ${width}` : '0 0 0px'
 
       const computed = window.getComputedStyle(this.sidebarEl)
       console.log('[115m] setPlaylistOpen:', {
@@ -682,6 +692,7 @@ export class PlayerOverlayController {
       })
     }
     if (this.playlistTabEl) {
+      this.playlistTabEl.setAttribute('aria-expanded', open ? 'true' : 'false')
       this.syncPlaylistTabVisibility(this.overlayVisible)
     }
     this.setVisible(open || this.isPointerInsideOverlay)
@@ -699,6 +710,14 @@ export class PlayerOverlayController {
         this.setVisible(false)
       }
     }, 1000)
+  }
+
+  private getPlaylistSidebarWidth() {
+    const viewportWidth = window.innerWidth || document.documentElement.clientWidth || 0
+    if (viewportWidth <= 640) {
+      return Math.min(320, Math.max(240, viewportWidth - 32))
+    }
+    return Math.min(360, Math.max(260, Math.round(viewportWidth * 0.32)))
   }
 
   private handleBack = () => {

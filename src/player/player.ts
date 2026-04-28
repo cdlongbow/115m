@@ -36,7 +36,7 @@ import {
   resolveOriginalPlaceholderUrl,
   syncPlaybackStateByUrl,
 } from './core/playback-state'
-import { ensureServiceWorkerReady, sendRuntimeMessageSafe } from './core/runtime'
+import { ensureServiceWorkerReady, getRuntimeApi, sendRuntimeMessageSafe } from './core/runtime'
 import {
   buildUpdatedMarkedUrl,
   readPathFromLocation,
@@ -619,8 +619,9 @@ class PlayerManager {
       shouldKeepPlaylistOpen: () => this.keepPlaylistOpenOnInit,
     })
     this.overlay.init()
-    chrome.runtime.onMessage.removeListener(this.handleRuntimeMessage)
-    chrome.runtime.onMessage.addListener(this.handleRuntimeMessage)
+    const runtime = getRuntimeApi()
+    runtime?.onMessage?.removeListener(this.handleRuntimeMessage)
+    runtime?.onMessage?.addListener(this.handleRuntimeMessage)
     this.syncOverlayPlaybackNav()
     void this.prefetchPlaylistItems()
     // 异步获取最新的收藏状态
@@ -1131,7 +1132,8 @@ class PlayerManager {
 
   destroy() {
     this.clearPlaybackEndState()
-    chrome.runtime.onMessage.removeListener(this.handleRuntimeMessage)
+    const runtime = getRuntimeApi()
+    runtime?.onMessage?.removeListener(this.handleRuntimeMessage)
     this.overlay?.destroy()
     this.overlay = null
     this.hoverPreview?.destroy()
