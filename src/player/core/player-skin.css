@@ -782,10 +782,29 @@
 
 .m115-pl-item {
   appearance: none;
+  -webkit-appearance: none;
+  background-color: transparent !important;
+  background-image: none !important;
+  color: inherit !important;
+  border: none !important;
+  box-shadow: none !important;
 }
 
 .m115-pl-item:hover {
   background: rgba(255, 255, 255, 0.06) !important;
+}
+
+.m115-pl-item:active,
+.m115-pl-item:focus,
+.m115-pl-item:focus-visible {
+  background-color: transparent !important;
+  background-image: none !important;
+  color: inherit !important;
+}
+
+.m115-pl-item.is-active,
+.m115-pl-item[aria-current='true'] {
+  background: rgba(255, 255, 255, 0.12) !important;
 }
 
 .m115-pl-item.is-active:hover {
