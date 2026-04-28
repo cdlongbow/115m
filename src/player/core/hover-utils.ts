@@ -25,7 +25,7 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
-export function findNearestCover(covers: HoverCover[], hoverTime: number): HoverCover | null {
+export function findNearestCover(covers: HoverCover[], hoverTime: number, maxDelta = 30): HoverCover | null {
   if (!covers.length) return null
   let nearest = covers[0]
   let minDelta = Math.abs(nearest.time - hoverTime)
@@ -35,6 +35,11 @@ export function findNearestCover(covers: HoverCover[], hoverTime: number): Hover
       minDelta = delta
       nearest = cover
     }
+  }
+  // 如果最近的封面距离超过最大允许距离，返回 null
+  // 这样会触发精确封面加载，而不是显示一个过远的封面
+  if (minDelta > maxDelta) {
+    return null
   }
   return nearest
 }

@@ -118,10 +118,46 @@
 .art-video-player .art-controls-left .art-time {
   min-width: auto;
   margin: 0 10px 0 6px;
-  font-size: 12px;
+  font-size: 12px !important;
   font-weight: 500;
   letter-spacing: 0;
   color: rgba(255, 255, 255, 0.92);
+}
+
+.art-video-player .art-controls-left .art-control-time {
+  width: auto !important;
+  min-width: auto !important;
+  max-width: none !important;
+  height: auto !important;
+  min-height: auto !important;
+  max-height: none !important;
+  flex: 0 0 auto !important;
+  flex-basis: auto !important;
+  font-size: 12px !important;
+  line-height: 1 !important;
+  overflow: visible !important;
+}
+
+.art-video-player .art-controls-left .art-control-time .art-time {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.art-video-player .art-controls-left .art-control-time,
+.art-video-player .art-controls-left .art-control-time .art-current-time,
+.art-video-player .art-controls-left .art-control-time .art-duration,
+.art-video-player .art-controls-left .art-control-time .art-time {
+  color: rgba(255, 255, 255, 0.92) !important;
+  font-size: 12px !important;
+  line-height: 1.2 !important;
+  white-space: nowrap !important;
+}
+
+.art-video-player .art-controls-left .art-control-time .art-current-time,
+.art-video-player .art-controls-left .art-control-time .art-duration {
+  display: inline !important;
 }
 
 .art-video-player .art-controls-left .art-control-volume {
@@ -835,6 +871,21 @@
   .art-video-player .art-controls-left .art-time {
     margin: 0 6px 0 4px;
     font-size: 11px;
+  }
+
+  .art-video-player .art-controls-left .art-control-time {
+    width: auto !important;
+    min-width: auto !important;
+    max-width: none !important;
+    flex: 0 0 auto !important;
+    font-size: 11px !important;
+  }
+
+  .art-video-player .art-controls-left .art-control-time,
+  .art-video-player .art-controls-left .art-control-time .art-current-time,
+  .art-video-player .art-controls-left .art-control-time .art-duration,
+  .art-video-player .art-controls-left .art-control-time .art-time {
+    font-size: 11px !important;
   }
 
   .m115-layer-header {
