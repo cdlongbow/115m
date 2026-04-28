@@ -1,70 +1,44 @@
-export interface CenterControlElements {
-  prev: HTMLButtonElement | null
-  play: HTMLButtonElement | null
-  next: HTMLButtonElement | null
-}
+export function buildNavControlItem(params: {
+  controlName: string
+  direction: 'prev' | 'next'
+  index: number
+  enabled: boolean
+  title: string
+  onClick: () => void
+}) {
+  const icon = params.direction === 'prev'
+    ? '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" style="display:block;flex:none;color:inherit;"><path fill="currentColor" d="M11.8 6.2 6 12l5.8 5.8 1.4-1.4L8.8 12l4.4-4.4-1.4-1.4Z"/><path fill="currentColor" d="M17.8 6.2 12 12l5.8 5.8 1.4-1.4-4.4-4.4 4.4-4.4-1.4-1.4Z"/></svg>'
+    : '<svg width="22" height="22" viewBox="0 0 24 24" aria-hidden="true" style="display:block;flex:none;color:inherit;"><path fill="currentColor" d="m12.2 6.2-1.4 1.4 4.4 4.4-4.4 4.4 1.4 1.4L18 12l-5.8-5.8Z"/><path fill="currentColor" d="m6.2 6.2-1.4 1.4 4.4 4.4-4.4 4.4 1.4 1.4L12 12 6.2 6.2Z"/></svg>'
 
-export function buildCenterControlsHtml(): string {
-  return `
-    <div style="display:flex;align-items:center;justify-content:center;gap:12px;height:100%;">
-      <button type="button" data-m115-center="prev" title="上一集" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.86);cursor:pointer;padding:0;transition:background .15s ease,opacity .15s ease;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M11 6l-6 6 6 6"/><path d="M19 6l-6 6 6 6"/></svg>
-      </button>
-      <button type="button" data-m115-center="play" title="播放" style="display:flex;align-items:center;justify-content:center;width:44px;height:44px;border:1px solid rgba(255,255,255,.18);border-radius:999px;background:rgba(255,255,255,.12);color:#fff;cursor:pointer;padding:0;box-shadow:0 4px 16px rgba(0,0,0,.18);transition:background .15s ease,opacity .15s ease;">
-        <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>
-      </button>
-      <button type="button" data-m115-center="next" title="下一集" style="display:flex;align-items:center;justify-content:center;width:36px;height:36px;border:none;border-radius:999px;background:rgba(255,255,255,.08);color:rgba(255,255,255,.86);cursor:pointer;padding:0;transition:background .15s ease,opacity .15s ease;">
-        <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m13 6 6 6-6 6"/><path d="m5 6 6 6-6 6"/></svg>
-      </button>
-    </div>
-  `
-}
-
-export function applyCenterControlContainerStyle(container: HTMLElement) {
-  container.style.position = 'absolute'
-  container.style.left = '50%'
-  container.style.bottom = '0'
-  container.style.transform = 'translateX(-50%)'
-  container.style.display = 'flex'
-  container.style.alignItems = 'center'
-  container.style.justifyContent = 'center'
-  container.style.padding = '0'
-  container.style.height = '100%'
-  container.style.pointerEvents = 'auto'
-}
-
-export function queryCenterControlElements(container: HTMLElement): CenterControlElements {
   return {
-    prev: container.querySelector('[data-m115-center="prev"]') as HTMLButtonElement | null,
-    play: container.querySelector('[data-m115-center="play"]') as HTMLButtonElement | null,
-    next: container.querySelector('[data-m115-center="next"]') as HTMLButtonElement | null,
-  }
-}
-
-export function buildPlayButtonState(paused: boolean) {
-  return {
-    title: paused ? '播放' : '暂停',
-    html: paused
-      ? '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5v14l11-7z"/></svg>'
-      : '<svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor"><path d="M8 5h3v14H8zM13 5h3v14h-3z"/></svg>',
-  }
-}
-
-export function applyNavButtonState(button: HTMLButtonElement | null, enabled: boolean, title: string) {
-  if (!button) return
-  button.disabled = !enabled
-  button.title = title
-  button.style.opacity = enabled ? '1' : '.38'
-  button.style.cursor = enabled ? 'pointer' : 'not-allowed'
-}
-
-export function createCenterHoverBinder(playButton: HTMLButtonElement | null) {
-  return (button: HTMLButtonElement | null) => {
-    button?.addEventListener('mouseenter', () => {
-      if (!button.disabled) button.style.background = 'rgba(255,255,255,.16)'
-    })
-    button?.addEventListener('mouseleave', () => {
-      button.style.background = button === playButton ? 'rgba(255,255,255,.12)' : 'rgba(255,255,255,.08)'
-    })
+    name: params.controlName,
+    position: 'left' as const,
+    index: params.index,
+    tooltip: params.title,
+    html: `<span class="m115-control-shell m115-nav-control-button${params.enabled ? '' : ' is-disabled'}" aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;color:rgba(255,255,255,.92);line-height:0;font-size:0;">${icon}</span>`,
+    style: {
+      width: '46px',
+      minWidth: '46px',
+      maxWidth: '46px',
+      height: '46px',
+      minHeight: '46px',
+      maxHeight: '46px',
+      marginRight: '2px',
+      display: 'flex',
+      alignItems: 'center',
+      justifyContent: 'center',
+      opacity: params.enabled ? '1' : '.38',
+      cursor: params.enabled ? 'pointer' : 'not-allowed',
+    },
+    click: () => {
+      if (!params.enabled) return false
+      params.onClick()
+      return false
+    },
+    mounted: ($control: HTMLElement) => {
+      $control.classList.add('m115-nav-control')
+      $control.classList.toggle('is-disabled', !params.enabled)
+      $control.title = params.title
+    },
   }
 }

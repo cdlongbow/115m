@@ -23,6 +23,7 @@ export interface PlaylistProgressSnapshot {
 }
 
 const QUALITY_PREF_STORAGE_KEY = '115m-quality-preferences'
+const VIDEO_ROTATION_STORAGE_KEY = '115m-video-rotations'
 const PLAY_HISTORY_COMPLETED_REMAINING_SEC = 15
 const PLAY_HISTORY_COMPLETED_RATIO = 0.98
 
@@ -41,6 +42,27 @@ function readQualityPreferenceMap(): Record<string, QualityPreference> {
 function writeQualityPreferenceMap(map: Record<string, QualityPreference>) {
   try {
     localStorage.setItem(QUALITY_PREF_STORAGE_KEY, JSON.stringify(map))
+  }
+  catch {
+    // ignore storage errors
+  }
+}
+
+function readVideoRotationMap(): Record<string, number> {
+  try {
+    const raw = localStorage.getItem(VIDEO_ROTATION_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, number>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+function writeVideoRotationMap(map: Record<string, number>) {
+  try {
+    localStorage.setItem(VIDEO_ROTATION_STORAGE_KEY, JSON.stringify(map))
   }
   catch {
     // ignore storage errors
@@ -67,6 +89,20 @@ export async function loadQualityPreference(pickCode: string): Promise<QualityPr
   const prefs = readQualityPreferenceMap()
   console.log('[115m] loadQualityPreference all prefs:', JSON.stringify(prefs))
   return prefs[pickCode] ?? null
+}
+
+export function loadVideoRotation(pickCode: string): number {
+  if (!pickCode) return 0
+  const rotations = readVideoRotationMap()
+  const value = rotations[pickCode]
+  return typeof value === 'number' ? value : 0
+}
+
+export function saveVideoRotation(pickCode: string, rotation: number) {
+  if (!pickCode) return
+  const rotations = readVideoRotationMap()
+  rotations[pickCode] = rotation
+  writeVideoRotationMap(rotations)
 }
 
 export async function loadPlayHistory(pickCode: string, onRestore: (time: number) => void) {

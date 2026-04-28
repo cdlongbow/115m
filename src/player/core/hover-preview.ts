@@ -19,10 +19,10 @@ function mergeCovers(covers: HoverCover[]): HoverCover[] {
     })
 }
 
-const PRECISE_COVER_BUCKET = 1
-const PRECISE_COVER_MIN_DELTA = 0.8
+const PRECISE_COVER_BUCKET = 0.5
+const PRECISE_COVER_MIN_DELTA = 1.5
 const PRECISE_COVER_DEBOUNCE = 50
-const COARSE_COVER_MAX_DELTA = 6
+const COARSE_COVER_MAX_DELTA = 15
 const PRECISE_PREFETCH_RANGE = 1
 const PRECISE_SEEK_MAX_DELTA = 2.5
 
@@ -274,19 +274,8 @@ export class HoverPreviewController {
       return
     }
 
-    const preciseBucketTime = this.getPreciseBucketTime(hoverTime)
-    const preciseCover = this.preciseCovers.get(preciseBucketTime)
-    if (!preciseCover) {
-      return
-    }
-
-    if (Math.abs(preciseCover.time - hoverTime) > PRECISE_SEEK_MAX_DELTA) {
-      return
-    }
-
-    event.preventDefault()
-    event.stopImmediatePropagation()
-    this.art.seek = preciseCover.time
+    // 始终跳转到用户点击的时间位置
+    this.art.seek = hoverTime
   }
 
   private handleProgressMouseLeave = () => {
@@ -421,16 +410,23 @@ export class HoverPreviewController {
   }
 
   private getInitialCoverCount(duration: number): number {
+    // 目标：每张封面覆盖 10-15 秒
+    if (duration <= 2 * 60) {
+      return 12  // 2分钟 → 12张，每张约10秒
+    }
+    if (duration <= 5 * 60) {
+      return 24  // 5分钟 → 24张，每张约12秒
+    }
     if (duration <= 10 * 60) {
-      return 18
+      return 48  // 10分钟 → 48张，每张约12秒
     }
     if (duration <= 30 * 60) {
-      return 24
+      return 90  // 30分钟 → 90张，每张约20秒
     }
     if (duration <= 60 * 60) {
-      return 30
+      return 150 // 1小时 → 150张，每张约24秒
     }
-    return 36
+    return 200   // 超过1小时 → 200张
   }
 
   private updateThumbnailTrack(duration: number) {
@@ -473,29 +469,14 @@ export class HoverPreviewController {
       return
     }
 
+    // 如果粗略封面已经足够接近，不需要加载精确封面
     if (nearest && Math.abs(nearest.time - hoverTime) < PRECISE_COVER_MIN_DELTA) {
       return
     }
 
-    const shouldLoadImmediately = !nearest || !this.thumbnailsLoaded
-    if (shouldLoadImmediately) {
-      if (this.preciseCoverTimer) {
-        window.clearTimeout(this.preciseCoverTimer)
-        this.preciseCoverTimer = null
-      }
-      this.enqueuePreciseCover(bucketTime, true)
-      this.prefetchNearbyPreciseCovers(bucketTime)
-      return
-    }
-
-    if (this.preciseCoverTimer) {
-      window.clearTimeout(this.preciseCoverTimer)
-    }
-
-    this.preciseCoverTimer = window.setTimeout(() => {
-      this.enqueuePreciseCover(bucketTime, true)
-      this.prefetchNearbyPreciseCovers(bucketTime)
-    }, PRECISE_COVER_DEBOUNCE)
+    // 立即加载精确封面（不等待）
+    this.enqueuePreciseCover(bucketTime, true)
+    this.prefetchNearbyPreciseCovers(bucketTime)
   }
 
   private enqueuePreciseCover(bucketTime: number, prioritize = false) {
@@ -548,7 +529,11 @@ export class HoverPreviewController {
       return
     }
 
+    // 如果当前有请求在处理，将新请求加入队列（高优先级）
     if (this.preciseCoverRequestKey) {
+      if (!this.preciseQueue.includes(bucketTime)) {
+        this.preciseQueue.unshift(bucketTime) // 高优先级
+      }
       return
     }
 
@@ -566,6 +551,7 @@ export class HoverPreviewController {
 
       this.preciseCovers.set(bucketTime, preciseCover)
 
+      // 如果当前悬停位置匹配这个桶，立即更新预览图
       if (this.hoverActive && this.lastHoverBucketTime === bucketTime && this.previewEl && this.previewImgEl) {
         this.previewImgEl.src = preciseCover.imgUrl
         this.previewImgEl.style.visibility = 'visible'
@@ -584,6 +570,7 @@ export class HoverPreviewController {
         this.preciseCoverRequestKey = null
       }
 
+      // 处理队列中的下一个请求
       const nextBucketTime = this.preciseQueue.shift()
       if (nextBucketTime != null && nextBucketTime !== bucketTime) {
         void this.loadPreciseCover(nextBucketTime)
@@ -646,16 +633,9 @@ export class HoverPreviewController {
       this.previewEl.style.display = 'block'
       this.lastDisplayedCoverTime = nearest.time
     }
-    else if (coarseCover?.imgUrl) {
-      this.previewImgEl.src = coarseCover.imgUrl
-      this.previewImgEl.style.visibility = 'visible'
-      if (this.previewLoadingEl) {
-        this.previewLoadingEl.style.display = 'none'
-      }
-      this.previewEl.style.display = 'block'
-      this.lastDisplayedCoverTime = coarseCover.time
-    }
     else {
+      // 没有合适的封面（精确封面未加载，粗略封面距离太远）
+      // 显示加载状态，等待精确封面
       this.previewImgEl.style.visibility = 'hidden'
       if (this.previewLoadingEl) {
         this.previewLoadingEl.style.display = 'flex'

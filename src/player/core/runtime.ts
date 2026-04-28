@@ -5,6 +5,18 @@ function isContextInvalidated(e: unknown): boolean {
   return e instanceof Error && /Extension context invalidated/i.test(e.message)
 }
 
+export function getRuntimeApi() {
+  if (typeof chrome === 'undefined' || !chrome?.runtime) {
+    return null
+  }
+  return chrome.runtime
+}
+
+export function canUseRuntimeMessaging() {
+  const runtime = getRuntimeApi()
+  return !!runtime && typeof runtime.sendMessage === 'function'
+}
+
 /**
  * 扩展上下文失效时，提示用户刷新页面
  */
@@ -39,9 +51,15 @@ function showContextInvalidatedTip() {
  */
 export async function ensureServiceWorkerReady(maxRetries = 5, delay = 500): Promise<void> {
   console.log('[115m] ensureServiceWorkerReady: starting...')
+  if (!canUseRuntimeMessaging()) {
+    console.warn('[115m] ensureServiceWorkerReady skipped: runtime unavailable')
+    return
+  }
   for (let i = 0; i < maxRetries; i++) {
     try {
-      const result = await chrome.runtime.sendMessage({ type: 'PING' })
+      const runtime = getRuntimeApi()
+      if (!runtime?.sendMessage) return
+      const result = await runtime.sendMessage({ type: 'PING' })
       console.log('[115m] ensureServiceWorkerReady: PING response', result)
       if (result) return
     }
@@ -69,9 +87,15 @@ export async function sendRuntimeMessageSafe<T = unknown>(
   retries = 3,
   delay = 1000,
 ): Promise<T | null> {
+  if (!canUseRuntimeMessaging()) {
+    console.warn('[115m] sendRuntimeMessage skipped: runtime unavailable', message)
+    return null
+  }
   for (let i = 0; i <= retries; i++) {
     try {
-      const result = await chrome.runtime.sendMessage(message) as T
+      const runtime = getRuntimeApi()
+      if (!runtime?.sendMessage) return null
+      const result = await runtime.sendMessage(message) as T
       if (result !== undefined) {
         return result
       }

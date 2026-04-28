@@ -8,33 +8,6 @@ export interface HoverPreviewRefs {
   loading: HTMLDivElement
 }
 
-export function applyTopNavFromQuery(art?: Artplayer): void {
-  const urlParams = new URLSearchParams(window.location.search)
-  const title = urlParams.get('title') || '视频播放'
-
-  const headerEl = document.getElementById('header')
-  const titleEl = document.getElementById('video-title')
-  const backBtn = document.getElementById('btn-back')
-
-  if (art && headerEl) {
-    art.template.$player.appendChild(headerEl)
-  }
-
-  if (titleEl) {
-    titleEl.textContent = title
-  }
-  document.title = title
-
-  backBtn?.addEventListener('click', () => {
-    if (window.history.length > 1) {
-      window.history.back()
-    }
-    else {
-      window.close()
-    }
-  })
-}
-
 export function renderPlayerError(message: string): void {
   const container = document.getElementById('artplayer-app')
   if (!container) return
