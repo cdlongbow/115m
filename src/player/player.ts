@@ -13,10 +13,12 @@ import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIG
 import { buildQualityControlItem as buildQualityControlConfig, updateArtplayerControl } from './core/player-quality'
 import { buildSpeedControlItem as buildSpeedControlConfig } from './core/player-speed'
 import { buildAudioControlItem as buildAudioControlConfig } from './core/player-audio'
+import { buildPlaybackModeControlItem as buildPlaybackModeControlConfig } from './core/player-playback-mode-control'
 import { fetchM3u8WithRetry } from './core/source'
 import { deletePlayHistory, loadPlayHistory, loadVideoRotation, saveQualityPreference, saveVideoRotation } from './core/history'
 import { buildNavControlItem } from './core/player-center-controls'
 import type { AudioTrackOption, QualityOption } from './core/types'
+import { buildPlaybackModePlan, getPlaybackModeLabel, loadPlaybackMode, savePlaybackMode, type PlaybackMode } from './core/player-playback-mode'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { renderPlayerError } from './core/dom'
 import { createHlsInstance, isHlsSupported } from './core/hls'
@@ -78,6 +80,7 @@ function safePlay(art: Artplayer | null) {
 class PlayerManager {
   private static readonly QUALITY_CONTROL_NAME = 'm115-quality-control'
   private static readonly SPEED_CONTROL_NAME = 'm115-speed-control'
+  private static readonly PLAYBACK_MODE_CONTROL_NAME = 'm115-playback-mode-control'
   private static readonly AUDIO_CONTROL_NAME = 'm115-audio-control'
   private static readonly ROTATE_CONTROL_NAME = 'm115-rotate-control'
   private static readonly PREV_CONTROL_NAME = 'm115-prev-control'
@@ -115,6 +118,7 @@ class PlayerManager {
   private nativePlaybackRetryCount = 0
   private currentRotation = 0
   private currentPlaybackRate = 1
+  private currentPlaybackMode: PlaybackMode = loadPlaybackMode()
   private audioTrackOptions: AudioTrackOption[] = []
   private currentAudioTrackId = -1
   private currentAudioTrackLabel = '音轨'
@@ -367,6 +371,7 @@ class PlayerManager {
         this.buildRotateControlItem(),
         this.buildQualityControlItem(),
         this.buildAudioControlItem(),
+        this.buildPlaybackModeControlItem(),
         this.buildSpeedControlItem(),
       ],
       loop: false,
@@ -483,6 +488,7 @@ class PlayerManager {
           })
           this.renderQualityPanel()
           this.renderAudioControl()
+          this.renderPlaybackModeControl()
           this.renderPlaybackNavControls()
           this.renderRotateControl()
           this.renderSpeedControl()
@@ -492,6 +498,7 @@ class PlayerManager {
           this.updateQualityByUrl(this.artplayer?.url || '')
           this.renderQualityPanel()
           this.renderAudioControl()
+          this.renderPlaybackModeControl()
           this.renderSpeedControl()
           this.applyVideoRotation()
           this.hoverPreview?.updateSize()
@@ -561,6 +568,19 @@ class PlayerManager {
       currentPlaybackRate: this.currentPlaybackRate,
       onSelectPlaybackRate: value => this.applyPlaybackRate(value),
     })
+  }
+
+  private buildPlaybackModeControlItem(): any {
+    return buildPlaybackModeControlConfig({
+      controlName: PlayerManager.PLAYBACK_MODE_CONTROL_NAME,
+      currentPlaybackMode: this.currentPlaybackMode,
+      onSelectPlaybackMode: mode => this.applyPlaybackModeSelection(mode),
+    })
+  }
+
+  private renderPlaybackModeControl() {
+    if (!this.artplayer) return
+    updateArtplayerControl(this.artplayer, PlayerManager.PLAYBACK_MODE_CONTROL_NAME, this.buildPlaybackModeControlItem())
   }
 
   private buildAudioControlItem(): any {
@@ -668,6 +688,13 @@ class PlayerManager {
       }
     }
     this.renderSpeedControl()
+  }
+
+  private applyPlaybackModeSelection(mode: PlaybackMode) {
+    this.currentPlaybackMode = mode
+    savePlaybackMode(mode)
+    this.renderPlaybackModeControl()
+    this.overlay?.showToast(`播放模式：${getPlaybackModeLabel(mode)}`)
   }
 
   private getAudioTrackLabel(track: any, index: number) {
@@ -1184,6 +1211,19 @@ class PlayerManager {
     const items = await this.fetchPlaylistItems().catch(() => [])
     const plan = getPlaybackEndCountdownPlan(items, this.currentPickCode)
     const next = plan.next
+
+    const playbackPlan = buildPlaybackModePlan(this.currentPlaybackMode, !!next)
+    if (playbackPlan === 'repeat') {
+      this.replayCurrent()
+      return
+    }
+    if (playbackPlan === 'next' && next) {
+      this.navigateToVideo(next.pickCode, this.overlay?.isPlaylistExpanded() === true, true)
+      return
+    }
+    if (playbackPlan === 'stop') {
+      return
+    }
 
     if (next) {
       let countdown = plan.countdownSec
