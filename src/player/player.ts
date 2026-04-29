@@ -119,6 +119,9 @@ class PlayerManager {
   private currentAudioTrackId = -1
   private currentAudioTrackLabel = '音轨'
   private audioTrackSyncTimers: number[] = []
+  private currentHlsSourceUrl: string | null = null
+  private currentHlsLogicalUrl: string | null = null
+  private preferredAudioTrackId: number | null = null
   private readonly handleRuntimeMessage = (message: any) => {
     if (message?.type === 'MOVE_SUCCESS_REFRESH') {
       void this.refreshBreadcrumbs()
@@ -238,20 +241,90 @@ class PlayerManager {
       this.hlsInstance.destroy()
       this.hlsInstance = null
     }
-    const hls = await createHlsInstance(video, url)
+    this.currentHlsLogicalUrl = url
+    const sourceUrl = await this.buildHlsPlaybackUrl(url)
+    this.currentHlsSourceUrl = sourceUrl
+    const hls = await createHlsInstance(video, sourceUrl)
     this.hlsInstance = hls
+
+    const applyPreferredAudioTrack = () => {
+      const preferredId = this.preferredAudioTrackId
+      if (preferredId == null) return
+      const anyHls = hls as any
+      const tracks = Array.isArray(anyHls.audioTracks) ? anyHls.audioTracks : []
+      const track = tracks[preferredId]
+      if (!track) return
+      try {
+        if (typeof anyHls.setAudioOption === 'function') {
+          anyHls.setAudioOption(track)
+        }
+      }
+      catch {
+        // ignore and continue
+      }
+      anyHls.audioTrack = preferredId
+    }
+
     hls.on('hlsAudioTracksUpdated' as any, () => {
+      applyPreferredAudioTrack()
       this.syncAudioTracksFromHls()
     })
     hls.on('hlsAudioTrackSwitched' as any, () => {
       this.syncAudioTracksFromHls()
     })
     hls.on('hlsManifestParsed' as any, () => {
+      applyPreferredAudioTrack()
       this.syncAudioTracksFromHls()
     })
     this.scheduleAudioTrackSync()
     void this.hydrateAudioTracksFromMasterPlaylist()
     return hls
+  }
+
+  private async fetchMasterPlaylistText(): Promise<string | null> {
+    try {
+      const response = await fetch(`https://115.com/api/video/m3u8/${this.currentPickCode}.m3u8`, {
+        credentials: 'include',
+      })
+      const text = await response.text()
+      return text.startsWith('#EXTM3U') ? text : null
+    }
+    catch {
+      return null
+    }
+  }
+
+  private async buildHlsPlaybackUrl(selectedUrl: string): Promise<string> {
+    const masterText = await this.fetchMasterPlaylistText()
+    if (!masterText || !/#EXT-X-MEDIA:TYPE=AUDIO/i.test(masterText)) {
+      return selectedUrl
+    }
+
+    const lines = masterText.split(/\r?\n/)
+    const audioTags = lines.filter(line => /#EXT-X-MEDIA:TYPE=AUDIO/i.test(line.trim()))
+    if (audioTags.length === 0) {
+      return selectedUrl
+    }
+
+    let streamInf = ''
+    for (let i = 0; i < lines.length; i += 1) {
+      if (lines[i]?.trim() === selectedUrl.trim()) {
+        streamInf = lines[i - 1]?.trim() || ''
+        break
+      }
+    }
+
+    if (!streamInf.startsWith('#EXT-X-STREAM-INF')) {
+      const groupId = audioTags[0].match(/GROUP-ID="([^"]+)"/i)?.[1] || 'Audio-Group'
+      streamInf = `#EXT-X-STREAM-INF:BANDWIDTH=3000000,AUDIO="${groupId}",NAME="custom"`
+    }
+    else if (!/\bAUDIO=/i.test(streamInf)) {
+      const groupId = audioTags[0].match(/GROUP-ID="([^"]+)"/i)?.[1] || 'Audio-Group'
+      streamInf = `${streamInf},AUDIO="${groupId}"`
+    }
+
+    const wrapped = ['#EXTM3U', ...audioTags, streamInf, selectedUrl].join('\n')
+    return URL.createObjectURL(new Blob([wrapped], { type: 'application/vnd.apple.mpegurl' }))
   }
 
   private clearAudioTrackSyncTimers() {
@@ -600,16 +673,24 @@ class PlayerManager {
   private getAudioTrackLabel(track: any, index: number) {
     const name = String(track?.name || '').trim()
     const lang = String(track?.lang || track?.attrs?.LANGUAGE || '').trim()
-    if (name && lang) {
-      return `${name}(${lang})`
+    const normalizedLang = lang.toLowerCase()
+    const languageLabel = normalizedLang === 'chi' || normalizedLang === 'zh' || normalizedLang === 'zho'
+      ? '中文'
+      : (lang || '未知语言')
+
+    if (name.toLowerCase() === 'stereo') {
+      return `${languageLabel}音轨 ${index + 1}`
     }
+
+    if (name && languageLabel) {
+      return `${name}（${languageLabel}）`
+    }
+
     if (name) {
-      return name
+      return `${name} ${index + 1}`
     }
-    if (lang) {
-      return `音轨${index + 1}(${lang})`
-    }
-    return `音轨${index + 1}`
+
+    return `${languageLabel}音轨 ${index + 1}`
   }
 
   private syncAudioTracksFromHls() {
@@ -630,6 +711,15 @@ class PlayerManager {
       count: this.audioTrackOptions.length,
       currentAudioTrackId: this.currentAudioTrackId,
       options: this.audioTrackOptions,
+      rawTracks: tracks.map((track: any, index: number) => ({
+        index,
+        id: track?.id,
+        name: track?.name,
+        lang: track?.lang,
+        groupId: track?.groupId,
+        url: track?.url,
+        default: track?.default,
+      })),
     })
   }
 
@@ -647,7 +737,13 @@ class PlayerManager {
       const fallbackTracks: AudioTrackOption[] = tags.map((tag, index) => {
         const name = tag.match(/NAME="([^"]+)"/i)?.[1] || ''
         const lang = tag.match(/LANGUAGE="([^"]+)"/i)?.[1] || ''
-        const label = name && lang ? `${name}(${lang})` : name || lang || `音轨${index + 1}`
+        const normalizedLang = lang.toLowerCase()
+        const languageLabel = normalizedLang === 'chi' || normalizedLang === 'zh' || normalizedLang === 'zho'
+          ? '中文'
+          : (lang || '未知语言')
+        const label = name.toLowerCase() === 'stereo'
+          ? `${languageLabel}音轨 ${index + 1}`
+          : (name ? `${name}（${languageLabel}）` : `${languageLabel}音轨 ${index + 1}`)
         return { id: index, label }
       })
 
@@ -670,14 +766,73 @@ class PlayerManager {
       this.overlay?.showToast('当前播放链路暂不支持切换音轨')
       return
     }
-    hls.audioTrack = id
+    const currentTime = this.artplayer?.currentTime || 0
+    const shouldResume = !!this.artplayer && !this.artplayer.video.paused
+    const track = Array.isArray(hls.audioTracks) ? hls.audioTracks[id] : null
+    this.preferredAudioTrackId = id
     this.currentAudioTrackId = id
     const active = this.audioTrackOptions.find(track => track.id === id)
     if (active) {
       this.currentAudioTrackLabel = active.label
     }
     this.renderAudioControl()
-    this.overlay?.showToast(`已切换到${this.currentAudioTrackLabel}`)
+
+    void this.rebuildHlsForAudioTrack({
+      id,
+      currentTime,
+      shouldResume,
+      track,
+    })
+  }
+
+  private async rebuildHlsForAudioTrack(params: {
+    id: number
+    currentTime: number
+    shouldResume: boolean
+    track: any
+  }) {
+    if (!this.artplayer || !this.currentHlsLogicalUrl) {
+      this.overlay?.showToast('当前播放链路暂不支持切换音轨')
+      return
+    }
+
+    const video = this.artplayer.video as HTMLVideoElement
+    const targetUrl = this.currentHlsLogicalUrl
+
+    try {
+      await this.initHls(video, targetUrl)
+      if (!this.hlsInstance) {
+        return
+      }
+
+      const restore = () => {
+        if (!this.artplayer) return
+        try {
+          this.artplayer.seek = params.currentTime
+        }
+        catch {
+          // ignore seek restore errors
+        }
+        if (params.shouldResume) {
+          safePlay(this.artplayer)
+        }
+      }
+
+      this.artplayer.once('video:loadedmetadata', restore)
+      this.artplayer.once('video:canplay', restore)
+
+      console.log('[115m][audio] rebuild track', {
+        id: params.id,
+        currentTime: params.currentTime,
+        track: params.track,
+        targetUrl,
+      })
+      this.overlay?.showToast(`已切换到${this.currentAudioTrackLabel}`)
+    }
+    catch (error) {
+      console.warn('[115m][audio] rebuild track failed', error)
+      this.overlay?.showToast('切换音轨失败，请重试')
+    }
   }
 
   private renderPlaybackNavControls() {
@@ -1288,6 +1443,11 @@ class PlayerManager {
       this.hlsInstance.destroy()
       this.hlsInstance = null
     }
+    if (this.currentHlsSourceUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(this.currentHlsSourceUrl)
+    }
+    this.currentHlsSourceUrl = null
+    this.currentHlsLogicalUrl = null
     this.clearAudioTrackSyncTimers()
     if (this.artplayer) {
       this.artplayer.destroy()

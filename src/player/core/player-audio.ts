@@ -7,6 +7,18 @@ export function buildAudioControlItem(params: {
   visible: boolean
   onSelectAudioTrack: (id: number) => void
 }) {
+  const selectorItems = params.audioTrackOptions.length > 0
+    ? params.audioTrackOptions.map(item => ({
+        html: item.label,
+        value: String(item.id),
+        default: item.label === params.currentAudioTrackLabel,
+      }))
+    : [{
+        html: params.currentAudioTrackLabel,
+        value: '-1',
+        default: true,
+      }]
+
   return {
     name: params.controlName,
     position: 'right' as const,
@@ -26,11 +38,7 @@ export function buildAudioControlItem(params: {
     mounted: ($control: HTMLElement) => {
       $control.classList.add('m115-audio-control')
     },
-    selector: params.audioTrackOptions.map(item => ({
-      html: item.label,
-      value: String(item.id),
-      default: item.label === params.currentAudioTrackLabel,
-    })),
+    selector: selectorItems,
     onSelect: async (item: any) => {
       const id = Number(item.value)
       if (!Number.isFinite(id)) return params.currentAudioTrackLabel
