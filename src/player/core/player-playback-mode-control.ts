@@ -1,5 +1,6 @@
 import type { PlaybackMode } from './player-playback-mode'
 import { getPlaybackModeLabel, getPlaybackModeOptions } from './player-playback-mode'
+import { bindClickSelectorBehavior } from './player-selector'
 
 export function buildPlaybackModeControlItem(params: {
   controlName: string
@@ -23,6 +24,7 @@ export function buildPlaybackModeControlItem(params: {
     html: getPlaybackModeLabel(params.currentPlaybackMode),
     mounted: ($control: HTMLElement) => {
       $control.classList.add('m115-playback-mode-control')
+      bindClickSelectorBehavior($control)
     },
     selector: getPlaybackModeOptions().map(mode => ({
       html: getPlaybackModeLabel(mode),

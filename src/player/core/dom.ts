@@ -45,19 +45,19 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
   preview.style.cssText = [
     'position:absolute',
     'left:0',
-    'bottom:68px',
+    'bottom:70px',
     'transform:translateX(-50%)',
     'display:none',
     'pointer-events:none',
     `z-index:${UI_LAYER.hoverPreview}`,
-    'background:rgba(20,20,20,.94)',
-    'border:1px solid rgba(255,255,255,.12)',
+    'background:rgba(18,18,18,.94)',
+    'border:1px solid rgba(255,255,255,.08)',
     'border-radius:14px',
     'padding:8px',
     'min-width:fit-content',
     'box-sizing:border-box',
-    'box-shadow:0 18px 36px rgba(0,0,0,.34)',
-    'backdrop-filter:blur(10px)',
+    'box-shadow:0 12px 24px rgba(0,0,0,.22)',
+    'backdrop-filter:blur(6px)',
   ].join(';')
 
   const image = document.createElement('img')

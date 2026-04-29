@@ -1,5 +1,6 @@
 import { buildArtplayerQuality } from './quality'
 import type { QualityOption } from './types'
+import { bindClickSelectorBehavior } from './player-selector'
 
 export function buildQualityControlItem(params: {
   controlName: string
@@ -25,6 +26,7 @@ export function buildQualityControlItem(params: {
       html: params.currentQualityLabel,
       mounted: ($control: HTMLElement) => {
         $control.classList.add('m115-quality-control')
+        bindClickSelectorBehavior($control)
       },
       selector: buildArtplayerQuality(params.qualityOptions, params.currentUrl, params.currentQualityLabel).map(item => ({
         ...item,

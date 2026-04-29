@@ -706,7 +706,7 @@ class PlayerManager {
       : (lang || '未知语言')
 
     if (name.toLowerCase() === 'stereo') {
-      return `${languageLabel}音轨 ${index + 1}`
+      return `${languageLabel}${index + 1}`
     }
 
     if (name && languageLabel) {
@@ -717,7 +717,7 @@ class PlayerManager {
       return `${name} ${index + 1}`
     }
 
-    return `${languageLabel}音轨 ${index + 1}`
+    return `${languageLabel}${index + 1}`
   }
 
   private syncAudioTracksFromHls() {
@@ -769,8 +769,8 @@ class PlayerManager {
           ? '中文'
           : (lang || '未知语言')
         const label = name.toLowerCase() === 'stereo'
-          ? `${languageLabel}音轨 ${index + 1}`
-          : (name ? `${name}（${languageLabel}）` : `${languageLabel}音轨 ${index + 1}`)
+          ? `${languageLabel}${index + 1}`
+          : (name ? `${name}（${languageLabel}）` : `${languageLabel}${index + 1}`)
         return { id: index, label }
       })
 

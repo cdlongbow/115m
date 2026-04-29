@@ -10,7 +10,7 @@ export function getPlaybackModeLabel(mode: PlaybackMode): string {
       return '停止'
     case 'next':
     default:
-      return '连播'
+      return '下一集'
   }
 }
 
