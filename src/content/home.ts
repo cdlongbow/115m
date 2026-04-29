@@ -9,6 +9,7 @@ import { renderMediaWall } from './core/media-wall'
 import { initSidebar, injectSidebarPrehide } from './core/sidebar'
 import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
 import { sendRuntimeMessageSafe } from './core/runtime'
+import { initUnarchiveHelper } from './core/unarchive-helper'
 import type { StoredPlayerPlaylistItem } from '../shared/player-playlist-cache'
 
 class HomeController {
@@ -20,6 +21,7 @@ class HomeController {
   private lastOpen: { pickCode: string, ts: number } | null = null
   private openingLock = false
   private scrollManagers = new WeakMap<Document, ScrollPositionManager>()
+  private unarchiveCleanups = new WeakMap<Document, () => void>()
 
   init() {
     this.bindDocument(document)
@@ -81,6 +83,9 @@ class HomeController {
     this.boundDocs.add(doc)
 
     injectSidebarPrehide(doc)
+    if (!this.unarchiveCleanups.has(doc)) {
+      this.unarchiveCleanups.set(doc, initUnarchiveHelper(doc))
+    }
     this.injectStyles(doc)
     this.scanAndRender(doc)
     this.initScrollHistory(doc)
