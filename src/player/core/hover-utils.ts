@@ -25,6 +25,18 @@ export function clamp(value: number, min: number, max: number): number {
   return Math.max(min, Math.min(max, value))
 }
 
+export function blurTime(time: number, interval: number, duration: number): number {
+  if (!Number.isFinite(time) || !Number.isFinite(duration) || duration <= 0) {
+    return 0
+  }
+  if (!Number.isFinite(interval) || interval <= 0) {
+    return clamp(time, 0, duration)
+  }
+
+  const blurred = Math.round(time / interval) * interval
+  return clamp(Math.round(blurred * 10) / 10, 0, duration)
+}
+
 export function findNearestCover(covers: HoverCover[], hoverTime: number, maxDelta = 30): HoverCover | null {
   if (!covers.length) return null
   let nearest = covers[0]

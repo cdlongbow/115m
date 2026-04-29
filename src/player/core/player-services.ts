@@ -39,6 +39,18 @@ export async function resolvePlaybackBundle(
   const ultraUrl = downloadResult?.url?.url || null
   const resolvedM3u8List = Array.isArray(m3u8List) ? m3u8List : []
 
+  console.log('[115m][preview] playback sources', {
+    pickCode,
+    ultraAvailable: !!ultraUrl,
+    m3u8Count: resolvedM3u8List.length,
+    m3u8Qualities: resolvedM3u8List.map(item => ({
+      quality: item.quality,
+      name: item.name,
+      url: item.url.slice(0, 120),
+    })),
+    previewAssetsHint: 'No standalone VTT/sprite source detected in current playback bundle',
+  })
+
   if (m3u8Error && !ultraUrl) {
     console.warn('[115m] fetchM3u8WithRetry failed:', m3u8Error)
   }
