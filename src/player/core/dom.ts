@@ -23,6 +23,8 @@ export function renderPlayerError(message: string): void {
 export function findProgressElement(art: Artplayer): HTMLElement | null {
   const root = art.template.$player as HTMLElement
   const selectors = [
+    '.art-progress .art-control-progress-inner',
+    '.art-control-progress-inner',
     '.art-control .art-progress',
     '.art-bottom .art-progress',
     '.art-progress',

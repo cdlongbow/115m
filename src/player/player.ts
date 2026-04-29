@@ -12,10 +12,11 @@ import type { M3u8Item } from '../lib/types'
 import { buildArtplayerQuality, buildQualityOptions, getQualityDisplayName, ORIGINAL_PLACEHOLDER_URL } from './core/quality'
 import { buildQualityControlItem as buildQualityControlConfig, updateArtplayerControl } from './core/player-quality'
 import { buildSpeedControlItem as buildSpeedControlConfig } from './core/player-speed'
+import { buildAudioControlItem as buildAudioControlConfig } from './core/player-audio'
 import { fetchM3u8WithRetry } from './core/source'
 import { deletePlayHistory, loadPlayHistory, loadVideoRotation, saveQualityPreference, saveVideoRotation } from './core/history'
 import { buildNavControlItem } from './core/player-center-controls'
-import type { QualityOption } from './core/types'
+import type { AudioTrackOption, QualityOption } from './core/types'
 import { runPlayerSmokeChecks } from './core/smoke'
 import { renderPlayerError } from './core/dom'
 import { createHlsInstance, isHlsSupported } from './core/hls'
@@ -77,6 +78,7 @@ function safePlay(art: Artplayer | null) {
 class PlayerManager {
   private static readonly QUALITY_CONTROL_NAME = 'm115-quality-control'
   private static readonly SPEED_CONTROL_NAME = 'm115-speed-control'
+  private static readonly AUDIO_CONTROL_NAME = 'm115-audio-control'
   private static readonly ROTATE_CONTROL_NAME = 'm115-rotate-control'
   private static readonly PREV_CONTROL_NAME = 'm115-prev-control'
   private static readonly NEXT_CONTROL_NAME = 'm115-next-control'
@@ -113,6 +115,10 @@ class PlayerManager {
   private nativePlaybackRetryCount = 0
   private currentRotation = 0
   private currentPlaybackRate = 1
+  private audioTrackOptions: AudioTrackOption[] = []
+  private currentAudioTrackId = -1
+  private currentAudioTrackLabel = '音轨'
+  private audioTrackSyncTimers: number[] = []
   private readonly handleRuntimeMessage = (message: any) => {
     if (message?.type === 'MOVE_SUCCESS_REFRESH') {
       void this.refreshBreadcrumbs()
@@ -234,7 +240,31 @@ class PlayerManager {
     }
     const hls = await createHlsInstance(video, url)
     this.hlsInstance = hls
+    hls.on('hlsAudioTracksUpdated' as any, () => {
+      this.syncAudioTracksFromHls()
+    })
+    hls.on('hlsAudioTrackSwitched' as any, () => {
+      this.syncAudioTracksFromHls()
+    })
+    hls.on('hlsManifestParsed' as any, () => {
+      this.syncAudioTracksFromHls()
+    })
+    this.scheduleAudioTrackSync()
+    void this.hydrateAudioTracksFromMasterPlaylist()
     return hls
+  }
+
+  private clearAudioTrackSyncTimers() {
+    this.audioTrackSyncTimers.forEach(timer => window.clearTimeout(timer))
+    this.audioTrackSyncTimers = []
+  }
+
+  private scheduleAudioTrackSync() {
+    this.clearAudioTrackSyncTimers()
+    const delays = [0, 300, 1000, 2500]
+    this.audioTrackSyncTimers = delays.map(delay => window.setTimeout(() => {
+      this.syncAudioTracksFromHls()
+    }, delay))
   }
 
   private createArtplayer(videoUrl: string, type: 'native' | 'hls') {
@@ -263,6 +293,7 @@ class PlayerManager {
         this.buildNextControlItem(),
         this.buildRotateControlItem(),
         this.buildQualityControlItem(),
+        this.buildAudioControlItem(),
         this.buildSpeedControlItem(),
       ],
       loop: false,
@@ -344,6 +375,9 @@ class PlayerManager {
     if (type === 'native') {
       this.currentQuality = 9999
       this.currentQualityLabel = '无损'
+      this.audioTrackOptions = []
+      this.currentAudioTrackId = -1
+      this.currentAudioTrackLabel = '音轨'
     }
 
     this.setupTopNav()
@@ -375,6 +409,7 @@ class PlayerManager {
             mounted: ($el: HTMLElement) => { this.infoMenuEl = $el },
           })
           this.renderQualityPanel()
+          this.renderAudioControl()
           this.renderPlaybackNavControls()
           this.renderRotateControl()
           this.renderSpeedControl()
@@ -383,6 +418,7 @@ class PlayerManager {
           this.perfMarks.loadedmetadata = performance.now()
           this.updateQualityByUrl(this.artplayer?.url || '')
           this.renderQualityPanel()
+          this.renderAudioControl()
           this.renderSpeedControl()
           this.applyVideoRotation()
           this.hoverPreview?.updateSize()
@@ -452,6 +488,21 @@ class PlayerManager {
       currentPlaybackRate: this.currentPlaybackRate,
       onSelectPlaybackRate: value => this.applyPlaybackRate(value),
     })
+  }
+
+  private buildAudioControlItem(): any {
+    return buildAudioControlConfig({
+      controlName: PlayerManager.AUDIO_CONTROL_NAME,
+      currentAudioTrackLabel: this.currentAudioTrackLabel,
+      audioTrackOptions: this.audioTrackOptions,
+      visible: this.audioTrackOptions.length > 1,
+      onSelectAudioTrack: id => this.applyAudioTrack(id),
+    })
+  }
+
+  private renderAudioControl() {
+    if (!this.artplayer) return
+    updateArtplayerControl(this.artplayer, PlayerManager.AUDIO_CONTROL_NAME, this.buildAudioControlItem())
   }
 
   private renderSpeedControl() {
@@ -544,6 +595,89 @@ class PlayerManager {
       }
     }
     this.renderSpeedControl()
+  }
+
+  private getAudioTrackLabel(track: any, index: number) {
+    const name = String(track?.name || '').trim()
+    const lang = String(track?.lang || track?.attrs?.LANGUAGE || '').trim()
+    if (name && lang) {
+      return `${name}(${lang})`
+    }
+    if (name) {
+      return name
+    }
+    if (lang) {
+      return `音轨${index + 1}(${lang})`
+    }
+    return `音轨${index + 1}`
+  }
+
+  private syncAudioTracksFromHls() {
+    const hls = this.hlsInstance as any
+    const tracks = Array.isArray(hls?.audioTracks) ? hls.audioTracks : []
+    if (tracks.length === 0) {
+      return
+    }
+    this.audioTrackOptions = tracks.map((track: any, index: number) => ({
+      id: index,
+      label: this.getAudioTrackLabel(track, index),
+    }))
+    this.currentAudioTrackId = typeof hls?.audioTrack === 'number' ? hls.audioTrack : -1
+    const active = this.audioTrackOptions.find(track => track.id === this.currentAudioTrackId)
+    this.currentAudioTrackLabel = active?.label || (this.audioTrackOptions.length > 0 ? this.audioTrackOptions[0].label : '音轨')
+    this.renderAudioControl()
+    console.log('[115m][audio] tracks', {
+      count: this.audioTrackOptions.length,
+      currentAudioTrackId: this.currentAudioTrackId,
+      options: this.audioTrackOptions,
+    })
+  }
+
+  private async hydrateAudioTracksFromMasterPlaylist() {
+    try {
+      const response = await fetch(`https://115.com/api/video/m3u8/${this.currentPickCode}.m3u8`, {
+        credentials: 'include',
+      })
+      const text = await response.text()
+      const tags = text.match(/#EXT-X-MEDIA:TYPE=AUDIO[^\n]*/ig) || []
+      if (tags.length <= 1) {
+        return
+      }
+
+      const fallbackTracks: AudioTrackOption[] = tags.map((tag, index) => {
+        const name = tag.match(/NAME="([^"]+)"/i)?.[1] || ''
+        const lang = tag.match(/LANGUAGE="([^"]+)"/i)?.[1] || ''
+        const label = name && lang ? `${name}(${lang})` : name || lang || `音轨${index + 1}`
+        return { id: index, label }
+      })
+
+      if (this.audioTrackOptions.length === 0) {
+        this.audioTrackOptions = fallbackTracks
+        this.currentAudioTrackId = 0
+        this.currentAudioTrackLabel = fallbackTracks[0]?.label || '音轨'
+        this.renderAudioControl()
+        console.log('[115m][audio] fallback tracks from master playlist', fallbackTracks)
+      }
+    }
+    catch (error) {
+      console.warn('[115m][audio] hydrateAudioTracksFromMasterPlaylist failed', error)
+    }
+  }
+
+  private applyAudioTrack(id: number) {
+    const hls = this.hlsInstance as any
+    if (!hls || typeof hls.audioTrack !== 'number') {
+      this.overlay?.showToast('当前播放链路暂不支持切换音轨')
+      return
+    }
+    hls.audioTrack = id
+    this.currentAudioTrackId = id
+    const active = this.audioTrackOptions.find(track => track.id === id)
+    if (active) {
+      this.currentAudioTrackLabel = active.label
+    }
+    this.renderAudioControl()
+    this.overlay?.showToast(`已切换到${this.currentAudioTrackLabel}`)
   }
 
   private renderPlaybackNavControls() {
@@ -1154,6 +1288,7 @@ class PlayerManager {
       this.hlsInstance.destroy()
       this.hlsInstance = null
     }
+    this.clearAudioTrackSyncTimers()
     if (this.artplayer) {
       this.artplayer.destroy()
       this.artplayer = null

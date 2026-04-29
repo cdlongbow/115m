@@ -368,13 +368,22 @@ export async function getVideoCoverAt(
 
   if (!pending) {
     pending = (async () => {
+      const startedAt = Date.now()
       const clipper = await openClipper(pickCode)
       try {
-        return await generateAccurateCover(
+        const cover = await generateAccurateCover(
           clipper,
           normalizedTime,
           duration ?? normalizedTime + 30,
         )
+        console.log('[115m][preview] getVideoCoverAt', {
+          pickCode,
+          time: normalizedTime,
+          durationMs: Date.now() - startedAt,
+          hit: !!cover,
+          frameTime: cover?.time ?? null,
+        })
+        return cover
       }
       finally {
         clipper.destroy()
@@ -394,6 +403,7 @@ export async function getVideoCoverAt(
 
 export async function getVideoCovers(pickCode: string, duration: number, coverNum = 5): Promise<VideoThumbnail[]> {
   console.log('[115m] getVideoCovers 开始:', { pickCode, duration, coverNum })
+  const startedAt = Date.now()
 
   const cacheKey = getBatchCacheKey(pickCode, coverNum)
   const inMemory = memoryCoverCache.get(cacheKey)
@@ -446,6 +456,15 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
     const results = selectCoverSet(mergedTimeline, duration, coverNum)
 
     console.log('[115m] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
+    console.log('[115m][preview] getVideoCovers', {
+      pickCode,
+      duration,
+      coverNum,
+      generated: results.length,
+      timelineBefore: timelineCovers.length,
+      missingTimes: missingTimes.length,
+      durationMs: Date.now() - startedAt,
+    })
     if (results.length === 0) {
       return results
     }

@@ -7,6 +7,14 @@ interface HoverCover {
   imgUrl: string
 }
 
+function previewDebug(label: string, payload?: Record<string, unknown>) {
+  if (payload) {
+    console.log(`[115m][preview] ${label}`, payload)
+    return
+  }
+  console.log(`[115m][preview] ${label}`)
+}
+
 function mergeCovers(covers: HoverCover[]): HoverCover[] {
   return [...covers]
     .sort((a, b) => a.time - b.time)
@@ -23,8 +31,8 @@ const PRECISE_COVER_BUCKET = 0.5
 const PRECISE_COVER_MIN_DELTA = 1.5
 const PRECISE_COVER_DEBOUNCE = 50
 const PRECISE_PREFETCH_RANGE = 1
-const MIN_COARSE_COVER_COUNT = 40
-const MAX_COARSE_COVER_COUNT = 220
+const MIN_COARSE_COVER_COUNT = 24
+const MAX_COARSE_COVER_COUNT = 60
 
 export class HoverPreviewController {
   private covers: HoverCover[] = []
@@ -43,6 +51,7 @@ export class HoverPreviewController {
   private preciseCovers = new Map<number, HoverCover>()
   private preciseQueue: number[] = []
   private preloadTimer: number | null = null
+  private backgroundRefineTimer: number | null = null
   private lastHoverBucketTime: number | null = null
   private lastDisplayedCoverTime: number | null = null
   private latestHoverTime: number | null = null
@@ -51,6 +60,8 @@ export class HoverPreviewController {
   private lastPointerClientX: number | null = null
   private lastPointerClientY: number | null = null
   private pendingPreciseBucketTime: number | null = null
+  private lastDebugHoverBucketTime: number | null = null
+  private lastRenderableCover: HoverCover | null = null
 
   constructor(
     private readonly art: Artplayer,
@@ -63,6 +74,10 @@ export class HoverPreviewController {
     this.bindProgressHoverEventsWithRetry(0)
     this.art.on('video:loadedmetadata', this.handleVideoLoadedmetadata)
     this.scheduleThumbnailWarmup()
+    previewDebug('setup', {
+      pickCode: this.pickCode,
+      previewSourceUrl: this.previewSourceUrl,
+    })
   }
 
   updateSize() {
@@ -104,6 +119,10 @@ export class HoverPreviewController {
       window.clearTimeout(this.preloadTimer)
       this.preloadTimer = null
     }
+    if (this.backgroundRefineTimer) {
+      window.clearTimeout(this.backgroundRefineTimer)
+      this.backgroundRefineTimer = null
+    }
     this.art.off('video:loadedmetadata', this.handleVideoLoadedmetadata)
     this.cancelHide()
     // 事件绑定在 root 上
@@ -133,6 +152,8 @@ export class HoverPreviewController {
     this.lastDisplayedCoverTime = null
     this.latestHoverTime = null
     this.hoverRequestVersion = 0
+    this.lastDebugHoverBucketTime = null
+    this.lastRenderableCover = null
   }
 
   private async loadThumbnails() {
@@ -147,6 +168,10 @@ export class HoverPreviewController {
       const { getTimelineCovers, getVideoCovers } = await import('../../lib/videoThumbnail')
       const timelineCovers = await getTimelineCovers(this.pickCode)
       if (timelineCovers.length > 0) {
+        previewDebug('timeline cache hit', {
+          pickCode: this.pickCode,
+          count: timelineCovers.length,
+        })
         this.covers = mergeCovers([
           ...this.covers,
           ...timelineCovers.map(cover => ({ imgUrl: cover.imgUrl, time: cover.time })),
@@ -156,7 +181,15 @@ export class HoverPreviewController {
         this.refreshPreviewFromLastPointer()
       }
 
-      const covers = await getVideoCovers(this.pickCode, duration, this.getInitialCoverCount(duration))
+      const initialCoverCount = this.getInitialCoverCount(duration)
+      const covers = await getVideoCovers(this.pickCode, duration, initialCoverCount)
+      previewDebug('coarse covers ready', {
+        pickCode: this.pickCode,
+        duration,
+        requestedCount: initialCoverCount,
+        actualCount: covers.length,
+        coarseInterval: this.getCoarseSamplingInterval(duration),
+      })
       if (covers.length === 0) return
 
       this.covers = mergeCovers([
@@ -166,6 +199,7 @@ export class HoverPreviewController {
       this.updateThumbnailTrack(duration)
       this.thumbnailsLoaded = true
       this.refreshPreviewFromLastPointer()
+      this.scheduleBackgroundRefinement(duration)
     }
     catch {
       // ignore thumbnail errors
@@ -280,7 +314,9 @@ export class HoverPreviewController {
       return
     }
 
-    // 始终跳转到用户点击的时间位置
+    // 让我们自己的时间换算成为唯一来源，避免和 ArtPlayer 默认点击换算叠加后出现偏差
+    event.preventDefault()
+    event.stopImmediatePropagation()
     this.art.seek = hoverTime
   }
 
@@ -417,22 +453,86 @@ export class HoverPreviewController {
   }
 
   private getCoarseSamplingInterval(duration: number): number {
-    if (duration <= 10 * 60) {
-      return 4
+    if (duration <= 5 * 60) {
+      return 10
     }
-    if (duration <= 30 * 60) {
-      return 5
+    if (duration <= 10 * 60) {
+      return 12
+    }
+    if (duration <= 20 * 60) {
+      return 18
+    }
+    if (duration <= 40 * 60) {
+      return 36
     }
     if (duration <= 60 * 60) {
-      return 6
+      return 48
     }
-    return 8
+    return 60
   }
 
   private getInitialCoverCount(duration: number): number {
     const targetInterval = this.getCoarseSamplingInterval(duration)
     const count = Math.ceil(duration / targetInterval)
     return Math.max(MIN_COARSE_COVER_COUNT, Math.min(count, MAX_COARSE_COVER_COUNT))
+  }
+
+  private getBackgroundRefineCoverCount(duration: number): number {
+    if (duration <= 5 * 60) {
+      return 48
+    }
+    if (duration <= 8 * 60) {
+      return 60
+    }
+    if (duration <= 12 * 60) {
+      return 72
+    }
+    return 0
+  }
+
+  private scheduleBackgroundRefinement(duration: number) {
+    const refineCount = this.getBackgroundRefineCoverCount(duration)
+    if (!refineCount || refineCount <= this.getInitialCoverCount(duration)) {
+      return
+    }
+
+    if (this.backgroundRefineTimer) {
+      window.clearTimeout(this.backgroundRefineTimer)
+    }
+
+    this.backgroundRefineTimer = window.setTimeout(() => {
+      void this.runBackgroundRefinement(duration, refineCount)
+    }, 1200)
+  }
+
+  private async runBackgroundRefinement(duration: number, refineCount: number) {
+    try {
+      const { getVideoCovers } = await import('../../lib/videoThumbnail')
+      const covers = await getVideoCovers(this.pickCode, duration, refineCount)
+      if (covers.length === 0) {
+        return
+      }
+
+      this.covers = mergeCovers([
+        ...this.covers,
+        ...covers.map(cover => ({ imgUrl: cover.imgUrl, time: cover.time })),
+      ])
+      this.updateThumbnailTrack(duration)
+      previewDebug('background coarse refinement ready', {
+        pickCode: this.pickCode,
+        duration,
+        refineCount,
+        actualCount: covers.length,
+      })
+      this.refreshPreviewFromLastPointer()
+    }
+    catch {
+      previewDebug('background coarse refinement failed', {
+        pickCode: this.pickCode,
+        duration,
+        refineCount,
+      })
+    }
   }
 
   private updateThumbnailTrack(duration: number) {
@@ -473,6 +573,14 @@ export class HoverPreviewController {
     const bucketTime = this.getPreciseBucketTime(hoverTime)
     const cacheHit = this.preciseCovers.get(bucketTime)
     if (cacheHit) {
+      if (this.lastDebugHoverBucketTime !== bucketTime) {
+        previewDebug('precise cache hit', {
+          hoverTime: Math.round(hoverTime * 10) / 10,
+          bucketTime,
+          frameTime: cacheHit.time,
+        })
+        this.lastDebugHoverBucketTime = bucketTime
+      }
       this.prefetchNearbyPreciseCovers(bucketTime)
       return
     }
@@ -489,8 +597,19 @@ export class HoverPreviewController {
     const wait = nearest ? PRECISE_COVER_DEBOUNCE : 0
     this.preciseCoverTimer = window.setTimeout(() => {
       if (requestVersion !== this.hoverRequestVersion) {
+        previewDebug('skip stale precise schedule', {
+          hoverTime: Math.round(hoverTime * 10) / 10,
+          bucketTime,
+          requestVersion,
+          latestVersion: this.hoverRequestVersion,
+        })
         return
       }
+      previewDebug('schedule precise request', {
+        hoverTime: Math.round(hoverTime * 10) / 10,
+        bucketTime,
+        hasNearest: !!nearest,
+      })
       this.enqueuePreciseCover(bucketTime, true)
       this.prefetchNearbyPreciseCovers(bucketTime)
     }, wait)
@@ -561,9 +680,11 @@ export class HoverPreviewController {
     }
 
     this.preciseCoverRequestKey = requestKey
+    const requestStart = Date.now()
     try {
       const cover = await this.loadFallbackPreciseCover(bucketTime)
       if (!cover) {
+        previewDebug('precise request empty', { bucketTime })
         return
       }
 
@@ -573,6 +694,12 @@ export class HoverPreviewController {
       }
 
       this.preciseCovers.set(bucketTime, preciseCover)
+      previewDebug('precise request done', {
+        bucketTime,
+        frameTime: preciseCover.time,
+        hoverTime: this.latestHoverTime,
+        durationMs: Date.now() - requestStart,
+      })
 
       // 如果当前悬停位置匹配这个桶，立即更新预览图
       if (this.hoverActive && this.lastHoverBucketTime === bucketTime && this.previewEl && this.previewImgEl) {
@@ -586,7 +713,11 @@ export class HoverPreviewController {
       }
     }
     catch {
-      // ignore thumbnail errors
+      previewDebug('precise request failed', {
+        bucketTime,
+        hoverTime: this.latestHoverTime,
+        durationMs: Date.now() - requestStart,
+      })
     }
     finally {
       if (this.preciseCoverRequestKey === requestKey) {
@@ -644,6 +775,18 @@ export class HoverPreviewController {
     const nearest = preciseCover
       ?? coarseCover
 
+    if (this.lastDebugHoverBucketTime !== preciseBucketTime) {
+      previewDebug('hover snapshot', {
+        hoverTime: Math.round(hoverTime * 10) / 10,
+        bucketTime: preciseBucketTime,
+        preciseHit: !!preciseCover,
+        coarseHit: !!coarseCover,
+        displayedSource: preciseCover ? 'precise' : coarseCover ? 'coarse' : 'loading',
+        displayedFrameTime: nearest?.time ?? null,
+      })
+      this.lastDebugHoverBucketTime = preciseBucketTime
+    }
+
     const containerRect = (this.art.template.$player as HTMLElement).getBoundingClientRect()
     const offsetX = event.clientX - containerRect.left
     const previewWidth = this.previewEl.offsetWidth || 182
@@ -660,10 +803,20 @@ export class HoverPreviewController {
       }
       this.previewEl.style.display = 'block'
       this.lastDisplayedCoverTime = nearest.time
+      this.lastRenderableCover = nearest
+    }
+    else if (this.lastRenderableCover?.imgUrl) {
+      // 一旦已经有可用预览图，后续未命中新图时继续保留上一张，避免图和 loading 混杂闪烁
+      this.previewImgEl.src = this.lastRenderableCover.imgUrl
+      this.previewImgEl.style.visibility = 'visible'
+      if (this.previewLoadingEl) {
+        this.previewLoadingEl.style.display = 'none'
+      }
+      this.previewEl.style.display = 'block'
+      this.lastDisplayedCoverTime = this.lastRenderableCover.time
     }
     else {
-      // 没有合适的封面（精确封面未加载，粗略封面距离太远）
-      // 显示加载状态，等待精确封面
+      // 首次还没有任何可显示预览图时，才显示加载状态
       this.previewImgEl.style.visibility = 'hidden'
       if (this.previewLoadingEl) {
         this.previewLoadingEl.style.display = 'flex'
