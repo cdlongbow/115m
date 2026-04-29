@@ -1,4 +1,5 @@
 import type { AudioTrackOption } from './types'
+import { bindClickSelectorBehavior } from './player-selector'
 
 export function buildAudioControlItem(params: {
   controlName: string
@@ -37,6 +38,7 @@ export function buildAudioControlItem(params: {
     html: params.currentAudioTrackLabel,
     mounted: ($control: HTMLElement) => {
       $control.classList.add('m115-audio-control')
+      bindClickSelectorBehavior($control)
     },
     selector: selectorItems,
     onSelect: async (item: any) => {

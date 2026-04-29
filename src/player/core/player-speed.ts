@@ -1,3 +1,5 @@
+import { bindClickSelectorBehavior } from './player-selector'
+
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
 
 function getPlaybackRateLabel(value: number) {
@@ -26,6 +28,7 @@ export function buildSpeedControlItem(params: {
     html: getPlaybackRateLabel(params.currentPlaybackRate),
     mounted: ($control: HTMLElement) => {
       $control.classList.add('m115-speed-control')
+      bindClickSelectorBehavior($control)
     },
     selector: PLAYBACK_RATE_OPTIONS.map(value => ({
       html: getPlaybackRateLabel(value),

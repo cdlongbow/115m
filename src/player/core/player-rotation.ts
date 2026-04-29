@@ -78,7 +78,7 @@ export function buildRotateControlItem(params: {
   return {
     name: params.controlName,
     position: 'right' as const,
-    index: 9,
+    index: 12,
     tooltip: rotation === 0 ? '画面旋转' : `画面旋转 ${rotation}°`,
     html: `<span class="m115-control-shell m115-control-button" aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;color:${rotation === 0 ? 'rgba(255,255,255,.92)' : '#54b4ff'};line-height:0;font-size:0;">${buildRotateSvg()}</span>`,
     style: {

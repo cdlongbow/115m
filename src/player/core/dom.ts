@@ -45,17 +45,19 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
   preview.style.cssText = [
     'position:absolute',
     'left:0',
-    'bottom:64px',
+    'bottom:70px',
     'transform:translateX(-50%)',
     'display:none',
     'pointer-events:none',
     `z-index:${UI_LAYER.hoverPreview}`,
-    'background:rgba(0,0,0,.78)',
-    'border:1px solid rgba(255,255,255,.22)',
-    'border-radius:8px',
-    'padding:6px',
+    'background:rgba(18,18,18,.94)',
+    'border:1px solid rgba(255,255,255,.08)',
+    'border-radius:14px',
+    'padding:8px',
     'min-width:fit-content',
     'box-sizing:border-box',
+    'box-shadow:0 12px 24px rgba(0,0,0,.22)',
+    'backdrop-filter:blur(6px)',
   ].join(';')
 
   const image = document.createElement('img')
@@ -64,21 +66,21 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
     'width:170px',
     'height:96px',
     'object-fit:cover',
-    'border-radius:6px',
+    'border-radius:10px',
     'background:#111',
   ].join(';')
 
   const loading = document.createElement('div')
   loading.style.cssText = [
     'position:absolute',
-    'top:6px',
-    'left:6px',
-    'right:6px',
-    'bottom:26px',
+    'top:8px',
+    'left:8px',
+    'right:8px',
+    'bottom:30px',
     'display:none',
     'align-items:center',
     'justify-content:center',
-    'border-radius:6px',
+    'border-radius:10px',
     'background:linear-gradient(180deg, rgba(255,255,255,.08), rgba(255,255,255,.03))',
     'color:rgba(255,255,255,.82)',
     'font-size:12px',
@@ -88,12 +90,13 @@ export function createHoverPreviewElements(art: Artplayer): HoverPreviewRefs {
 
   const time = document.createElement('div')
   time.style.cssText = [
-    'margin-top:4px',
+    'margin-top:6px',
     'font-size:12px',
-    'line-height:16px',
-    'color:#fff',
+    'line-height:18px',
+    'color:rgba(255,255,255,.92)',
     'text-align:center',
     'font-variant-numeric:tabular-nums',
+    'font-weight:600',
   ].join(';')
   time.textContent = '00:00'
 
