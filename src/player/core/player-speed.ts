@@ -3,7 +3,7 @@ import { bindClickSelectorBehavior } from './player-selector'
 const PLAYBACK_RATE_OPTIONS = [0.5, 0.75, 1, 1.25, 1.5, 2] as const
 
 function getPlaybackRateLabel(value: number) {
-  return value === 1 ? '正常' : `${value}x`
+  return value === 1 ? '1x' : `${value}x`
 }
 
 export function buildSpeedControlItem(params: {
@@ -15,6 +15,7 @@ export function buildSpeedControlItem(params: {
     name: params.controlName,
     position: 'right' as const,
     index: 11,
+    tooltip: '播放速度',
     style: {
       marginRight: 'var(--m115-control-gap)',
       width: 'var(--m115-speed-width)',
