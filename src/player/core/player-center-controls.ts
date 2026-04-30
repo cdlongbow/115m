@@ -14,7 +14,6 @@ export function buildNavControlItem(params: {
     name: params.controlName,
     position: 'left' as const,
     index: params.index,
-    tooltip: params.title,
     html: `<span class="m115-control-shell m115-nav-control-button${params.enabled ? '' : ' is-disabled'}" aria-hidden="true" style="display:inline-flex;align-items:center;justify-content:center;width:40px;height:40px;color:rgba(255,255,255,.92);line-height:0;font-size:0;">${icon}</span>`,
     style: {
       width: '46px',

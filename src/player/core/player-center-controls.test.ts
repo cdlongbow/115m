@@ -14,7 +14,6 @@ describe('player center controls helpers', () => {
 
     expect(item.position).toBe('left')
     expect(item.html).toContain('m115-nav-control-button')
-    expect(item.tooltip).toBe('上一集：测试')
   })
 
   it('marks disabled nav control config', () => {
