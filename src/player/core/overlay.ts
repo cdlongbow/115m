@@ -44,6 +44,7 @@ export interface PlayerOverlayOptions {
   onMoveFile: (fileId: string, cid: string) => Promise<void>
   onToggleFavorite: (fileId: string, nextMarked: boolean) => Promise<boolean>
   onPlaylistToggle: (open: boolean) => Promise<OverlayPlaylistItem[]>
+  onPlaylistOpenChange?: (open: boolean) => void
   onPlaylistPlay: (pickCode: string, keepPlaylistOpen: boolean) => void
   onDeleteFile: (fileId: string, parentId: string, pickCode: string) => Promise<void>
   onPlayPrevious: () => void
@@ -464,9 +465,9 @@ export class PlayerOverlayController {
     }
     this.controlsEl.style.opacity = visible ? '1' : '0'
     this.controlsEl.style.pointerEvents = visible ? 'auto' : 'none'
-    this.bottomEl.style.opacity = visible ? '1' : '0'
+    this.bottomEl.style.opacity = '1'
     this.bottomEl.style.pointerEvents = visible ? 'auto' : 'none'
-    this.progressEl.style.opacity = visible ? '1' : '0'
+    this.progressEl.style.opacity = '1'
     this.progressEl.style.pointerEvents = visible ? 'auto' : 'none'
     this.syncPlaylistTabVisibility(visible)
     this.root.style.cursor = visible || this.playlistOpen ? 'auto' : 'none'
@@ -673,6 +674,7 @@ export class PlayerOverlayController {
 
   private setPlaylistOpen(open: boolean) {
     this.playlistOpen = open
+    this.options.onPlaylistOpenChange?.(open)
     // Expand/collapse the external sidebar — the video area shrinks/grows via flex
     if (this.sidebarEl) {
       const width = open ? `${this.getPlaylistSidebarWidth()}px` : '0px'

@@ -114,6 +114,8 @@ class PlayerManager {
   private readonly nativeUltraSupported: boolean
   private currentPlaybackType: 'native' | 'hls' = 'hls'
   private cleanupResize: (() => void) | null = null
+  private cleanupRotationContainerObserver: (() => void) | null = null
+  private rotationReflowRaf = 0
   private lastPlaylistProgressSyncSec = -1
   private nativePlaybackRetryCount = 0
   private currentRotation = 0
@@ -448,6 +450,7 @@ class PlayerManager {
     })
 
     this.bindWindowResize()
+    this.bindRotationContainerObserver()
     this.applyVideoRotation()
 
     if (type === 'native') {
@@ -651,12 +654,44 @@ class PlayerManager {
 
   private bindWindowResize() {
     if (this.cleanupResize) return
-    const handleResize = () => this.applyVideoRotation()
+    const handleResize = () => this.scheduleVideoRotationReflow()
     window.addEventListener('resize', handleResize)
     this.cleanupResize = () => {
       window.removeEventListener('resize', handleResize)
       this.cleanupResize = null
     }
+  }
+
+  private bindRotationContainerObserver() {
+    if (this.cleanupRotationContainerObserver || !this.artplayer?.video) return
+    const container = this.artplayer.video.parentElement as HTMLElement | null
+    if (!container || typeof ResizeObserver === 'undefined') return
+
+    const observer = new ResizeObserver(() => {
+      this.scheduleVideoRotationReflow()
+    })
+    observer.observe(container)
+
+    this.cleanupRotationContainerObserver = () => {
+      observer.disconnect()
+      this.cleanupRotationContainerObserver = null
+    }
+  }
+
+  private scheduleVideoRotationReflow() {
+    if (this.rotationReflowRaf) {
+      window.cancelAnimationFrame(this.rotationReflowRaf)
+    }
+
+    const run = () => {
+      this.applyVideoRotation()
+      this.rotationReflowRaf = window.requestAnimationFrame(() => {
+        this.applyVideoRotation()
+        this.rotationReflowRaf = 0
+      })
+    }
+
+    this.rotationReflowRaf = window.requestAnimationFrame(run)
   }
 
   private applyVideoRotation() {
@@ -921,6 +956,10 @@ class PlayerManager {
         const items = await this.fetchPlaylistItems()
         this.syncOverlayPlaybackNav()
         return items
+      },
+      onPlaylistOpenChange: () => {
+        this.scheduleVideoRotationReflow()
+        window.setTimeout(() => this.scheduleVideoRotationReflow(), 280)
       },
       onPlaylistPlay: (pickCode, keepPlaylistOpen) => {
         if (pickCode && pickCode !== this.currentPickCode) {

@@ -37,23 +37,21 @@
   --m115-control-text: rgba(244, 246, 248, 0.94);
   --m115-panel-radius: 14px;
   --m115-panel-padding: 6px;
+  background: transparent !important;
   overflow: visible !important;
 }
 
-.art-video-player .art-bottom {
-  background: linear-gradient(180deg, rgba(8, 9, 11, 0) 0%, rgba(12, 13, 16, 0.12) 20%, rgba(16, 18, 21, 0.82) 100%);
+.art-video-player .art-bottom,
+.art-video-player .art-progress {
+  background: transparent !important;
+  opacity: 1 !important;
   overflow: visible !important;
 }
 
-.art-video-player .art-bottom::before {
-  content: '';
-  position: absolute;
-  left: 14px;
-  right: 14px;
-  bottom: 0;
-  height: 1px;
-  background: linear-gradient(90deg, rgba(255,255,255,0) 0%, rgba(255,255,255,.08) 16%, rgba(255,255,255,.08) 84%, rgba(255,255,255,0) 100%);
-  pointer-events: none;
+.art-video-player .art-bottom::before,
+.art-video-player .art-progress::before,
+.art-video-player .art-progress::after {
+  content: none !important;
 }
 
 .m115-playlist-sidebar {
@@ -176,9 +174,9 @@
 
 .m115-header-pill-group {
   padding: 3px !important;
-  background: linear-gradient(180deg, rgba(24,26,31,.72) 0%, rgba(19,21,25,.58) 100%) !important;
-  border-color: rgba(255,255,255,.12) !important;
-  box-shadow: 0 12px 28px rgba(0,0,0,.26), inset 0 0 0 1px rgba(255,255,255,.03);
+  background: transparent !important;
+  border-color: rgba(255,255,255,.08) !important;
+  box-shadow: none;
 }
 
 .m115-header-action,
@@ -239,9 +237,9 @@
   gap: var(--m115-control-gap);
   padding: var(--m115-ctrl-padding) 12px;
   border-radius: 999px;
-  background: linear-gradient(180deg, rgba(15, 18, 22, 0.72) 0%, rgba(11, 14, 18, 0.58) 100%);
-  box-shadow: inset 0 0 0 1px rgba(255,255,255,.05), 0 10px 22px rgba(0,0,0,.18);
-  backdrop-filter: blur(16px);
+  background: transparent;
+  box-shadow: none;
+  backdrop-filter: none;
 }
 
 .art-video-player .art-controls-right::before {
