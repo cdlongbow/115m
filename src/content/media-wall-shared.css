@@ -1,0 +1,87 @@
+/* ====== media wall shared ====== */
+.list-contents li.m115-wall-hidden-item {
+  position: absolute !important;
+  left: -99999px !important;
+  top: 0 !important;
+  width: 1px !important;
+  height: 1px !important;
+  overflow: hidden !important;
+  opacity: 0 !important;
+  pointer-events: none !important;
+}
+
+.m115-media-wall {
+  display: flex;
+  flex-direction: column;
+  gap: 18px;
+  padding: 12px 0 16px;
+}
+
+.m115-wall-section {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.m115-wall-title {
+  font-size: 13px;
+  font-weight: 600;
+  color: #374151;
+  padding-left: 40px;
+}
+
+.m115-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(124px, 1fr));
+  gap: 8px;
+  padding-left: 40px;
+}
+
+.m115-image-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(128px, 1fr));
+  gap: 10px;
+  padding-left: 40px;
+}
+
+.m115-folder-card,
+.m115-image-card {
+  border: 0;
+  background: #fff;
+  padding: 0;
+  cursor: pointer;
+  text-align: left;
+  border-radius: 14px;
+  box-shadow: 0 4px 12px rgba(15, 23, 42, 0.08);
+  overflow: hidden;
+}
+
+.m115-folder-card:hover,
+.m115-image-card:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 18px rgba(15, 23, 42, 0.12);
+}
+
+.m115-folder-name,
+.m115-image-name {
+  display: block;
+  font-size: 13px;
+  line-height: 1.4;
+  color: #111827;
+  padding: 0 12px 12px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 1280px) {
+  .m115-folder-grid,
+  .m115-image-grid,
+  .m115-wall-title {
+    padding-left: 20px;
+  }
+
+  .m115-image-grid {
+    grid-template-columns: repeat(auto-fill, minmax(112px, 1fr));
+  }
+}

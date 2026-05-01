@@ -1,4 +1,4 @@
-import homeCss from './home.css?inline'
+import { homeStyles } from './home-styles'
 import { extractFileInfo } from './core/extractors'
 import { openPlayer } from './core/player-open'
 import { injectActionButtons } from './core/action-buttons'
@@ -99,7 +99,7 @@ class HomeController {
     if (doc.getElementById('m115-style')) return
     const style = doc.createElement('style')
     style.id = 'm115-style'
-    style.textContent = homeCss
+    style.textContent = homeStyles
     doc.head?.appendChild(style)
   }
 
