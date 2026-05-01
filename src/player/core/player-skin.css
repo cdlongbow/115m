@@ -44,7 +44,6 @@
 .art-video-player .art-bottom,
 .art-video-player .art-progress {
   background: transparent !important;
-  opacity: 1 !important;
   overflow: visible !important;
 }
 

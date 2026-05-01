@@ -465,9 +465,9 @@ export class PlayerOverlayController {
     }
     this.controlsEl.style.opacity = visible ? '1' : '0'
     this.controlsEl.style.pointerEvents = visible ? 'auto' : 'none'
-    this.bottomEl.style.opacity = '1'
+    this.bottomEl.style.opacity = visible ? '1' : '0'
     this.bottomEl.style.pointerEvents = visible ? 'auto' : 'none'
-    this.progressEl.style.opacity = '1'
+    this.progressEl.style.opacity = visible ? '1' : '0'
     this.progressEl.style.pointerEvents = visible ? 'auto' : 'none'
     this.syncPlaylistTabVisibility(visible)
     this.root.style.cursor = visible || this.playlistOpen ? 'auto' : 'none'
