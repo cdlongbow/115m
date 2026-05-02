@@ -169,6 +169,7 @@ function createLightboxController(doc: Document): LightboxController {
   let lastTapX = 0
   let lastTapY = 0
   let thumbsCollapsed = false
+  let wheelLock = false
 
   const DRAG_THRESHOLD = 6
   const EDGE_RESISTANCE = 0.5
@@ -505,10 +506,21 @@ function createLightboxController(doc: Document): LightboxController {
       thumbs.scrollLeft += event.deltaY || event.deltaX
       return
     }
-    if (!event.ctrlKey && Math.abs(event.deltaX) > Math.abs(event.deltaY)) return
+
     event.preventDefault()
-    const delta = event.deltaY < 0 ? 0.18 : -0.18
-    adjustZoom(delta, event.clientX, event.clientY)
+
+    if (zoomScale > 1) {
+      const delta = event.deltaY < 0 ? 0.18 : -0.18
+      adjustZoom(delta, event.clientX, event.clientY)
+      return
+    }
+
+    if (wheelLock) return
+    wheelLock = true
+    window.setTimeout(() => {
+      wheelLock = false
+    }, 120)
+    move(event.deltaY > 0 ? 1 : -1)
   }, { passive: false })
 
   imageEl.addEventListener('pointerdown', (event) => {
