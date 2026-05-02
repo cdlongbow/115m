@@ -134,13 +134,12 @@ function createLightboxController(doc: Document): LightboxController {
   const thumbs = doc.createElement('div')
   thumbs.className = 'm115-viewer-thumbs'
 
-  thumbsWrap.appendChild(thumbsToggle)
-  thumbsWrap.appendChild(thumbs)
-
   overlay.appendChild(toolbar)
   overlay.appendChild(stage)
   overlay.appendChild(thumbsWrap)
   doc.body.appendChild(overlay)
+  thumbsWrap.appendChild(thumbsToggle)
+  thumbsWrap.appendChild(thumbs)
 
   let items: MediaWallImageItem[] = []
   let currentIndex = 0
@@ -169,13 +168,18 @@ function createLightboxController(doc: Document): LightboxController {
   let lastTapX = 0
   let lastTapY = 0
   let thumbsCollapsed = false
-  let wheelLock = false
+  let wheelGestureAccumulated = 0
+  let wheelGestureTriggered = false
+  let wheelGestureTimer = 0
+  let thumbButtons: HTMLButtonElement[] = []
 
   const DRAG_THRESHOLD = 6
   const EDGE_RESISTANCE = 0.5
   const DOUBLE_TAP_DELAY = 260
   const INERTIA_FACTOR = 60
   const SETTLE_LERP = 0.34
+  const WHEEL_GESTURE_STEP = 70
+  const WHEEL_GESTURE_RESET_DELAY = 120
 
   const updateThumbsToggle = () => {
     thumbsToggle.innerHTML = thumbsCollapsed
@@ -243,6 +247,51 @@ function createLightboxController(doc: Document): LightboxController {
   const scheduleDragFrame = () => {
     if (dragAnimationFrame) return
     dragAnimationFrame = window.requestAnimationFrame(applyDragFrame)
+  }
+
+  const ensureActiveThumbVisible = () => {
+    const activeThumb = thumbs.querySelector<HTMLElement>('.m115-viewer-thumb.is-active')
+    activeThumb?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
+  }
+
+  const updateActiveThumb = (nextIndex: number, previousIndex: number) => {
+    if (previousIndex !== nextIndex) {
+      thumbButtons[previousIndex]?.classList.remove('is-active')
+    }
+    thumbButtons[nextIndex]?.classList.add('is-active')
+    window.setTimeout(() => ensureActiveThumbVisible(), 0)
+  }
+
+  const syncThumbs = () => {
+    thumbs.innerHTML = ''
+    thumbButtons = items.map((item, index) => {
+      const btn = doc.createElement('button')
+      btn.type = 'button'
+      btn.className = `m115-viewer-thumb ${index === currentIndex ? 'is-active' : ''}`
+      btn.title = item.title
+      const img = doc.createElement('img')
+      img.src = item.thumbUrl
+      img.alt = item.title
+      img.loading = 'lazy'
+      btn.appendChild(img)
+      btn.addEventListener('click', () => {
+        if (currentIndex === index) return
+        const previousIndex = currentIndex
+        currentIndex = index
+        render(previousIndex)
+      })
+      thumbs.appendChild(btn)
+      return btn
+    })
+
+    window.setTimeout(() => ensureActiveThumbVisible(), 0)
+  }
+
+  const preloadNeighbors = () => {
+    ;[-2, -1, 1, 2].forEach((offset) => {
+      const item = items[currentIndex + offset]
+      if (item) preloadImage(item.originalUrl)
+    })
   }
 
   const zoomAtPoint = (nextScale: number, clientX: number, clientY: number) => {
@@ -347,41 +396,7 @@ function createLightboxController(doc: Document): LightboxController {
     applyZoom()
   }
 
-  const preloadNeighbors = () => {
-    ;[-2, -1, 1, 2].forEach((offset) => {
-      const item = items[currentIndex + offset]
-      if (item) preloadImage(item.originalUrl)
-    })
-  }
-
-  const ensureActiveThumbVisible = () => {
-    const activeThumb = thumbs.querySelector<HTMLElement>('.m115-viewer-thumb.is-active')
-    activeThumb?.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' })
-  }
-
-  const syncThumbs = () => {
-    thumbs.innerHTML = ''
-    items.forEach((item, index) => {
-      const btn = doc.createElement('button')
-      btn.type = 'button'
-      btn.className = `m115-viewer-thumb ${index === currentIndex ? 'is-active' : ''}`
-      btn.title = item.title
-      const img = doc.createElement('img')
-      img.src = item.thumbUrl
-      img.alt = item.title
-      img.loading = 'lazy'
-      btn.appendChild(img)
-      btn.addEventListener('click', () => {
-        currentIndex = index
-        render()
-      })
-      thumbs.appendChild(btn)
-    })
-
-    window.setTimeout(() => ensureActiveThumbVisible(), 0)
-  }
-
-  const render = () => {
+  const render = (previousIndex = currentIndex) => {
     const current = items[currentIndex]
     if (!current) return
     const shortTitle = current.title.length > 26 ? `${current.title.slice(0, 26)}…` : current.title
@@ -390,8 +405,42 @@ function createLightboxController(doc: Document): LightboxController {
     imageEl.src = current.originalUrl
     imageEl.alt = current.title
     resetZoom()
-    syncThumbs()
+    if (thumbButtons.length !== items.length) {
+      syncThumbs()
+    }
+    else {
+      updateActiveThumb(currentIndex, previousIndex)
+    }
     preloadNeighbors()
+  }
+
+  const move = (step: number) => {
+    if (items.length <= 1) return false
+    const previousIndex = currentIndex
+    currentIndex = (currentIndex + step + items.length) % items.length
+    if (previousIndex === currentIndex) return false
+    render(previousIndex)
+    return true
+  }
+
+  const consumeWheelGesture = (deltaY: number) => {
+    if (!deltaY || wheelGestureTriggered) return
+    wheelGestureAccumulated += deltaY
+    if (wheelGestureTimer) {
+      window.clearTimeout(wheelGestureTimer)
+    }
+    wheelGestureTimer = window.setTimeout(() => {
+      wheelGestureAccumulated = 0
+      wheelGestureTriggered = false
+      wheelGestureTimer = 0
+    }, WHEEL_GESTURE_RESET_DELAY)
+
+    if (Math.abs(wheelGestureAccumulated) < WHEEL_GESTURE_STEP) return
+
+    const direction = wheelGestureAccumulated > 0 ? 1 : -1
+    wheelGestureTriggered = true
+    wheelGestureAccumulated = 0
+    move(direction)
   }
 
   imageEl.addEventListener('load', () => {
@@ -420,13 +469,13 @@ function createLightboxController(doc: Document): LightboxController {
   const close = () => {
     overlay.classList.remove('active')
     imageEl.src = ''
+    if (wheelGestureTimer) {
+      window.clearTimeout(wheelGestureTimer)
+      wheelGestureTimer = 0
+    }
+    wheelGestureAccumulated = 0
+    wheelGestureTriggered = false
     resetZoom()
-  }
-
-  const move = (step: number) => {
-    if (items.length <= 1) return
-    currentIndex = (currentIndex + step + items.length) % items.length
-    render()
   }
 
   const getDeleteTarget = () => items[currentIndex]
@@ -446,6 +495,7 @@ function createLightboxController(doc: Document): LightboxController {
       items = items.filter((item) => item.fileId !== current.fileId)
       current.sourceItem.remove()
       createToast(doc, '已删除')
+      thumbButtons = []
       if (!items.length) {
         close()
         return
@@ -515,12 +565,8 @@ function createLightboxController(doc: Document): LightboxController {
       return
     }
 
-    if (wheelLock) return
-    wheelLock = true
-    window.setTimeout(() => {
-      wheelLock = false
-    }, 120)
-    move(event.deltaY > 0 ? 1 : -1)
+    if (!event.deltaY) return
+    consumeWheelGesture(event.deltaY)
   }, { passive: false })
 
   imageEl.addEventListener('pointerdown', (event) => {
@@ -617,6 +663,13 @@ function createLightboxController(doc: Document): LightboxController {
   return {
     open(nextItems, startIndex) {
       items = [...nextItems]
+      thumbButtons = []
+      wheelGestureAccumulated = 0
+      wheelGestureTriggered = false
+      if (wheelGestureTimer) {
+        window.clearTimeout(wheelGestureTimer)
+        wheelGestureTimer = 0
+      }
       currentIndex = Math.max(0, Math.min(startIndex, items.length - 1))
       overlay.classList.add('active')
       render()
