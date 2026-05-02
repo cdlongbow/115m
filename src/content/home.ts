@@ -7,32 +7,33 @@ import { addDownloadIntercept } from './core/download-intercept'
 import { renderPreview } from './core/preview'
 import { renderMediaWall } from './core/media-wall'
 import { initSidebar, injectSidebarPrehide } from './core/sidebar'
-import { findScrollBox, ScrollPositionManager } from './core/scroll-history'
 import { sendRuntimeMessageSafe } from './core/runtime'
 import { initUnarchiveHelper } from './core/unarchive-helper'
-import type { StoredPlayerPlaylistItem } from '../shared/player-playlist-cache'
+import { HomePlayBinder } from './core/home-play-binder'
+import { watchWangpanFrame, primeSidebarPrehideForPage } from './core/home-frame'
+import { HomeScrollBinder } from './core/home-scroll-binder'
 
 class HomeController {
   private boundDocs = new WeakSet<Document>()
-  private boundFrames = new WeakSet<HTMLIFrameElement>()
   private scannedItems = new WeakSet<HTMLElement>()
-  private playBoundItems = new WeakSet<HTMLElement>()
   private observers: MutationObserver[] = []
-  private lastOpen: { pickCode: string, ts: number } | null = null
-  private openingLock = false
-  private scrollManagers = new WeakMap<Document, ScrollPositionManager>()
   private unarchiveCleanups = new WeakMap<Document, () => void>()
+  private playBinder = new HomePlayBinder((file, playlist) => openPlayer(file!, playlist))
+  private scrollBinder = new HomeScrollBinder()
+  private stopWatchFrame: (() => void) | null = null
 
   init() {
     this.bindDocument(document)
-    this.bindWangpanFrame()
-    this.watchFrameAppear()
+    this.stopWatchFrame = watchWangpanFrame(doc => this.bindDocument(doc))
     globalThis.chrome?.runtime?.onMessage?.addListener(this.handleRuntimeMessage)
   }
 
   destroy() {
     this.observers.forEach(o => o.disconnect())
     this.observers = []
+    this.scrollBinder.destroy()
+    this.stopWatchFrame?.()
+    this.stopWatchFrame = null
     globalThis.chrome?.runtime?.onMessage?.removeListener(this.handleRuntimeMessage)
   }
 
@@ -61,23 +62,6 @@ class HomeController {
     }
   }
 
-  private bindWangpanFrame() {
-    const frame = document.querySelector('iframe[name="wangpan"]') as HTMLIFrameElement | null
-    if (frame && !this.boundFrames.has(frame)) {
-      frame.addEventListener('load', () => this.bindWangpanFrame())
-      this.boundFrames.add(frame)
-    }
-    const doc = frame?.contentDocument
-    if (!doc) return
-    this.bindDocument(doc)
-  }
-
-  private watchFrameAppear() {
-    const observer = new MutationObserver(() => this.bindWangpanFrame())
-    observer.observe(document.documentElement, { childList: true, subtree: true })
-    this.observers.push(observer)
-  }
-
   private bindDocument(doc: Document) {
     if (this.boundDocs.has(doc)) return
     this.boundDocs.add(doc)
@@ -88,7 +72,7 @@ class HomeController {
     }
     this.injectStyles(doc)
     this.scanAndRender(doc)
-    this.initScrollHistory(doc)
+    this.scrollBinder.bind(doc)
 
     const observer = new MutationObserver(() => this.scanAndRender(doc))
     observer.observe(doc.documentElement, { childList: true, subtree: true })
@@ -101,108 +85,6 @@ class HomeController {
     style.id = 'm115-style'
     style.textContent = homeStyles
     doc.head?.appendChild(style)
-  }
-
-  private bindItemPlay(item: HTMLElement) {
-    if (this.playBoundItems.has(item)) return
-
-    const file = extractFileInfo(item)
-    if (!file || !file.isVideo) return
-
-    const fileNameNode = (item.querySelector('.file-thumb') || item.querySelector('.file-name .name') || item.querySelector('.file-name')) as HTMLElement | null
-    if (!fileNameNode) return
-
-    const handleClickPlayer = (event: Event) => {
-      const now = Date.now()
-      if (this.openingLock) {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation()
-        return
-      }
-      if (this.lastOpen && this.lastOpen.pickCode === file.pickCode && now - this.lastOpen.ts < 1500) {
-        event.preventDefault()
-        event.stopPropagation()
-        event.stopImmediatePropagation()
-        return
-      }
-
-      this.openingLock = true
-      this.lastOpen = { pickCode: file.pickCode, ts: now }
-      window.setTimeout(() => {
-        this.openingLock = false
-      }, 1500)
-
-      event.preventDefault()
-      event.stopPropagation()
-      event.stopImmediatePropagation()
-      void openPlayer(file, this.collectVisiblePlaylistItems(item.ownerDocument, file.pickCode))
-    }
-
-    fileNameNode.addEventListener('click', handleClickPlayer as EventListener, true)
-    item.addEventListener('dblclick', handleClickPlayer as EventListener, true)
-    this.playBoundItems.add(item)
-  }
-
-  private collectVisiblePlaylistItems(doc: Document, _currentPickCode: string): StoredPlayerPlaylistItem[] {
-    const list = doc.querySelector('.list-contents')
-    if (!list) return []
-
-    const items = Array.from(list.querySelectorAll<HTMLElement>('li[rel="item"],div[rel="item"],li[pick_code],li[pickcode],div[pick_code],div[pickcode]'))
-      .filter(item => this.isRenderablePlaylistItem(item))
-      .map((item) => {
-        const file = extractFileInfo(item)
-        if (!file?.isVideo) return null
-        return {
-          pickCode: file.pickCode,
-          fileId: file.fileId || '',
-          name: file.fileName,
-          size: file.fileSize,
-          isMarked: file.isMarked,
-          duration: file.duration,
-        } satisfies StoredPlayerPlaylistItem
-      })
-      .filter((item): item is StoredPlayerPlaylistItem => !!item)
-
-    return items
-  }
-
-  private isRenderablePlaylistItem(item: HTMLElement) {
-    if (!item.isConnected) return false
-    if (item.closest('.m115-media-wall')) return false
-
-    const style = item.ownerDocument.defaultView?.getComputedStyle(item)
-    if (!style || style.display === 'none' || style.visibility === 'hidden') return false
-    if (item.hidden || item.getAttribute('aria-hidden') === 'true') return false
-    return item.getClientRects().length > 0
-  }
-
-  /**
-   * 初始化滚动位置记忆
-   * 115 网盘切换目录时会重建 .list-cell，需要监听其出现并重新绑定。
-   */
-  private initScrollHistory(doc: Document) {
-    const tryBind = () => {
-      const scrollBox = findScrollBox(doc)
-      if (!scrollBox) return
-
-      // 如果已经绑定了同一个滚动容器，跳过
-      const manager = this.scrollManagers.get(doc)
-      if (manager) {
-        manager.unbind()
-      }
-      const m = new ScrollPositionManager()
-      m.bind(scrollBox, doc)
-      this.scrollManagers.set(doc, m)
-    }
-
-    // 初次尝试
-    tryBind()
-
-    // 监听 .list-cell 重建（切换目录时整个容器会被替换）
-    const observer = new MutationObserver(() => tryBind())
-    observer.observe(doc.documentElement, { childList: true, subtree: true })
-    this.observers.push(observer)
   }
 
   private scanAndRender(doc: Document) {
@@ -220,12 +102,11 @@ class HomeController {
       const file = extractFileInfo(item)
       if (!file) return
 
-      // 下载拦截对所有文件生效
       addDownloadIntercept(item, file)
 
       if (!file.isVideo) return
 
-      this.bindItemPlay(item)
+      this.playBinder.bindItemPlay(item)
       injectActionButtons(item, file)
       renderPreview(item, file)
     })
@@ -233,25 +114,6 @@ class HomeController {
 }
 
 let controller: HomeController | null = null
-
-function primeSidebarPrehide() {
-  injectSidebarPrehide(document)
-
-  const tryInjectFrame = () => {
-    const frame = document.querySelector('iframe[name="wangpan"]') as HTMLIFrameElement | null
-    const doc = frame?.contentDocument
-    if (doc) {
-      injectSidebarPrehide(doc)
-    }
-  }
-
-  tryInjectFrame()
-
-  const observer = new MutationObserver(() => tryInjectFrame())
-  observer.observe(document.documentElement, { childList: true, subtree: true })
-
-  window.setTimeout(() => observer.disconnect(), 15000)
-}
 
 function init() {
   if (window.top !== window) return
@@ -261,7 +123,7 @@ function init() {
   controller.init()
 }
 
-primeSidebarPrehide()
+primeSidebarPrehideForPage()
 
 if (document.readyState === 'loading') {
   document.addEventListener('DOMContentLoaded', init)
@@ -270,7 +132,6 @@ else {
   init()
 }
 
-// 监听来自 TreeDG callback 的移动成功事件
 window.addEventListener('115m-move-success', () => {
   void sendRuntimeMessageSafe({ type: 'MOVE_SUCCESS_REFRESH' })
 })

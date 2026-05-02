@@ -1,6 +1,6 @@
 export function parseDuration(value?: string): number {
   if (!value) return 0
-  const parts = value.split(':').map(Number)
+  const parts = value.split(':').map(Number);
   if (parts.some(Number.isNaN)) return 0
   if (parts.length === 3) return parts[0] * 3600 + parts[1] * 60 + parts[2]
   if (parts.length === 2) return parts[0] * 60 + parts[1]
@@ -39,79 +39,96 @@ export class Scheduler {
 
   constructor(private readonly limit = 3) {}
 
-  /** 添加任务，返回可取消的 Promise */
-  add<T>(task: () => Promise<T>): { promise: Promise<T>; cancel: () => void } {
-    let resolve!: (value: T) => void
-    let reject!: (reason: Error) => void
-    const promise = new Promise<T>((res, rej) => {
-      resolve = res
-      reject = rej
+  private processQueue() {
+    while (this.running < this.limit && this.queue.length > 0) {
+      const task = this.queue.shift()
+      if (!task) return
+
+      if (task.status === TaskStatus.Cancelled) {
+        task.reject(new TaskCancelledError())
+        continue
+      }
+
+      this.running++
+      task.status = TaskStatus.Running
+
+      task.execute()
+        .then((result) => {
+          task.status = TaskStatus.Completed
+          task.resolve(result)
+        })
+        .catch((error) => {
+          task.reject(error instanceof Error ? error : new Error(String(error)))
+        })
+        .finally(() => {
+          this.running--
+          this.processQueue()
+        })
+    }
+  }
+
+  add<T>(execute: () => Promise<T>) {
+    let taskRef: TaskItem<T> | null = null
+
+    const promise = new Promise<T>((resolve, reject) => {
+      const task: TaskItem<T> = {
+        execute,
+        resolve,
+        reject: (reason) => reject(reason),
+        status: TaskStatus.Pending,
+      }
+      taskRef = task
+      this.queue.push(task as TaskItem<unknown>)
+      this.processQueue()
     })
 
-    const taskItem: TaskItem<T> = {
-      execute: task,
-      resolve: resolve as (value: unknown) => void,
-      reject: reject as (reason: Error) => void,
-      status: TaskStatus.Pending,
-    }
-
     const cancel = () => {
-      if (taskItem.status === TaskStatus.Pending) {
-        taskItem.status = TaskStatus.Cancelled
-        taskItem.reject(new TaskCancelledError())
-        // 从队列中移除
-        const index = this.queue.indexOf(taskItem as TaskItem<unknown>)
-        if (index !== -1) {
-          this.queue.splice(index, 1)
-        }
-      }
+      if (!taskRef) return
+      if (taskRef.status !== TaskStatus.Pending) return
+      taskRef.status = TaskStatus.Cancelled
     }
-
-    this.enqueue(taskItem as TaskItem<unknown>)
 
     return { promise, cancel }
   }
+}
 
-  private async enqueue<T>(taskItem: TaskItem<T>): Promise<void> {
-    if (this.running >= this.limit) {
-      await new Promise<void>((resolve) => {
-        const wait = () => {
-          if (this.running < this.limit) {
-            resolve()
-          } else {
-            this.queue.push({ execute: async () => {}, resolve: wait as () => void, reject: () => {}, status: TaskStatus.Pending })
-          }
-        }
-        wait()
-      })
+export function findScrollContainer(element: HTMLElement): HTMLElement | Window {
+  let node: HTMLElement | null = element.parentElement
+  while (node) {
+    const style = getComputedStyle(node)
+    const overflowY = style.overflowY
+    if ((overflowY === 'auto' || overflowY === 'scroll') && node.scrollHeight > node.clientHeight) {
+      return node
     }
+    node = node.parentElement
+  }
+  return window
+}
 
-    // 检查是否已取消
-    if (taskItem.status === TaskStatus.Cancelled) {
-      return
+export function createScrollStopDetector(target: HTMLElement | Window, delay = 120, onStop?: () => void) {
+  let timer: number | undefined
+
+  const trigger = () => {
+    if (typeof timer === 'number') {
+      window.clearTimeout(timer)
     }
+    timer = window.setTimeout(() => {
+      timer = undefined
+      onStop?.()
+    }, delay)
+  }
 
-    this.running += 1
-    taskItem.status = TaskStatus.Running
+  const eventTarget = target === window ? window : target
+  eventTarget.addEventListener('scroll', trigger, { passive: true })
 
-    try {
-      const result = await taskItem.execute()
-      if ((taskItem.status as TaskStatus) !== TaskStatus.Cancelled) {
-        taskItem.status = TaskStatus.Completed
-        ;(taskItem.resolve as (value: unknown) => void)(result)
+  return {
+    destroy: () => {
+      if (typeof timer === 'number') {
+        window.clearTimeout(timer)
+        timer = undefined
       }
-    } catch (error) {
-      if ((taskItem.status as TaskStatus) !== TaskStatus.Cancelled) {
-        ;(taskItem.reject as (reason: Error) => void)(error as Error)
-      }
-    } finally {
-      this.running -= 1
-      // 处理下一个等待的任务
-      const next = this.queue.shift()
-      if (next && typeof next.resolve === 'function') {
-        next.resolve(undefined)
-      }
-    }
+      eventTarget.removeEventListener('scroll', trigger)
+    },
   }
 }
 
@@ -126,14 +143,15 @@ export function createVisibilityObserver(
   element: HTMLElement,
   onVisible: () => void,
   onHidden: () => void,
-  options?: IntersectionObserverInit
+  options?: IntersectionObserverInit,
 ): { destroy: () => void } {
   const observer = new IntersectionObserver(
     (entries) => {
       const entry = entries[0]
       if (entry?.isIntersecting) {
         onVisible()
-      } else {
+      }
+      else {
         onHidden()
       }
     },
@@ -141,7 +159,7 @@ export function createVisibilityObserver(
       threshold: 0,
       rootMargin: '100px',
       ...options,
-    }
+    },
   )
 
   observer.observe(element)
@@ -149,54 +167,4 @@ export function createVisibilityObserver(
   return {
     destroy: () => observer.disconnect(),
   }
-}
-
-/**
- * 创建滚动停止检测器
- * @param scrollTarget 滚动容器
- * @param onStop 滚动停止时回调
- * @param delay 停止判定延迟（毫秒）
- */
-export function createScrollStopDetector(
-  scrollTarget: HTMLElement | Window,
-  onStop: () => void,
-  delay = 150
-): { destroy: () => void } {
-  let timeoutId: number | undefined
-
-  const onScroll = () => {
-    if (timeoutId) {
-      clearTimeout(timeoutId)
-    }
-    timeoutId = window.setTimeout(() => {
-      onStop()
-    }, delay)
-  }
-
-  scrollTarget.addEventListener('scroll', onScroll, { passive: true })
-
-  return {
-    destroy: () => {
-      if (timeoutId) {
-        clearTimeout(timeoutId)
-      }
-      scrollTarget.removeEventListener('scroll', onScroll)
-    },
-  }
-}
-
-/**
- * 查找滚动容器
- * 从元素向上查找有滚动条的父容器
- */
-export function findScrollContainer(element: HTMLElement): HTMLElement | Window {
-  let parent = element.parentElement
-  while (parent) {
-    const { overflow, overflowY } = getComputedStyle(parent)
-    if (/(auto|scroll)/.test(overflow + overflowY)) {
-      return parent
-    }
-    parent = parent.parentElement
-  }
-  return window
 }
