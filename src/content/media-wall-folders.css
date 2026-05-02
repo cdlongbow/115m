@@ -1,4 +1,11 @@
 /* ====== folder wall ====== */
+.m115-folder-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+  gap: 20px 16px;
+  padding: 16px;
+}
+
 .m115-folder-card {
   position: relative;
   display: block;
@@ -7,9 +14,11 @@
   padding: 0;
   overflow: visible;
   border: 0;
-  background: transparent;
+  background: transparent !important;
   cursor: pointer;
   box-sizing: border-box;
+  outline: none;
+  transition: transform 0.2s ease-out;
 }
 
 /* 1. Back Layer (Folder Shell Background + Tab) */
@@ -18,9 +27,9 @@
   inset: 0;
   border-radius: 12px;
   background: linear-gradient(180deg, #f4cc66 0%, #e8b44b 100%);
-  box-shadow: 0 4px 10px rgba(125, 88, 18, 0.1);
+  box-shadow: 0 2px 4px rgba(125, 88, 18, 0.1);
   z-index: 0;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+  transition: box-shadow 0.25s ease;
 }
 
 .m115-folder-shell-back::before {
@@ -35,19 +44,20 @@
   box-shadow: inset 0 1px 0 rgba(255, 244, 201, 0.4);
 }
 
-/* 2. Content Layer (Representing papers inside) */
+/* 2. Content Layer (Papers) */
 .m115-folder-shell-content {
   position: absolute;
-  inset: 4px 6px 10px;
-  border-radius: 8px;
+  top: 4px;
+  left: 8px;
+  right: 8px;
+  height: 80px; 
+  border-radius: 4px;
   background: #ffffff;
-  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   z-index: 1;
-  transform: translateY(-2px);
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
-/* 3. Front Layer (The shell front with cover window) */
+/* 3. Front Layer (Cover + Footer) */
 .m115-folder-shell-front {
   position: relative;
   display: flex;
@@ -59,25 +69,32 @@
   border: 1px solid rgba(190, 140, 40, 0.25);
   box-shadow: 
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 4px 8px rgba(125, 88, 18, 0.12);
+    0 2px 4px rgba(125, 88, 18, 0.08);
   z-index: 2;
   overflow: hidden;
-  transition: transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1), box-shadow 0.3s ease;
+  transition: box-shadow 0.25s ease;
+}
+
+/* --- 极简悬停逻辑 --- */
+.m115-folder-card:hover {
+  transform: scale(1.02);
+}
+
+.m115-folder-card:hover .m115-folder-shell-back {
+  box-shadow: 0 8px 20px rgba(125, 88, 18, 0.2);
 }
 
 .m115-folder-card:hover .m115-folder-shell-front {
-  transform: translateY(-4px);
   box-shadow: 
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 12px 24px rgba(125, 88, 18, 0.25);
+    0 4px 12px rgba(125, 88, 18, 0.15);
 }
 
-.m115-folder-card:hover .m115-folder-shell-back,
-.m115-folder-card:hover .m115-folder-shell-content {
-  transform: translateY(-2px);
+.m115-folder-card:hover .m115-folder-cover {
+  transform: scale(1.05);
 }
 
-/* 封面展示区域优化：氛围背景 + 不裁切图片 */
+/* 封面展示区域 */
 .m115-folder-cover-wrap {
   display: flex;
   align-items: center;
@@ -86,10 +103,8 @@
   width: calc(100% - 8px);
   margin: 4px 4px 0;
   border-radius: 7px;
-  background: #222; /* 改为深色底，更有氛围感 */
-  box-shadow: 
-    inset 0 1px 4px rgba(0, 0, 0, 0.2),
-    0 1px 0 rgba(255, 255, 255, 0.3);
+  background: #222;
+  box-shadow: inset 0 1px 4px rgba(0, 0, 0, 0.2);
   overflow: hidden;
   position: relative;
 }
@@ -97,11 +112,11 @@
 .m115-folder-cover-wrap::before {
   content: '';
   position: absolute;
-  inset: -10px; /* 稍微扩大一点避免边缘发白 */
+  inset: -10px;
   background-image: var(--m115-folder-cover-url);
   background-size: cover;
   background-position: center;
-  filter: blur(12px) brightness(0.7) opacity(0.6); /* 增强背景氛围，提亮一点但保持深色调 */
+  filter: blur(12px) brightness(0.7) opacity(0.6);
   z-index: 1;
 }
 
@@ -110,13 +125,9 @@
   z-index: 2;
   width: 100%;
   height: 100%;
-  object-fit: contain; /* 改回 contain，确保头部绝对不裁切 */
-  transition: transform 0.4s ease;
-  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3)); /* 给中间的实图加点投影，使其脱离背景 */
-}
-
-.m115-folder-card:hover .m115-folder-cover {
-  transform: scale(1.05);
+  object-fit: contain;
+  transition: transform 0.3s ease;
+  filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
 }
 
 .m115-folder-footer {
@@ -136,6 +147,7 @@
   white-space: nowrap;
 }
 
+/* 4. Actions */
 .m115-folder-actions {
   position: absolute;
   inset: 0;
@@ -146,39 +158,56 @@
 .m115-folder-action-btn {
   position: absolute;
   pointer-events: auto;
+  transition: all 0.2s ease;
 }
 
+/* --- Star Badge (强化嵌入感设计) --- */
 .m115-folder-action-btn[data-role='star'] {
   top: 8px;
   right: 0;
-  width: 26px;
-  height: 26px;
-  background: linear-gradient(135deg, rgba(255, 252, 245, 0.98) 0%, rgba(255, 240, 195, 0.98) 100%);
-  color: rgba(176, 124, 16, 0.35);
+  width: 28px;
+  height: 28px;
+  /* 统一背景：淡奶色材质 */
+  background: linear-gradient(135deg, rgba(255, 253, 245, 0.95) 0%, rgba(255, 248, 220, 0.92) 100%);
+  color: #b07c10;
   border: 0;
-  border-left: 1px solid rgba(233, 184, 59, 0.25);
-  border-bottom: 1px solid rgba(233, 184, 59, 0.25);
   display: flex;
   align-items: center;
   justify-content: center;
   clip-path: polygon(0 0, 100% 0, 100% 100%);
-  transition: color 0.2s ease;
+  /* 核心：通过阴影产生嵌入感 */
+  box-shadow: 
+    inset 1px 1px 2px rgba(0, 0, 0, 0.05), /* 模拟左上边缘嵌入阴影 */
+    inset -1px -1px 2px rgba(255, 255, 255, 0.8); /* 模拟切角处的反光 */
+  backdrop-filter: blur(4px);
+  z-index: 3;
 }
 
+/* 收藏状态下背景保持一致，仅改变星星 */
 .m115-folder-action-btn[data-role='star'].is-active {
   color: #dd8d07;
-  background: linear-gradient(135deg, rgba(255, 246, 215, 0.99) 0%, rgba(252, 203, 70, 0.99) 100%);
+  background: linear-gradient(135deg, rgba(255, 253, 245, 0.96) 0%, rgba(255, 248, 220, 0.94) 100%);
 }
 
 .m115-folder-action-btn[data-role='star'] .m115-folder-icon {
-  transform: translate(3px, -3px);
+  transform: translate(4px, -4px);
+  /* 星星增加一点点浮雕感，让它像压印在角标上的 */
+  filter: drop-shadow(0 0.5px 0.5px rgba(0, 0, 0, 0.1));
 }
 
 .m115-folder-action-btn[data-role='star'] svg {
-  width: 12px;
-  height: 12px;
+  width: 13px;
+  height: 13px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5px;
 }
 
+.m115-folder-action-btn[data-role='star'].is-active svg {
+  fill: currentColor;
+}
+
+/* --- Remark Badge (Locked Style) --- */
 .m115-folder-remark-badge {
   right: -1px;
   bottom: -1px;
@@ -196,8 +225,6 @@
   font-size: 8px;
   font-weight: 500;
   line-height: 1;
-  letter-spacing: 0;
-  white-space: nowrap;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 40%);
   display: flex;
   align-items: center;
