@@ -75,7 +75,7 @@
   transition: box-shadow 0.25s ease;
 }
 
-/* --- 极简悬停逻辑 --- */
+/* --- 极简悬停逻辑：彻底杜绝位移 --- */
 .m115-folder-card:hover {
   transform: scale(1.02);
 }
@@ -161,38 +161,35 @@
   transition: all 0.2s ease;
 }
 
-/* --- Star Badge (强化嵌入感设计) --- */
+/* --- Star Badge (精修嵌入版) --- */
 .m115-folder-action-btn[data-role='star'] {
   top: 8px;
-  right: 0;
-  width: 28px;
+  right: -0.5px; /* 微调边缘，消除缝隙 */
+  width: 29px;   /* 稍微加宽，配合 clip-path 贴合圆角 */
   height: 28px;
-  /* 统一背景：淡奶色材质 */
-  background: linear-gradient(135deg, rgba(255, 253, 245, 0.95) 0%, rgba(255, 248, 220, 0.92) 100%);
+  background: linear-gradient(135deg, rgba(255, 253, 245, 0.96) 0%, rgba(255, 248, 220, 0.94) 100%);
   color: #b07c10;
   border: 0;
   display: flex;
   align-items: center;
   justify-content: center;
+  /* 精确的 clip-path：左侧切角，右侧锁死边缘 */
   clip-path: polygon(0 0, 100% 0, 100% 100%);
-  /* 核心：通过阴影产生嵌入感 */
   box-shadow: 
-    inset 1px 1px 2px rgba(0, 0, 0, 0.05), /* 模拟左上边缘嵌入阴影 */
-    inset -1px -1px 2px rgba(255, 255, 255, 0.8); /* 模拟切角处的反光 */
+    inset 1.5px 1.5px 2px rgba(0, 0, 0, 0.04), /* 增强嵌入阴影 */
+    inset -1px -1px 2px rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(4px);
   z-index: 3;
 }
 
-/* 收藏状态下背景保持一致，仅改变星星 */
 .m115-folder-action-btn[data-role='star'].is-active {
   color: #dd8d07;
-  background: linear-gradient(135deg, rgba(255, 253, 245, 0.96) 0%, rgba(255, 248, 220, 0.94) 100%);
+  background: linear-gradient(135deg, rgba(255, 253, 245, 0.98) 0%, rgba(255, 248, 220, 0.96) 100%);
 }
 
 .m115-folder-action-btn[data-role='star'] .m115-folder-icon {
-  transform: translate(4px, -4px);
-  /* 星星增加一点点浮雕感，让它像压印在角标上的 */
-  filter: drop-shadow(0 0.5px 0.5px rgba(0, 0, 0, 0.1));
+  transform: translate(4.5px, -4.5px); /* 微调星号位置 */
+  filter: drop-shadow(0 0.5px 0.5px rgba(0, 0, 0, 0.08));
 }
 
 .m115-folder-action-btn[data-role='star'] svg {
