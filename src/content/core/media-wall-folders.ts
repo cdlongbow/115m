@@ -73,16 +73,24 @@ export function renderFoldersSection(
   const grid = doc.createElement('div')
   grid.className = 'm115-folder-grid'
   folders.forEach((folder) => {
-    const button = doc.createElement('button')
-    button.type = 'button'
-    button.className = 'm115-folder-card'
-    button.title = folder.title
+    const card = doc.createElement('button')
+    card.type = 'button'
+    card.className = 'm115-folder-card'
+    card.title = folder.title
 
-    const tab = doc.createElement('span')
-    tab.className = 'm115-folder-tab'
+    // 1. Back Layer (Folder Shell Background + Tab)
+    const shellBack = doc.createElement('span')
+    shellBack.className = 'm115-folder-shell-back'
+    card.appendChild(shellBack)
 
-    const body = doc.createElement('span')
-    body.className = 'm115-folder-body'
+    // 2. Content Layer (Representing papers/content inside)
+    const shellContent = doc.createElement('span')
+    shellContent.className = 'm115-folder-shell-content'
+    card.appendChild(shellContent)
+
+    // 3. Front Layer (Folder Cover + Main Info)
+    const shellFront = doc.createElement('span')
+    shellFront.className = 'm115-folder-shell-front'
 
     const coverWrap = doc.createElement('span')
     coverWrap.className = 'm115-folder-cover-wrap'
@@ -101,9 +109,13 @@ export function renderFoldersSection(
     const name = doc.createElement('span')
     name.className = 'm115-folder-name'
     name.textContent = folder.title
-
     footer.appendChild(name)
 
+    shellFront.appendChild(coverWrap)
+    shellFront.appendChild(footer)
+    card.appendChild(shellFront)
+
+    // 4. Actions Layer (Star/Remark)
     const actions = doc.createElement('span')
     actions.className = 'm115-folder-actions'
 
@@ -147,18 +159,15 @@ export function renderFoldersSection(
       actions.appendChild(remarkBtn)
     }
 
-    body.appendChild(coverWrap)
-    body.appendChild(footer)
-    button.appendChild(tab)
-    button.appendChild(body)
-    button.appendChild(actions)
-    button.addEventListener('click', () => folder.open())
-    button.addEventListener('contextmenu', (event) => {
+    card.appendChild(actions)
+
+    card.addEventListener('click', () => folder.open())
+    card.addEventListener('contextmenu', (event) => {
       event.preventDefault()
       event.stopPropagation()
       forwardNativeContextMenu(folder.sourceItem, event)
     })
-    grid.appendChild(button)
+    grid.appendChild(card)
   })
 
   section.appendChild(grid)

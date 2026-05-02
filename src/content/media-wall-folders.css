@@ -3,160 +3,93 @@
   position: relative;
   display: block;
   min-height: 154px;
-  padding: 3px;
-  overflow: visible;
-  border-radius: 13px;
-  background: linear-gradient(180deg, #f5cb5a 0%, #efbc42 100%);
-  box-shadow: 0 3px 10px rgba(148, 102, 12, 0.12);
-  border: 1px solid rgba(205, 151, 30, 0.34);
-  box-sizing: border-box;
-}
-
-.m115-folder-card::before {
-  content: '';
-  position: absolute;
-  left: 10px;
-  top: -1px;
-  width: 40px;
-  height: 10px;
-  border-radius: 8px 8px 0 0;
-  background: linear-gradient(180deg, #f8d97a 0%, #f2c44f 100%);
-  border: 1px solid rgba(199, 142, 20, 0.34);
-  border-bottom: 0;
-  box-sizing: border-box;
-  z-index: 2;
-}
-
-.m115-folder-body {
-  display: flex;
-  flex-direction: column;
   width: 100%;
-  min-width: 100%;
-  max-width: 100%;
-  min-height: 145px;
-  position: relative;
-  margin-top: 6px;
-  border-radius: 10px;
-  overflow: hidden;
-  background: linear-gradient(180deg, rgba(255, 246, 217, 0.96) 0%, rgba(255, 251, 238, 0.98) 18%, #ffffff 42%, #ffffff 100%);
-  border: 1px solid rgba(219, 181, 79, 0.24);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.58);
+  padding: 0;
+  overflow: visible;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
   box-sizing: border-box;
-  z-index: 0;
+  perspective: 1000px;
 }
 
-.m115-folder-body::before {
-  content: '';
-  position: absolute;
-  left: 48px;
-  right: 0;
-  top: -6px;
-  height: 8px;
-  background: linear-gradient(180deg, rgba(248, 219, 128, 0.9) 0%, rgba(245, 203, 91, 0.9) 100%);
-  border-top: 1px solid rgba(201, 145, 25, 0.2);
-  border-left: 1px solid rgba(201, 145, 25, 0.1);
-  border-top-right-radius: 10px;
-  box-sizing: border-box;
-  z-index: 0;
-}
-
-.m115-folder-actions {
+/* 1. Back Layer (The shell background with tab) */
+.m115-folder-shell-back {
   position: absolute;
   inset: 0;
-  pointer-events: none;
-  z-index: 3;
+  border-radius: 12px;
+  background: linear-gradient(180deg, #f3ca63 0%, #e7b34a 100%);
+  box-shadow: 0 4px 12px rgba(125, 88, 18, 0.12);
+  z-index: 0;
 }
 
-.m115-folder-action-btn {
+.m115-folder-shell-back::before {
+  content: '';
   position: absolute;
-  width: 26px;
-  height: 26px;
-  border: 0;
-  border-radius: 0;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-  background: linear-gradient(135deg, rgba(255, 251, 239, 0.96) 0%, rgba(255, 239, 186, 0.98) 100%);
-  color: rgba(201, 145, 25, 0.42);
-  cursor: pointer;
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.42), 0 1px 2px rgba(15, 23, 42, 0.03);
-  border-left: 1px solid rgba(244, 196, 76, 0.18);
-  border-bottom: 1px solid rgba(244, 196, 76, 0.18);
-  pointer-events: auto;
-  opacity: 1;
-  clip-path: polygon(0 0, 100% 0, 100% 100%);
-}
-
-.m115-folder-action-btn.is-active {
-  color: #f59e0b;
-  background: linear-gradient(135deg, rgba(255, 243, 194, 0.98) 0%, rgba(251, 191, 36, 0.98) 100%);
-  border-left-color: rgba(245, 158, 11, 0.24);
-  border-bottom-color: rgba(245, 158, 11, 0.24);
-}
-
-.m115-folder-action-btn[data-role='star'] {
-  top: -1px;
-  right: -1px;
-}
-
-.m115-folder-action-btn[data-role='star']:not(.is-active) {
-  color: rgba(201, 145, 25, 0.32);
-}
-
-.m115-folder-action-btn:hover {
-  color: rgba(201, 145, 25, 0.56);
-  opacity: 1;
-}
-
-.m115-folder-action-btn.is-active:hover {
-  color: #d97706;
-}
-
-.m115-folder-icon {
-  width: 13px;
-  height: 13px;
-  display: inline-flex;
-  align-items: center;
-  justify-content: center;
-}
-
-.m115-folder-icon svg {
-  width: 13px;
-  height: 13px;
-  display: block;
-  fill: none;
-}
-
-.m115-folder-action-btn .m115-folder-icon {
-  transform: translate(4px, -4px);
-}
-
-.m115-folder-action-btn[data-role='star'].is-active .m115-folder-icon svg {
-  fill: currentColor;
-}
-
-.m115-folder-tab {
-  position: absolute;
-  top: 2px;
   left: 12px;
-  width: 30px;
-  height: 7px;
-  border-radius: 7px 7px 0 0;
-  background: linear-gradient(180deg, #fbe090 0%, #f2c34b 100%);
-  box-shadow: 0 1px 2px rgba(191, 137, 20, 0.08);
-  opacity: 1;
+  top: -8px;
+  width: 48px;
+  height: 16px;
+  border-radius: 8px 8px 0 0;
+  background: linear-gradient(180deg, #f7d98d 0%, #f3ca63 100%);
+  box-shadow: inset 0 1px 0 rgba(255, 244, 201, 0.4);
+}
+
+/* 2. Content Layer (Representing papers inside) */
+.m115-folder-shell-content {
+  position: absolute;
+  inset: 6px 8px 12px;
+  border-radius: 8px;
+  background: #ffffff;
+  box-shadow: 0 1px 3px rgba(0, 0, 0, 0.08);
+  z-index: 1;
+  transform: translateY(-2px);
+}
+
+.m115-folder-shell-content::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  border-radius: 8px;
+  background: repeating-linear-gradient(
+    180deg,
+    rgba(0, 0, 0, 0.03) 0px,
+    rgba(0, 0, 0, 0.03) 1px,
+    transparent 1px,
+    transparent 4px
+  );
+}
+
+/* 3. Front Layer (The shell front with cover window) */
+.m115-folder-shell-front {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  height: 148px;
+  margin-top: 10px;
+  border-radius: 10px;
+  background: linear-gradient(180deg, rgba(250, 225, 150, 0.96) 0%, rgba(240, 200, 100, 0.98) 100%);
+  border: 1px solid rgba(190, 140, 40, 0.25);
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.5), 0 4px 8px rgba(125, 88, 18, 0.15);
+  z-index: 2;
+  overflow: hidden;
+  transition: transform 0.2s ease;
+}
+
+.m115-folder-card:hover .m115-folder-shell-front {
+  transform: translateY(2px) rotateX(-4deg);
 }
 
 .m115-folder-cover-wrap {
   display: flex;
   align-items: center;
   justify-content: center;
-  height: 116px;
-  width: calc(100% - 10px);
-  margin: 9px 5px 4px;
-  border-radius: 9px;
-  background: linear-gradient(180deg, #fafbfd 0%, #f1f4f8 100%);
-  box-shadow: inset 0 0 0 1px rgba(221, 228, 238, 0.92);
+  height: 104px;
+  width: calc(100% - 12px);
+  margin: 10px 6px 4px;
+  border-radius: 8px;
+  background: #f8f9fb;
+  box-shadow: inset 0 2px 5px rgba(0, 0, 0, 0.08), 0 1px 0 rgba(255, 255, 255, 0.3);
   overflow: hidden;
   position: relative;
 }
@@ -168,17 +101,8 @@
   background-image: var(--m115-folder-cover-url);
   background-size: cover;
   background-position: center;
-  filter: blur(16px) saturate(0.82) brightness(0.98);
-  transform: scale(1.06);
-  opacity: 0.14;
-}
-
-.m115-folder-cover-wrap::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0.08) 0%, rgba(255, 255, 255, 0.03) 100%);
-  z-index: 1;
+  filter: blur(12px) opacity(0.1);
+  transform: scale(1.1);
 }
 
 .m115-folder-cover {
@@ -186,33 +110,76 @@
   z-index: 2;
   max-width: 100%;
   max-height: 100%;
-  width: auto;
-  height: auto;
-  display: block;
   object-fit: contain;
-  object-position: center;
 }
 
 .m115-folder-footer {
   display: flex;
   align-items: center;
-  gap: 4px;
-  min-height: 20px;
-  padding: 0 5px 4px;
-  background: linear-gradient(180deg, rgba(255, 255, 255, 0) 0%, rgba(255, 252, 244, 0.72) 100%);
-  position: relative;
-  z-index: 2;
+  padding: 2px 8px 6px;
+  flex: 1;
 }
 
 .m115-folder-name {
-  padding: 0 2px;
   font-size: 12px;
   font-weight: 600;
   color: #2b3445;
-  flex: 1;
-  min-width: 0;
+  text-shadow: 0 1px 0 rgba(255, 255, 255, 0.4);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
+/* 4. Actions (Star/Remark) */
+.m115-folder-actions {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.m115-folder-action-btn {
+  position: absolute;
+  pointer-events: auto;
+}
+
+/* --- Star Badge --- */
+.m115-folder-action-btn[data-role='star'] {
+  top: 10px;
+  right: 0;
+  width: 28px;
+  height: 28px;
+  background: linear-gradient(135deg, rgba(255, 251, 239, 0.97) 0%, rgba(255, 236, 181, 0.98) 100%);
+  color: rgba(176, 124, 16, 0.3);
+  border: 0;
+  border-left: 1px solid rgba(233, 184, 59, 0.2);
+  border-bottom: 1px solid rgba(233, 184, 59, 0.2);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  clip-path: polygon(0 0, 100% 0, 100% 100%);
+}
+
+.m115-folder-action-btn[data-role='star'].is-active {
+  color: #dd8d07;
+  background: linear-gradient(135deg, rgba(255, 244, 203, 0.98) 0%, rgba(250, 197, 57, 0.98) 100%);
+}
+
+.m115-folder-action-btn[data-role='star'] .m115-folder-icon {
+  transform: translate(4px, -4px);
+}
+
+.m115-folder-action-btn[data-role='star'] svg {
+  width: 13px;
+  height: 13px;
+  fill: none;
+}
+
+.m115-folder-action-btn[data-role='star'].is-active svg {
+  fill: currentColor;
+}
+
+/* --- Remark Badge (LOCKED) --- */
 .m115-folder-remark-badge {
   right: -1px;
   bottom: -1px;
@@ -233,9 +200,7 @@
   letter-spacing: 0;
   white-space: nowrap;
   clip-path: polygon(0 0, 100% 0, 100% 100%, 0 100%, 0 40%);
-}
-
-.m115-folder-remark-badge:hover {
-  background: linear-gradient(180deg, rgba(244, 247, 251, 0.94) 0%, rgba(226, 234, 243, 0.98) 100%);
-  color: #62748d;
+  display: flex;
+  align-items: center;
+  justify-content: center;
 }
