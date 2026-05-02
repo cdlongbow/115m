@@ -2,12 +2,7 @@
 
 `115m` 是一个 115 网盘增强扩展。
 
-<details>
-<summary>预览图</summary>
 
-<p align="center">
-  <img width="720" alt="115m preview" src="https://github.com/user-attachments/assets/f13c87eb-d852-4b23-876d-897cab9b11b2" />
-</p>
 
 </details>
 
