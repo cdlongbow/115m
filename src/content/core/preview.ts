@@ -327,7 +327,7 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
   )
 
   // 创建滚动检测器
-  state.scrollObserver = createScrollStopDetector(scrollTarget, () => {
+  state.scrollObserver = createScrollStopDetector(scrollTarget, 120, () => {
     // 滚动停止后，如果元素可见且未加载，则加载
     if (!state.isLoaded && !state.error && !state.isLoading) {
       const rect = container.getBoundingClientRect()
@@ -489,10 +489,28 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       }
 
       acceleratedSet.delete(pickCode)
-      setManualFallback(res?.error || '自动加速失败，可手动重试')
+      if (manual) {
+        setManualFallback(res?.error || '手动加速失败，请稍后重试')
+        return
+      }
+
+      label.textContent = '自动加速不可用，可手动重试'
+      label.style.color = '#fa8c16'
+      button.hidden = false
+      button.disabled = false
+      button.textContent = 'VIP加速转码'
     }).catch(() => {
       acceleratedSet.delete(pickCode)
-      setManualFallback('自动加速异常，可手动重试')
+      if (manual) {
+        setManualFallback('手动加速异常，请稍后重试')
+        return
+      }
+
+      label.textContent = '自动加速不可用，可手动重试'
+      label.style.color = '#fa8c16'
+      button.hidden = false
+      button.disabled = false
+      button.textContent = 'VIP加速转码'
     })
   }
 
