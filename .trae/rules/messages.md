@@ -9,7 +9,6 @@ globs:
 ---
 # 消息链路规则
 
-- 修改前先查看 `docs/runbooks/messages.md`
 - 消息结构先改 `src/shared/messages.ts`
 - 不允许在业务文件里裸写一套新的消息结构
 - 后台负责路由和协调，业务能力尽量落回对应模块

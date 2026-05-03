@@ -11,13 +11,13 @@
 ## 使用方式
 
 - 项目级硬规则以 `.trae/rules/project-baseline.md` 为准
-- `AGENTS.md` 负责说明协作方式、文档分工和路由入口，不重复维护同一套核心规则
+- `AGENTS.md` 负责说明协作方式、文档分工和统一入口，不重复维护同一套核心规则
 - 普通改动先看当前文件，再按任务加载相关规则、文档和代码
 
 ## 文档与规则分工
 
 - `README.md`：项目简介、基础命令、本地使用
-- `AGENTS.md`：项目总纲、协作方式、文档路由
+- `AGENTS.md`：项目总纲、协作方式、统一入口
 - `docs/AI-HANDOFF.md`：项目地图、模块职责、典型任务落点
 - `docs/AI-PREFERENCES.md`：长期稳定偏好
 - `docs/runbooks/messages.md`：消息链路索引
@@ -29,9 +29,9 @@
 1. `AGENTS.md`
 2. 需求相关 `.trae/rules/*.md`
 3. `docs/AI-HANDOFF.md`
-4. 必要时再看对应 runbook 和目标代码
+4. 需要时自行查看对应 runbook 和目标代码
 
-## 当前规则路由
+## 当前规则入口
 
 - 项目核心自动规则：`.trae/rules/project-baseline.md`
 - 发布自动规则：`.trae/rules/release.md`
