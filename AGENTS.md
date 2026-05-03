@@ -56,7 +56,6 @@
 - 播放器自动规则：`.trae/rules/player.md`
 - 文档整理自动规则：`.trae/rules/docs-maintenance.md`
 - Git 提交信息自动规则：`.trae/rules/git-commit-message.md`
-- 发布流程：`docs/runbooks/release.md`
 - 播放器核心 / 消息链路：`docs/AI-HANDOFF.md`、`docs/runbooks/player.md`、`docs/runbooks/messages.md`
 - 图片图墙相关：`docs/runbooks/image-wall.md`
 
