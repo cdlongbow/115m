@@ -1,6 +1,7 @@
 ---
 alwaysApply: false
 description: 编写 Git 提交信息时使用此规则。
+scene: git_message
 ---
 # Git 提交信息规则
 
