@@ -55,9 +55,10 @@ pnpm release:check
 5. 加载 `dist/` 目录
 6. 改代码后重新执行 `pnpm build`，再在扩展页点重新加载
 
-## 相关文件
+## 协作文件
 
 - 项目规则：`AGENTS.md`
+- 文档与规则维护规范：`docs/runbooks/docs.md`
 - AI 接手说明：`docs/AI-HANDOFF.md`
 
 ## 开源协议

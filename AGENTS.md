@@ -56,7 +56,6 @@
 - 文档整理自动规则：`.trae/rules/docs-maintenance.md`
 - Git 提交信息自动规则：`.trae/rules/git-commit-message.md`
 - 消息链路 / 播放器：`docs/runbooks/messages.md`、`docs/runbooks/player.md`
-- 图片图墙：`docs/runbooks/image-wall.md`
 
 ## 安全
 

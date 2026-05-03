@@ -13,12 +13,6 @@
 3. 需求相关规则或 runbook
 4. 需求相关模块本身
 
-## 项目概要
-
-- 项目类型：Chrome 扩展
-- 当前状态：主链路稳定，可持续开发
-- 默认策略：按现有模块继续演进，不回到补丁式堆逻辑
-
 ## 模块地图
 
 ### `src/background/`
@@ -66,4 +60,3 @@
 
 - 消息链路：`docs/runbooks/messages.md`
 - 播放器：`docs/runbooks/player.md`
-- 图片图墙：`docs/runbooks/image-wall.md`
