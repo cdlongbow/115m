@@ -2,18 +2,18 @@
 
 适用场景：
 
-- 涉及播放器核心
-- 涉及 `115` 页面能力
-- 涉及后台消息或模块落点判断
+- 需要快速理解项目结构
+- 判断需求应该落到哪个模块
+- 接手播放器、115 页面能力或后台消息链路
 
 ## 接手顺序
 
 1. `AGENTS.md`
 2. 本文档
-3. `src/shared/messages.ts`
+3. 需求相关 runbook
 4. 需求相关模块本身
 
-## 当前项目判断
+## 项目概要
 
 - 项目类型：Chrome 扩展
 - 包管理：`pnpm`
@@ -35,7 +35,7 @@
 - 主世界调用：`main-world.ts`
 - 文件动作：`file-actions.ts`
 
-只要涉及 `chrome.scripting.executeScript`、页面上下文对象、列表刷新、文件移动、删除同步，优先看这里。
+涉及 `chrome.scripting.executeScript`、页面上下文对象、列表刷新、文件移动、删除同步时，优先看这里。
 
 ### `src/player/`
 
@@ -103,9 +103,10 @@
 3. 是否改到播放器核心或消息链路
 4. 是否需要同步更新 `src/shared/messages.ts`
 
-## 约束
+## 文档路由
 
-- 不要把新逻辑直接堆回 `player.ts`、`overlay.ts`、`background/handlers.ts`
-- 涉及平台层逻辑时，优先落到 `src/platform/115/*`
-- 涉及消息协议时，先改 `src/shared/messages.ts`
-- 改播放器核心链路后，默认回查主链路稳定性
+- 开发与构建验证：`docs/runbooks/dev.md`
+- 消息链路：`docs/runbooks/messages.md`
+- 播放器：`docs/runbooks/player.md`
+- 发布：`docs/runbooks/release.md`
+- 图片图墙：`docs/runbooks/image-wall.md`
