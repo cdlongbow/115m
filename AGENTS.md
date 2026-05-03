@@ -47,7 +47,6 @@
 - 核心规则：`AGENTS.md`
 - 稳定偏好：`docs/AI-PREFERENCES.md`
 - 项目地图与模块接手：`docs/AI-HANDOFF.md`
-- 固定流程：`docs/runbooks/*.md`
 - 文档整理规范：`docs/runbooks/docs.md`
 - Trae 自动规则：`.trae/rules/*.md`
 - 项目核心自动规则：`.trae/rules/project-baseline.md`
@@ -56,8 +55,8 @@
 - 播放器自动规则：`.trae/rules/player.md`
 - 文档整理自动规则：`.trae/rules/docs-maintenance.md`
 - Git 提交信息自动规则：`.trae/rules/git-commit-message.md`
-- 播放器核心 / 消息链路：`docs/AI-HANDOFF.md`、`docs/runbooks/player.md`、`docs/runbooks/messages.md`
-- 图片图墙相关：`docs/runbooks/image-wall.md`
+- 消息链路 / 播放器：`docs/runbooks/messages.md`、`docs/runbooks/player.md`
+- 图片图墙：`docs/runbooks/image-wall.md`
 
 ## 安全
 
