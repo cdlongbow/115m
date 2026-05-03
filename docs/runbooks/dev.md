@@ -28,7 +28,7 @@ pnpm release:check
 - `pnpm test`：跑测试
 - `pnpm build`：构建扩展，并先同步 `manifest` 版本号
 - `pnpm zip`：构建并打包到 `release/`
-- `pnpm release:check`：检查版本、zip、项目日志和 gh 登录状态，确认是否可发 Release
+- `pnpm release:check`：检查版本、zip 和 gh 登录状态，确认是否可发 Release
 
 ## 常见问题
 

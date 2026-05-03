@@ -68,7 +68,6 @@ pnpm zip
 
 - 项目规则：`AGENTS.md`
 - AI 接手说明：`docs/AI-HANDOFF.md`
-- 变更记录：`项目日志.md`
 
 ## 开源协议
 

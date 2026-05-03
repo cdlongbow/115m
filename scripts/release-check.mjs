@@ -35,21 +35,23 @@ catch {
   fail('gh 未登录或已失效，请先执行 gh auth login')
 }
 
-const projectLogPath = resolve(root, '项目日志.md')
-if (!existsSync(projectLogPath)) {
-  fail('缺少 项目日志.md')
+const releaseDir = resolve(root, 'release')
+const noteFileName = `release-notes-v${pkg.version}.txt`
+const notePath = resolve(releaseDir, noteFileName)
+if (!existsSync(notePath)) {
+  fail(`缺少发布说明：release/${noteFileName}`)
 }
-const projectLog = readFileSync(projectLogPath, 'utf8')
-if (!projectLog.includes(`## v${pkg.version}`)) {
-  fail(`项目日志缺少版本段：## v${pkg.version}`)
+const noteContent = readFileSync(notePath, 'utf8').trim()
+if (!noteContent) {
+  fail(`发布说明为空：release/${noteFileName}`)
 }
-step(`项目日志已记录 v${pkg.version}`)
+step(`发布说明存在：release/${noteFileName}`)
 
 const workflowPath = resolve(root, '.github/workflows/release-to-telegram.yml')
 if (existsSync(workflowPath)) {
   step('已存在 Telegram 发布通知 workflow')
 }
 
-const releaseFiles = existsSync(resolve(root, 'release')) ? readdirSync(resolve(root, 'release')) : []
+const releaseFiles = existsSync(releaseDir) ? readdirSync(releaseDir) : []
 step(`release 目录文件数：${releaseFiles.length}`)
 step('release check 通过')
