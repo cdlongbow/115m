@@ -130,6 +130,14 @@ function hideSourceItems(folders: MediaWallFolderItem[], images: MediaWallImageI
   images.forEach(image => image.sourceItem.classList.add(HIDDEN_CLASS))
 }
 
+function scheduleMediaWallRefresh(doc: Document) {
+  const timers = refreshTimersByDoc.get(doc) || []
+  timers.forEach(timer => window.clearTimeout(timer))
+
+  const timer = window.setTimeout(() => renderMediaWall(doc), 80)
+  refreshTimersByDoc.set(doc, [timer])
+}
+
 export function renderMediaWall(doc: Document) {
   const list = doc.querySelector('.list-contents') as HTMLElement | null
   if (!list) return
@@ -148,7 +156,7 @@ export function renderMediaWall(doc: Document) {
   const wall = ensureWallContainer(list)
   wall.innerHTML = ''
 
-  if (folders.length) wall.appendChild(renderFoldersSection(doc, folders))
+  if (folders.length) wall.appendChild(renderFoldersSection(doc, folders, forwardNativeContextMenu, scheduleMediaWallRefresh))
   if (images.length) wall.appendChild(renderImagesSection(doc, images))
 
   hideSourceItems(folders, images)

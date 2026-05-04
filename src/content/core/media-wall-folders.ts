@@ -1,36 +1,195 @@
 import type { MediaWallFolderItem } from './media-wall-types'
 
-export function openNativeFolder(sourceItem: HTMLElement, hiddenClass: string) {
-  const anchor = (sourceItem.querySelector('.file-name .name,[menu="open"],[rel="view_folder"]') as HTMLElement | null) || sourceItem
+function dispatchMouseSequence(target: HTMLElement, events: Array<{ type: string, init: MouseEventInit }>) {
+  events.forEach(({ type, init }) => {
+    target.dispatchEvent(new MouseEvent(type, init))
+  })
+}
+
+function withVisibleSourceItem(sourceItem: HTMLElement, hiddenClass: string, apply: () => void) {
   sourceItem.classList.remove(hiddenClass)
 
   const previousStyle = sourceItem.getAttribute('style') || ''
   sourceItem.style.setProperty('position', 'fixed', 'important')
-  sourceItem.style.setProperty('left', '-9999px', 'important')
-  sourceItem.style.setProperty('top', '0', 'important')
   sourceItem.style.setProperty('width', '1px', 'important')
   sourceItem.style.setProperty('height', '1px', 'important')
   sourceItem.style.setProperty('overflow', 'hidden', 'important')
   sourceItem.style.setProperty('opacity', '0', 'important')
-  sourceItem.style.setProperty('pointer-events', 'none', 'important')
 
-  const init: MouseEventInit = {
-    bubbles: true,
-    cancelable: true,
-    view: window,
-    button: 0,
-    buttons: 1,
-  }
-
-  anchor.dispatchEvent(new MouseEvent('mousedown', init))
-  anchor.dispatchEvent(new MouseEvent('mouseup', init))
-  anchor.dispatchEvent(new MouseEvent('click', init))
+  apply()
 
   window.setTimeout(() => {
     if (previousStyle) sourceItem.setAttribute('style', previousStyle)
     else sourceItem.removeAttribute('style')
     sourceItem.classList.add(hiddenClass)
   }, 0)
+}
+
+export function selectNativeFolder(sourceItem: HTMLElement, hiddenClass: string, event?: MouseEvent) {
+  const anchor = (sourceItem.querySelector('.file-name .name,[menu="open"],[rel="view_folder"]') as HTMLElement | null) || sourceItem
+
+  withVisibleSourceItem(sourceItem, hiddenClass, () => {
+    sourceItem.style.setProperty('left', `${event?.clientX ?? 0}px`, 'important')
+    sourceItem.style.setProperty('top', `${event?.clientY ?? 0}px`, 'important')
+    sourceItem.style.removeProperty('pointer-events')
+
+    dispatchMouseSequence(anchor, [
+      {
+        type: 'mouseenter',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: event?.clientX ?? 0,
+          clientY: event?.clientY ?? 0,
+        },
+      },
+      {
+        type: 'mousedown',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 0,
+          buttons: 1,
+          clientX: event?.clientX ?? 0,
+          clientY: event?.clientY ?? 0,
+        },
+      },
+      {
+        type: 'mouseup',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 0,
+          buttons: 1,
+          clientX: event?.clientX ?? 0,
+          clientY: event?.clientY ?? 0,
+        },
+      },
+      {
+        type: 'click',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 0,
+          buttons: 1,
+          clientX: event?.clientX ?? 0,
+          clientY: event?.clientY ?? 0,
+        },
+      },
+    ])
+  })
+}
+
+export function openNativeFolder(sourceItem: HTMLElement, hiddenClass: string) {
+  const anchor = (sourceItem.querySelector('.file-name .name,[menu="open"],[rel="view_folder"]') as HTMLElement | null) || sourceItem
+
+  withVisibleSourceItem(sourceItem, hiddenClass, () => {
+    sourceItem.style.setProperty('left', '-9999px', 'important')
+    sourceItem.style.setProperty('top', '0', 'important')
+    sourceItem.style.setProperty('pointer-events', 'none', 'important')
+
+    dispatchMouseSequence(anchor, [
+      {
+        type: 'mousedown',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 0,
+          buttons: 1,
+        },
+      },
+      {
+        type: 'mouseup',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 0,
+          buttons: 1,
+        },
+      },
+      {
+        type: 'click',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 0,
+          buttons: 1,
+        },
+      },
+    ])
+  })
+}
+
+export function openNativeFolderContextMenu(sourceItem: HTMLElement, hiddenClass: string, event: MouseEvent) {
+  const anchor = (sourceItem.querySelector('.file-name .name,[menu="open"],[rel="view_folder"]') as HTMLElement | null) || sourceItem
+
+  withVisibleSourceItem(sourceItem, hiddenClass, () => {
+    sourceItem.style.setProperty('left', `${event.clientX}px`, 'important')
+    sourceItem.style.setProperty('top', `${event.clientY}px`, 'important')
+    sourceItem.style.removeProperty('pointer-events')
+
+    dispatchMouseSequence(anchor, [
+      {
+        type: 'mouseenter',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          clientX: event.clientX,
+          clientY: event.clientY,
+        },
+      },
+      {
+        type: 'mousedown',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 2,
+          buttons: 2,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          screenX: event.screenX,
+          screenY: event.screenY,
+        },
+      },
+      {
+        type: 'mouseup',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 2,
+          buttons: 2,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          screenX: event.screenX,
+          screenY: event.screenY,
+        },
+      },
+      {
+        type: 'contextmenu',
+        init: {
+          bubbles: true,
+          cancelable: true,
+          view: window,
+          button: 2,
+          buttons: 2,
+          clientX: event.clientX,
+          clientY: event.clientY,
+          screenX: event.screenX,
+          screenY: event.screenY,
+        },
+      },
+    ])
+  })
 }
 
 export function buildFolderItem(item: HTMLElement): MediaWallFolderItem | null {
@@ -53,6 +212,8 @@ export function buildFolderItem(item: HTMLElement): MediaWallFolderItem | null {
     starAction,
     remarkAction,
     open: () => openNativeFolder(item, 'm115-wall-hidden-item'),
+    select: (event?: MouseEvent) => selectNativeFolder(item, 'm115-wall-hidden-item', event),
+    contextMenu: (event: MouseEvent) => openNativeFolderContextMenu(item, 'm115-wall-hidden-item', event),
   }
 }
 
@@ -161,11 +322,15 @@ export function renderFoldersSection(
 
     card.appendChild(actions)
 
+    card.addEventListener('mousedown', (event) => {
+      if (event.button !== 0) return
+      folder.select(event)
+    })
     card.addEventListener('click', () => folder.open())
     card.addEventListener('contextmenu', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      forwardNativeContextMenu(folder.sourceItem, event)
+      folder.contextMenu(event)
     })
     grid.appendChild(card)
   })

@@ -8,6 +8,8 @@ export interface MediaWallFolderItem {
   starAction: HTMLElement | null
   remarkAction: HTMLElement | null
   open: () => void
+  select: (event?: MouseEvent) => void
+  contextMenu: (event: MouseEvent) => void
 }
 
 export interface MediaWallImageItem {
