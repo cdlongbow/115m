@@ -1,6 +1,6 @@
 {
   "name": "115m",
-  "version": "1.3.8",
+  "version": "1.3.9",
   "license": "GPL-3.0-only",
   "private": true,
   "type": "module",
@@ -9,7 +9,7 @@
     "doctor": "node scripts/doctor.mjs",
     "release:check": "node scripts/release-check.mjs",
     "test": "vitest run",
-    "zip": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (!(Test-Path release)) { New-Item -ItemType Directory -Path release | Out-Null } else { Get-ChildItem release -File | Remove-Item -Force }; $v=(Get-Content package.json -Raw | ConvertFrom-Json).version; $out='release/115m-v' + $v + '.zip'; Compress-Archive -Path 'dist/*' -DestinationPath $out -Force\""
+    "zip": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (!(Test-Path release)) { New-Item -ItemType Directory -Path release | Out-Null }; $v=(Get-Content package.json -Raw | ConvertFrom-Json).version; $out='release/115m-v' + $v + '.zip'; if (Test-Path $out) { Remove-Item -Force $out }; Compress-Archive -Path 'dist/*' -DestinationPath $out -Force\""
   },
   "dependencies": {
     "@cbingbing/demuxer": "^2.4.1",
