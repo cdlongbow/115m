@@ -25,63 +25,60 @@ function withVisibleSourceItem(sourceItem: HTMLElement, hiddenClass: string, app
   }, 0)
 }
 
-export function selectNativeFolder(sourceItem: HTMLElement, hiddenClass: string, event?: MouseEvent) {
-  const anchor = (sourceItem.querySelector('.file-name .name,[menu="open"],[rel="view_folder"]') as HTMLElement | null) || sourceItem
+function buildMouseInit(event?: MouseEvent, button = 0): MouseEventInit {
+  return {
+    bubbles: true,
+    cancelable: true,
+    view: window,
+    button,
+    buttons: button === 2 ? 2 : 1,
+    clientX: event?.clientX ?? 0,
+    clientY: event?.clientY ?? 0,
+    screenX: event?.screenX ?? 0,
+    screenY: event?.screenY ?? 0,
+    ctrlKey: event?.ctrlKey ?? false,
+    metaKey: event?.metaKey ?? false,
+    shiftKey: event?.shiftKey ?? false,
+    altKey: event?.altKey ?? false,
+  }
+}
 
+function isSourceItemSelected(sourceItem: HTMLElement): boolean {
+  const nativeInput = sourceItem.querySelector<HTMLInputElement>('input[type="checkbox"]')
+  return !!nativeInput?.checked
+    || sourceItem.classList.contains('selected')
+    || sourceItem.classList.contains('cur')
+    || sourceItem.getAttribute('selected') === 'selected'
+    || sourceItem.getAttribute('check') === '1'
+    || sourceItem.getAttribute('is_selected') === '1'
+    || sourceItem.getAttribute('data-selected') === 'true'
+    || sourceItem.getAttribute('aria-selected') === 'true'
+}
+
+function findNativeSelectionTarget(sourceItem: HTMLElement): HTMLElement {
+  return sourceItem.querySelector<HTMLElement>('.checkbox[menu="file_check_one"]')
+    || sourceItem.querySelector<HTMLElement>('input[type="checkbox"]')
+    || sourceItem
+}
+
+function toggleNativeFolderSelection(sourceItem: HTMLElement, hiddenClass: string, event?: MouseEvent) {
   withVisibleSourceItem(sourceItem, hiddenClass, () => {
-    sourceItem.style.setProperty('left', `${event?.clientX ?? 0}px`, 'important')
-    sourceItem.style.setProperty('top', `${event?.clientY ?? 0}px`, 'important')
-    sourceItem.style.removeProperty('pointer-events')
+    const target = findNativeSelectionTarget(sourceItem)
+    const rect = target.getBoundingClientRect()
+    const init = buildMouseInit(event)
+    init.clientX = rect.left + Math.max(4, rect.width / 2 || 8)
+    init.clientY = rect.top + Math.max(4, rect.height / 2 || 8)
 
-    dispatchMouseSequence(anchor, [
-      {
-        type: 'mouseenter',
-        init: {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: event?.clientX ?? 0,
-          clientY: event?.clientY ?? 0,
-        },
-      },
-      {
-        type: 'mousedown',
-        init: {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          button: 0,
-          buttons: 1,
-          clientX: event?.clientX ?? 0,
-          clientY: event?.clientY ?? 0,
-        },
-      },
-      {
-        type: 'mouseup',
-        init: {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          button: 0,
-          buttons: 1,
-          clientX: event?.clientX ?? 0,
-          clientY: event?.clientY ?? 0,
-        },
-      },
-      {
-        type: 'click',
-        init: {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          button: 0,
-          buttons: 1,
-          clientX: event?.clientX ?? 0,
-          clientY: event?.clientY ?? 0,
-        },
-      },
+    dispatchMouseSequence(target, [
+      { type: 'mousedown', init },
+      { type: 'mouseup', init },
+      { type: 'click', init },
     ])
   })
+}
+
+export function selectNativeFolder(sourceItem: HTMLElement, hiddenClass: string, event?: MouseEvent) {
+  toggleNativeFolderSelection(sourceItem, hiddenClass, event)
 }
 
 export function openNativeFolder(sourceItem: HTMLElement, hiddenClass: string) {
@@ -135,58 +132,24 @@ export function openNativeFolderContextMenu(sourceItem: HTMLElement, hiddenClass
     sourceItem.style.setProperty('top', `${event.clientY}px`, 'important')
     sourceItem.style.removeProperty('pointer-events')
 
+    const init = buildMouseInit(event, 2)
+
     dispatchMouseSequence(anchor, [
       {
         type: 'mouseenter',
-        init: {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          clientX: event.clientX,
-          clientY: event.clientY,
-        },
+        init,
       },
       {
         type: 'mousedown',
-        init: {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          button: 2,
-          buttons: 2,
-          clientX: event.clientX,
-          clientY: event.clientY,
-          screenX: event.screenX,
-          screenY: event.screenY,
-        },
+        init,
       },
       {
         type: 'mouseup',
-        init: {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          button: 2,
-          buttons: 2,
-          clientX: event.clientX,
-          clientY: event.clientY,
-          screenX: event.screenX,
-          screenY: event.screenY,
-        },
+        init,
       },
       {
         type: 'contextmenu',
-        init: {
-          bubbles: true,
-          cancelable: true,
-          view: window,
-          button: 2,
-          buttons: 2,
-          clientX: event.clientX,
-          clientY: event.clientY,
-          screenX: event.screenX,
-          screenY: event.screenY,
-        },
+        init,
       },
     ])
   })
@@ -233,23 +196,30 @@ export function renderFoldersSection(
 
   const grid = doc.createElement('div')
   grid.className = 'm115-folder-grid'
+
+  const syncSelectionState = () => {
+    folders.forEach((folder) => {
+      const card = grid.querySelector<HTMLElement>(`.m115-folder-card[data-folder-id="${CSS.escape(folder.id)}"]`)
+      if (!card) return
+      card.classList.toggle('is-selected', isSourceItemSelected(folder.sourceItem))
+    })
+  }
+
   folders.forEach((folder) => {
     const card = doc.createElement('button')
     card.type = 'button'
     card.className = 'm115-folder-card'
     card.title = folder.title
+    card.dataset.folderId = folder.id
 
-    // 1. Back Layer (Folder Shell Background + Tab)
     const shellBack = doc.createElement('span')
     shellBack.className = 'm115-folder-shell-back'
     card.appendChild(shellBack)
 
-    // 2. Content Layer (Representing papers/content inside)
     const shellContent = doc.createElement('span')
     shellContent.className = 'm115-folder-shell-content'
     card.appendChild(shellContent)
 
-    // 3. Front Layer (Folder Cover + Main Info)
     const shellFront = doc.createElement('span')
     shellFront.className = 'm115-folder-shell-front'
 
@@ -276,7 +246,27 @@ export function renderFoldersSection(
     shellFront.appendChild(footer)
     card.appendChild(shellFront)
 
-    // 4. Actions Layer (Star/Remark)
+    const selection = doc.createElement('button')
+    selection.type = 'button'
+    selection.className = 'm115-folder-selection'
+    selection.setAttribute('aria-label', '选择文件夹')
+    selection.innerHTML = '<span class="m115-folder-selection-box"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 8.2L6.6 11.3L12.5 5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
+    selection.addEventListener('mousedown', (event) => {
+      if (event.button !== 0) return
+      event.preventDefault()
+      event.stopPropagation()
+      folder.select(event)
+      window.setTimeout(syncSelectionState, 0)
+      window.setTimeout(syncSelectionState, 60)
+    })
+    selection.addEventListener('click', (event) => {
+      event.preventDefault()
+      event.stopPropagation()
+      window.setTimeout(syncSelectionState, 0)
+      window.setTimeout(syncSelectionState, 60)
+    })
+    card.appendChild(selection)
+
     const actions = doc.createElement('span')
     actions.className = 'm115-folder-actions'
 
@@ -322,11 +312,16 @@ export function renderFoldersSection(
 
     card.appendChild(actions)
 
-    card.addEventListener('mousedown', (event) => {
-      if (event.button !== 0) return
-      folder.select(event)
+    card.addEventListener('click', (event) => {
+      if (event.defaultPrevented) return
+      if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+        folder.select(event)
+        window.setTimeout(syncSelectionState, 0)
+        window.setTimeout(syncSelectionState, 60)
+        return
+      }
+      folder.open()
     })
-    card.addEventListener('click', () => folder.open())
     card.addEventListener('contextmenu', (event) => {
       event.preventDefault()
       event.stopPropagation()
@@ -334,6 +329,10 @@ export function renderFoldersSection(
     })
     grid.appendChild(card)
   })
+
+  syncSelectionState()
+  window.setTimeout(syncSelectionState, 0)
+  window.setTimeout(syncSelectionState, 80)
 
   section.appendChild(grid)
   return section

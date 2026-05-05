@@ -18,10 +18,19 @@
   cursor: pointer;
   box-sizing: border-box;
   outline: none;
-  transition: transform 0.2s ease-out;
 }
 
-/* 1. Back Layer (Folder Shell Background + Tab) */
+.m115-folder-card.is-selected::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border: 2px solid #1677ff;
+  border-radius: 14px;
+  box-shadow: 0 0 0 2px rgba(22, 119, 255, 0.12);
+  pointer-events: none;
+  z-index: 12;
+}
+
 .m115-folder-shell-back {
   position: absolute;
   inset: 0;
@@ -29,7 +38,6 @@
   background: linear-gradient(180deg, #f4cc66 0%, #e8b44b 100%);
   box-shadow: 0 2px 4px rgba(125, 88, 18, 0.1);
   z-index: 0;
-  transition: box-shadow 0.25s ease;
 }
 
 .m115-folder-shell-back::before {
@@ -44,20 +52,18 @@
   box-shadow: inset 0 1px 0 rgba(255, 244, 201, 0.4);
 }
 
-/* 2. Content Layer (Papers) */
 .m115-folder-shell-content {
   position: absolute;
   top: 4px;
   left: 8px;
   right: 8px;
-  height: 80px; 
+  height: 80px;
   border-radius: 4px;
   background: #ffffff;
   box-shadow: 0 1px 2px rgba(0, 0, 0, 0.1);
   z-index: 1;
 }
 
-/* 3. Front Layer (Cover + Footer) */
 .m115-folder-shell-front {
   position: relative;
   display: flex;
@@ -67,34 +73,13 @@
   border-radius: 10px;
   background: linear-gradient(180deg, #fce094 0%, #f2c45f 6%, #e8b44b 100%);
   border: 1px solid rgba(190, 140, 40, 0.25);
-  box-shadow: 
+  box-shadow:
     inset 0 1px 0 rgba(255, 255, 255, 0.5),
     0 2px 4px rgba(125, 88, 18, 0.08);
   z-index: 2;
   overflow: hidden;
-  transition: box-shadow 0.25s ease;
 }
 
-/* --- 极简悬停逻辑：彻底杜绝位移 --- */
-.m115-folder-card:hover {
-  transform: scale(1.02);
-}
-
-.m115-folder-card:hover .m115-folder-shell-back {
-  box-shadow: 0 8px 20px rgba(125, 88, 18, 0.2);
-}
-
-.m115-folder-card:hover .m115-folder-shell-front {
-  box-shadow: 
-    inset 0 1px 0 rgba(255, 255, 255, 0.5),
-    0 4px 12px rgba(125, 88, 18, 0.15);
-}
-
-.m115-folder-card:hover .m115-folder-cover {
-  transform: scale(1.05);
-}
-
-/* 封面展示区域 */
 .m115-folder-cover-wrap {
   display: flex;
   align-items: center;
@@ -126,7 +111,6 @@
   width: 100%;
   height: 100%;
   object-fit: contain;
-  transition: transform 0.3s ease;
   filter: drop-shadow(0 4px 8px rgba(0, 0, 0, 0.3));
 }
 
@@ -147,7 +131,49 @@
   white-space: nowrap;
 }
 
-/* 4. Actions */
+.m115-folder-selection {
+  position: absolute;
+  left: 2px;
+  bottom: 2px;
+  z-index: 13;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+  opacity: 0;
+  transition: opacity 0.15s ease;
+}
+
+.m115-folder-card:hover .m115-folder-selection,
+.m115-folder-card.is-selected .m115-folder-selection {
+  opacity: 1;
+}
+
+.m115-folder-selection-box {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  border-radius: 3px;
+  border: 1px solid rgba(148, 163, 184, 0.92);
+  background: rgba(255, 255, 255, 0.96);
+  color: transparent;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.1);
+}
+
+.m115-folder-selection-box svg {
+  width: 10px;
+  height: 10px;
+}
+
+.m115-folder-card.is-selected .m115-folder-selection-box {
+  border-color: #1677ff;
+  background: #1677ff;
+  color: #fff;
+  box-shadow: 0 1px 6px rgba(22, 119, 255, 0.24);
+}
+
 .m115-folder-actions {
   position: absolute;
   inset: 0;
@@ -161,11 +187,10 @@
   transition: all 0.2s ease;
 }
 
-/* --- Star Badge (精修嵌入版) --- */
 .m115-folder-action-btn[data-role='star'] {
   top: 8px;
-  right: -0.5px; /* 微调边缘，消除缝隙 */
-  width: 29px;   /* 稍微加宽，配合 clip-path 贴合圆角 */
+  right: -0.5px;
+  width: 29px;
   height: 28px;
   background: linear-gradient(135deg, rgba(255, 253, 245, 0.96) 0%, rgba(255, 248, 220, 0.94) 100%);
   color: #b07c10;
@@ -173,10 +198,9 @@
   display: flex;
   align-items: center;
   justify-content: center;
-  /* 精确的 clip-path：左侧切角，右侧锁死边缘 */
   clip-path: polygon(0 0, 100% 0, 100% 100%);
-  box-shadow: 
-    inset 1.5px 1.5px 2px rgba(0, 0, 0, 0.04), /* 增强嵌入阴影 */
+  box-shadow:
+    inset 1.5px 1.5px 2px rgba(0, 0, 0, 0.04),
     inset -1px -1px 2px rgba(255, 255, 255, 0.85);
   backdrop-filter: blur(4px);
   z-index: 3;
@@ -188,7 +212,7 @@
 }
 
 .m115-folder-action-btn[data-role='star'] .m115-folder-icon {
-  transform: translate(4.5px, -4.5px); /* 微调星号位置 */
+  transform: translate(4.5px, -4.5px);
   filter: drop-shadow(0 0.5px 0.5px rgba(0, 0, 0, 0.08));
 }
 
@@ -204,7 +228,6 @@
   fill: currentColor;
 }
 
-/* --- Remark Badge (Locked Style) --- */
 .m115-folder-remark-badge {
   right: -1px;
   bottom: -1px;
