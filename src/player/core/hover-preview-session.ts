@@ -1,4 +1,5 @@
 import type Artplayer from 'artplayer'
+import { getTimelineCovers, getVideoCoverAt, getVideoCovers } from '../../lib/videoThumbnail'
 import { blurTime, findNearestCover } from './hover-utils'
 
 export interface HoverCover {
@@ -29,6 +30,7 @@ const PRECISE_COVER_DEBOUNCE = 50
 const PRECISE_PREFETCH_RANGE = 1
 const MIN_COARSE_COVER_COUNT = 24
 const MAX_COARSE_COVER_COUNT = 60
+export const THUMBNAIL_PREVIEW_ENABLED = true
 
 function mergeCovers(covers: HoverCover[]): HoverCover[] {
   return [...covers]
@@ -100,6 +102,10 @@ export class HoverPreviewSession {
   }
 
   scheduleThumbnailWarmup() {
+    if (!THUMBNAIL_PREVIEW_ENABLED) {
+      return
+    }
+
     const tryWarmup = () => {
       if (this.thumbnailsLoaded || this.thumbnailsLoading) {
         return
@@ -118,6 +124,10 @@ export class HoverPreviewSession {
   }
 
   ensureThumbnailsForHover() {
+    if (!THUMBNAIL_PREVIEW_ENABLED) {
+      return
+    }
+
     if (!this.thumbnailsLoaded && !this.thumbnailsLoading) {
       void this.loadThumbnails()
     }
@@ -158,6 +168,10 @@ export class HoverPreviewSession {
   }
 
   schedulePreciseCover(hoverTime: number, nearest: HoverCover | null) {
+    if (!THUMBNAIL_PREVIEW_ENABLED) {
+      return
+    }
+
     if (!this.art.duration) {
       return
     }
@@ -217,7 +231,6 @@ export class HoverPreviewSession {
 
     this.thumbnailsLoading = true
     try {
-      const { getTimelineCovers, getVideoCovers } = await import('../../lib/videoThumbnail')
       const timelineCovers = await getTimelineCovers(this.pickCode)
       if (timelineCovers.length > 0) {
         this.onDebug('timeline cache hit', {
@@ -315,7 +328,6 @@ export class HoverPreviewSession {
 
   private async runBackgroundRefinement(duration: number, refineCount: number) {
     try {
-      const { getVideoCovers } = await import('../../lib/videoThumbnail')
       const covers = await getVideoCovers(this.pickCode, duration, refineCount)
       if (covers.length === 0) {
         return
@@ -454,7 +466,6 @@ export class HoverPreviewSession {
   }
 
   private async loadFallbackPreciseCover(bucketTime: number) {
-    const { getVideoCoverAt } = await import('../../lib/videoThumbnail')
     return await getVideoCoverAt(this.pickCode, bucketTime, this.art.duration)
   }
 }

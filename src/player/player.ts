@@ -1002,12 +1002,6 @@ class PlayerManager {
     const currentUrl = previewSourceUrl || this.artplayer.url || ''
     const fallbackThumbnailSource = [...this.m3u8List].sort((a, b) => a.quality - b.quality)[0]?.url
 
-    if (fallbackThumbnailSource) {
-      void import('../lib/videoThumbnail').then(({ primeThumbnailSourceUrl }) => {
-        primeThumbnailSourceUrl(this.currentPickCode, fallbackThumbnailSource)
-      })
-    }
-
     this.hoverPreview?.destroy()
     this.hoverPreview = new HoverPreviewController(
       this.artplayer,

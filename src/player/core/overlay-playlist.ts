@@ -2,6 +2,7 @@ import { escapeHtml } from '../../shared/utils'
 import type { OverlayPlaylistItem } from './overlay'
 
 const esc = escapeHtml
+const PLAYLIST_COVER_FEATURE_ENABLED = false
 
 export function formatPlaylistSeconds(sec: number) {
   const total = Math.max(0, Math.floor(sec))
@@ -78,6 +79,10 @@ export function scrollActivePlaylistNodeIntoView(listEl: HTMLElement, currentPic
 }
 
 export function lazyLoadPlaylistCovers(listEl: HTMLElement, items: OverlayPlaylistItem[]) {
+  if (!PLAYLIST_COVER_FEATURE_ENABLED) {
+    return
+  }
+
   const thumbEls = listEl.querySelectorAll<HTMLElement>('.m115-pl-thumb')
   const loadedSet = new Set<string>()
 

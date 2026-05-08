@@ -1,6 +1,8 @@
 // 页面已被 video-page-early.js（public/）在 document_start 阶段同步接管
 // 这里不再重复 document.write，避免二次覆盖导致的竞态问题
 
+import '../player/player'
+
 console.log('[115m] video-page.ts loading...')
 
 function clearNativeVideoRequests() {
@@ -31,7 +33,6 @@ async function init() {
   }
 
   window.history.replaceState(null, '', `${window.location.pathname}?${params.toString()}`)
-  await import('../player/player')
 }
 
 if (document.readyState === 'loading') {

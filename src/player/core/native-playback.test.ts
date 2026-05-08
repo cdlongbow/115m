@@ -11,9 +11,9 @@ describe('shouldRetryNativePlayback', () => {
     expect(shouldRetryNativePlayback({ retryCount: 0, hasStartedPlaying: true })).toBe(false)
   })
 
-  it('only allows native ultra for browser-friendly containers', () => {
+  it('allows native ultra for containers that users can manually play as lossless', () => {
     expect(canUseNativeUltraSource('video.mp4', 'https://example.com/file.mp4')).toBe(true)
+    expect(canUseNativeUltraSource('video.mkv', 'https://example.com/file.mkv')).toBe(true)
     expect(canUseNativeUltraSource('video.ts', 'https://example.com/file.ts')).toBe(false)
-    expect(canUseNativeUltraSource('video.mkv', 'https://example.com/file.mkv')).toBe(false)
   })
 })

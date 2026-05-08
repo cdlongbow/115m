@@ -5,6 +5,7 @@ export function shouldRetryNativePlayback(params: { retryCount: number, hasStart
 const NATIVE_PLAYABLE_EXTENSIONS = new Set([
   'mp4',
   'm4v',
+  'mkv',
   'webm',
   'ogv',
   'ogg',

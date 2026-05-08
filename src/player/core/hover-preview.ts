@@ -1,7 +1,7 @@
 import type Artplayer from 'artplayer'
 import { createHoverPreviewElements, findProgressElement } from './dom'
-import { clamp, formatTimeLabel, formatVttTime } from './hover-utils'
-import { HoverPreviewSession, type HoverCover } from './hover-preview-session'
+import { clamp, formatTimeLabel } from './hover-utils'
+import { HoverPreviewSession, THUMBNAIL_PREVIEW_ENABLED, type HoverCover } from './hover-preview-session'
 
 const PREVIEW_DEBUG_ENABLED = false
 
@@ -40,6 +40,10 @@ export class HoverPreviewController {
   ) {}
 
   setup() {
+    if (!THUMBNAIL_PREVIEW_ENABLED) {
+      return
+    }
+
     this.ensurePreviewElements()
     this.bindProgressHoverEventsWithRetry(0)
     this.art.on('video:loadedmetadata', this.handleVideoLoadedmetadata)
@@ -255,7 +259,6 @@ export class HoverPreviewController {
 
   private handleCoversChanged = (covers: HoverCover[], duration: number) => {
     this.covers = covers
-    this.updateThumbnailTrack(duration)
   }
 
   private handlePreciseCoverReady = (bucketTime: number, cover: HoverCover) => {
@@ -337,23 +340,6 @@ export class HoverPreviewController {
         return style.display !== 'none' && style.visibility !== 'hidden' && style.opacity !== '0'
       })
     })
-  }
-
-  private updateThumbnailTrack(duration: number) {
-    let vtt = 'WEBVTT\n\n'
-    const covers = [...this.covers].sort((a, b) => a.time - b.time)
-
-    covers.forEach((cover: HoverCover, index) => {
-      const prevTime = covers[index - 1]?.time ?? 0
-      const nextTime = covers[index + 1]?.time ?? duration
-      const startTime = formatVttTime(Math.max(0, (prevTime + cover.time) / 2))
-      const endTime = formatVttTime(Math.min(duration, (cover.time + nextTime) / 2))
-      vtt += `${startTime} --> ${endTime}\n${cover.imgUrl}\n\n`
-    })
-
-    const blob = new Blob([vtt], { type: 'text/vtt' })
-    const vttUrl = URL.createObjectURL(blob)
-    this.art.emit('artplayerPluginThumbnail:update', { url: vttUrl })
   }
 
   private shouldSuspendPreview(target: EventTarget | null) {

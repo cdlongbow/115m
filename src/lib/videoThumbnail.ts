@@ -5,7 +5,7 @@ import { getImageResize } from './image'
 
 const MAX_WIDTH = 720
 const MAX_HEIGHT = 720
-const CACHE_VERSION = 'v3'
+const CACHE_VERSION = 'v4'
 const SEEK_CONCURRENCY = 3
 const PRECISE_TARGET_ACCEPT_DELTA = 2.5
 const PRECISE_EARLY_SUCCESS_DELTA = 0.45
@@ -31,6 +31,18 @@ function clampTime(time: number, duration?: number): number {
 
 function uniqueTimes(times: number[]): number[] {
   return Array.from(new Set(times.map(time => Math.round(time * 10) / 10)))
+}
+
+function isStableImageUrl(imgUrl: string): boolean {
+  return imgUrl.startsWith('data:') || /^https?:\/\//i.test(imgUrl)
+}
+
+function normalizeCachedCovers(covers: VideoThumbnail[] | undefined): VideoThumbnail[] {
+  if (!Array.isArray(covers)) {
+    return []
+  }
+
+  return covers.filter(cover => !!cover?.imgUrl && isStableImageUrl(cover.imgUrl))
 }
 
 function getBatchCacheKey(pickCode: string, coverNum: number): string {
@@ -104,6 +116,25 @@ function calculateTimes(duration: number, count = 5): number[] {
   )
 }
 
+async function blobToDataUrl(blob: Blob): Promise<string> {
+  return await new Promise<string>((resolve) => {
+    const reader = new FileReader()
+    reader.onloadend = () => resolve(reader.result as string)
+    reader.readAsDataURL(blob)
+  })
+}
+
+async function coverToStorableDataUrl(cover: VideoThumbnail): Promise<VideoThumbnail> {
+  if (cover.imgUrl.startsWith('data:')) {
+    return cover
+  }
+
+  const response = await fetch(cover.imgUrl)
+  const blob = await response.blob()
+  const imgUrl = await blobToDataUrl(blob)
+  return { ...cover, imgUrl }
+}
+
 async function renderCover(result: FrameData): Promise<VideoThumbnail | null> {
   const resize = getImageResize(
     result.videoFrame.displayWidth,
@@ -134,10 +165,10 @@ async function renderCover(result: FrameData): Promise<VideoThumbnail | null> {
   }
 
   const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 })
-  const blobUrl = URL.createObjectURL(blob)
+  const imgUrl = await blobToDataUrl(blob)
 
   return {
-    imgUrl: blobUrl,
+    imgUrl,
     width: resize.width,
     height: resize.height,
     time: result.frameTime,
@@ -293,8 +324,9 @@ function selectCoverSet(covers: VideoThumbnail[], duration: number, coverNum: nu
 
 async function readTimelineCovers(pickCode: string): Promise<VideoThumbnail[]> {
   const cacheKey = getTimelineCacheKey(pickCode)
-  const inMemory = memoryTimelineCache.get(cacheKey)
-  if (inMemory && inMemory.length > 0) {
+  const inMemory = normalizeCachedCovers(memoryTimelineCache.get(cacheKey))
+  if (inMemory.length > 0) {
+    memoryTimelineCache.set(cacheKey, inMemory)
     return inMemory
   }
 
@@ -305,8 +337,8 @@ async function readTimelineCovers(pickCode: string): Promise<VideoThumbnail[]> {
 
   try {
     const cached = await storageArea.get(cacheKey)
-    const hit = cached[cacheKey] as VideoThumbnail[] | undefined
-    if (hit && hit.length > 0) {
+    const hit = normalizeCachedCovers(cached[cacheKey] as VideoThumbnail[] | undefined)
+    if (hit.length > 0) {
       memoryTimelineCache.set(cacheKey, hit)
       return hit
     }
@@ -329,21 +361,7 @@ async function writeTimelineCovers(pickCode: string, covers: VideoThumbnail[]): 
     return
   }
 
-  const storableResults = await Promise.all(
-    covers.map(async (cover) => {
-      if (cover.imgUrl.startsWith('data:')) {
-        return cover
-      }
-      const response = await fetch(cover.imgUrl)
-      const blob = await response.blob()
-      const base64 = await new Promise<string>((resolve) => {
-        const reader = new FileReader()
-        reader.onloadend = () => resolve(reader.result as string)
-        reader.readAsDataURL(blob)
-      })
-      return { ...cover, imgUrl: base64 }
-    }),
-  )
+  const storableResults = await Promise.all(covers.map(coverToStorableDataUrl))
   await storageArea.set({ [cacheKey]: storableResults })
 }
 
@@ -406,8 +424,9 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
   const startedAt = Date.now()
 
   const cacheKey = getBatchCacheKey(pickCode, coverNum)
-  const inMemory = memoryCoverCache.get(cacheKey)
-  if (inMemory && inMemory.length > 0) {
+  const inMemory = normalizeCachedCovers(memoryCoverCache.get(cacheKey))
+  if (inMemory.length > 0) {
+    memoryCoverCache.set(cacheKey, inMemory)
     return inMemory
   }
 
@@ -422,8 +441,8 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
   try {
     if (storageArea) {
       const cached = await storageArea.get(cacheKey)
-      if (cached[cacheKey] && cached[cacheKey].length > 0) {
-        const hit = cached[cacheKey] as VideoThumbnail[]
+      const hit = normalizeCachedCovers(cached[cacheKey] as VideoThumbnail[] | undefined)
+      if (hit.length > 0) {
         memoryCoverCache.set(cacheKey, hit)
         console.log('[115m] 命中本地强缓存，瞬间读取出图:', pickCode)
         return hit
@@ -432,7 +451,7 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
   }
   catch (error) {
     if (isContextInvalidatedError(error)) {
-      return inMemory || []
+      return inMemory
     }
     console.warn('[115m] 读取缓存失败:', error)
   }
@@ -473,18 +492,7 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
 
     try {
       if (storageArea) {
-        const storableResults = await Promise.all(
-          results.map(async (cover) => {
-            const response = await fetch(cover.imgUrl)
-            const blob = await response.blob()
-            const base64 = await new Promise<string>((resolve) => {
-              const reader = new FileReader()
-              reader.onloadend = () => resolve(reader.result as string)
-              reader.readAsDataURL(blob)
-            })
-            return { ...cover, imgUrl: base64 }
-          }),
-        )
+        const storableResults = await Promise.all(results.map(coverToStorableDataUrl))
         await storageArea.set({ [cacheKey]: storableResults })
         console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
       }
