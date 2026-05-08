@@ -1,8 +1,9 @@
 import { escapeHtml } from '../../shared/utils'
+import { getVideoCovers } from '../../lib/videoThumbnail'
 import type { OverlayPlaylistItem } from './overlay'
 
 const esc = escapeHtml
-const PLAYLIST_COVER_FEATURE_ENABLED = false
+const PLAYLIST_COVER_FEATURE_ENABLED = true
 
 export function formatPlaylistSeconds(sec: number) {
   const total = Math.max(0, Math.floor(sec))
@@ -100,7 +101,7 @@ export function lazyLoadPlaylistCovers(listEl: HTMLElement, items: OverlayPlayli
       const duration = item.duration || 0
       if (duration <= 0) return
 
-      void import('../../lib/videoThumbnail').then(({ getVideoCovers }) => getVideoCovers(item.pickCode, duration, 1)).then((covers) => {
+      void getVideoCovers(item.pickCode, duration, 1).then((covers) => {
         if (covers.length > 0) {
           thumbEl.innerHTML = `<img src="${covers[0].imgUrl}" alt="" style="width:100%;height:100%;object-fit:contain;object-position:center;display:block" />`
         }
