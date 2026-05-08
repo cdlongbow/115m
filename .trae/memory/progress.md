@@ -40,6 +40,14 @@
 - 升级缩略图缓存到 `v4` 并过滤旧缓存中的 `blob:` 图片地址后，`pnpm build` 成功，`pnpm test` 成功
 - 用户播放页实测通过：播放页面无 404，进度条预览图正常，未发现明显错误；用户已提交一次相关修复
 
+## 发布记录
+
+- 2026-05-08：已发布 `v1.4.0`
+  - GitHub Release：https://github.com/qh775885/115m/releases/tag/v1.4.0
+  - 发布包：`release/115m-v1.4.0.zip`
+  - 验证：`pnpm build`、`pnpm test`、`pnpm zip`、`pnpm release:check` 均通过
+  - 内容：修复播放器页面资源 404、MKV 默认无损、进度条预览图和 blob 失效报错
+
 ## 下一步建议
 
 1. 继续观察不同视频格式和不同时长的视频：
