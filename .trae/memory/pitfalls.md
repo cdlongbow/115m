@@ -49,6 +49,7 @@
   - `src/player/core/hover-preview.ts` 已移除 `artplayerPluginThumbnail:update` 的 VTT blob track 更新，只保留自定义 hover 预览 UI
   - 缩略图缓存版本已升到 `v4`，绕开旧 `v3` 中可能残留的 `blob:` 地址
   - 缓存读取统一走 `normalizeCachedCovers()`，过滤 `blob:` 等非稳定图片地址
+- 用户已在播放页面实测当前修复组合：无 `/assets/*` 404，进度条预览图正常，未发现明显控制台错误
 - 后续如果再出现 blob ERR_FILE_NOT_FOUND，优先检查：
   - 是否又有缩略图图片以 `blob:` 形式进入 `HoverCover.imgUrl`
   - 是否有人恢复了 `artplayerPluginThumbnail:update` 或 VTT blob track
