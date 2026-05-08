@@ -70,12 +70,27 @@ interface PlayerConfig {
   playlistToken?: string
 }
 
+function isInterruptedPlayError(reason: unknown) {
+  if (!(reason instanceof DOMException) && !(reason instanceof Error)) return false
+  return reason.name === 'AbortError' && /play\(\).*interrupted|interrupted by a new load request/i.test(reason.message)
+}
+
+function bindInterruptedPlayRejectionGuard() {
+  window.addEventListener('unhandledrejection', (event) => {
+    if (isInterruptedPlayError(event.reason)) {
+      event.preventDefault()
+    }
+  })
+}
+
 function safePlay(art: Artplayer | null) {
   if (!art) return
   void art.play().catch(() => {
     // Ignore native play promise rejections during source switches and transient media reloads.
   })
 }
+
+bindInterruptedPlayRejectionGuard()
 
 class PlayerManager {
   private static readonly QUALITY_CONTROL_NAME = 'm115-quality-control'

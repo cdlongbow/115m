@@ -11,6 +11,7 @@ export interface QualityPreference {
 interface PlayHistoryRecord {
   currentTime: number
   duration?: number
+  watchEnd?: boolean
 }
 
 export interface PlayHistoryMap {
@@ -26,6 +27,8 @@ const QUALITY_PREF_STORAGE_KEY = '115m-quality-preferences'
 const VIDEO_ROTATION_STORAGE_KEY = '115m-video-rotations'
 const PLAY_HISTORY_COMPLETED_REMAINING_SEC = 15
 const PLAY_HISTORY_COMPLETED_RATIO = 0.98
+const NATIVE_PLAY_HISTORY_ENABLED = true
+const LOCAL_PLAY_HISTORY_ENABLED = false
 
 function readQualityPreferenceMap(): Record<string, QualityPreference> {
   try {
@@ -107,12 +110,9 @@ export function saveVideoRotation(pickCode: string, rotation: number) {
 
 export async function loadPlayHistory(pickCode: string, onRestore: (time: number) => void) {
   try {
-    const response = await sendRuntimeMessageSafe<PlayHistoryRecord | null>({
-      type: 'GET_HISTORY',
-      data: { pickCode },
-    })
+    const response = await loadNativePlayHistory(pickCode)
 
-    if (response && shouldRestorePlayHistory(response.currentTime, response.duration)) {
+    if (response && shouldRestorePlayHistory(response.currentTime, response.duration, response.watchEnd)) {
       setTimeout(() => onRestore(response.currentTime), 500)
     }
   }
@@ -122,10 +122,39 @@ export async function loadPlayHistory(pickCode: string, onRestore: (time: number
 }
 
 export async function loadPlayHistoryMap(): Promise<PlayHistoryMap> {
+  if (!LOCAL_PLAY_HISTORY_ENABLED) return {}
+
   try {
     return await sendRuntimeMessageSafe<PlayHistoryMap>({
       type: 'GET_HISTORY_MAP',
     }) ?? {}
+  }
+  catch {
+    return {}
+  }
+}
+
+export async function loadNativePlayHistory(pickCode: string): Promise<PlayHistoryRecord | null> {
+  if (!NATIVE_PLAY_HISTORY_ENABLED || !pickCode) return null
+
+  const response = await sendRuntimeMessageSafe<PlayHistoryRecord | null>({
+    type: 'GET_NATIVE_HISTORY',
+    data: { pickCode, shareId: '0' },
+  })
+  if (!response?.currentTime || response.currentTime <= 0 || response.watchEnd) return null
+
+  return response
+}
+
+export async function loadNativePlayHistoryMap(pickCodes: string[]): Promise<PlayHistoryMap> {
+  if (!NATIVE_PLAY_HISTORY_ENABLED || pickCodes.length === 0) return {}
+
+  try {
+    const nativeMap = await sendRuntimeMessageSafe<Record<string, PlayHistoryRecord>>({
+      type: 'GET_NATIVE_HISTORY_MAP',
+      data: { pickCodes, shareId: '0' },
+    })
+    return nativeMap ?? {}
   }
   catch {
     return {}
@@ -145,7 +174,8 @@ export async function deletePlayHistory(pickCode: string): Promise<void> {
   }
 }
 
-export function shouldRestorePlayHistory(currentTime: number, duration?: number): boolean {
+export function shouldRestorePlayHistory(currentTime: number, duration?: number, watchEnd = false): boolean {
+  if (watchEnd) return false
   if (!currentTime || currentTime <= 0) return false
   if (!duration || duration <= 0) return true
 
@@ -185,6 +215,18 @@ async function persistPlayHistory(params: {
   duration: number
   quality: string
 }) {
+  await sendRuntimeMessageSafe({
+    type: 'SET_NATIVE_HISTORY',
+    data: {
+      pickCode: params.pickCode,
+      currentTime: params.currentTime,
+      definition: params.quality === '无损' ? 1 : 0,
+      shareId: '0',
+    },
+  })
+
+  if (!LOCAL_PLAY_HISTORY_ENABLED) return
+
   await sendRuntimeMessageSafe({
     type: 'SET_HISTORY',
     data: params,

@@ -27,6 +27,26 @@ export interface MsgGetHistory {
   data: { pickCode: string }
 }
 
+export interface MsgGetNativeHistory {
+  type: 'GET_NATIVE_HISTORY'
+  data: { pickCode: string, shareId?: string }
+}
+
+export interface MsgGetNativeHistoryMap {
+  type: 'GET_NATIVE_HISTORY_MAP'
+  data: { pickCodes: string[], shareId?: string }
+}
+
+export interface MsgSetNativeHistory {
+  type: 'SET_NATIVE_HISTORY'
+  data: {
+    pickCode: string
+    currentTime: number
+    definition?: number
+    shareId?: string
+  }
+}
+
 export interface MsgGetHistoryMap {
   type: 'GET_HISTORY_MAP'
 }
@@ -129,6 +149,9 @@ export type RuntimeMessage =
   | MsgSetCookie
   | MsgDownload
   | MsgGetHistory
+  | MsgGetNativeHistory
+  | MsgGetNativeHistoryMap
+  | MsgSetNativeHistory
   | MsgGetHistoryMap
   | MsgSetHistory
   | MsgDeleteHistory

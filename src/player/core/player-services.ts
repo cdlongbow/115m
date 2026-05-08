@@ -1,6 +1,6 @@
 import type { M3u8Item } from '../../lib/types'
 import { fetchBestDownloadResult } from '../../lib/pro-api'
-import { buildPlaylistProgressSnapshot, loadPlayHistoryMap, loadQualityPreference, type QualityPreference } from './history'
+import { buildPlaylistProgressSnapshot, loadNativePlayHistoryMap, loadQualityPreference, type QualityPreference } from './history'
 import { resolveInitialPlayback, type InitialPlaybackPlan } from './startup'
 import { fetchPlaylistResponse } from './player-api'
 import { normalizePlaylistItems } from './playlist'
@@ -128,7 +128,7 @@ export async function fetchPlaylistData(params: {
 async function attachPlaylistProgress(items: OverlayPlaylistItem[]): Promise<OverlayPlaylistItem[]> {
   if (items.length === 0) return items
 
-  const historyMap = await loadPlayHistoryMap()
+  const historyMap = await loadNativePlayHistoryMap(items.map(item => item.pickCode))
   return items.map((item) => {
     const snapshot = buildPlaylistProgressSnapshot(historyMap[item.pickCode])
     if (!snapshot) {

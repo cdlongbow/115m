@@ -6,6 +6,7 @@
 import type { RuntimeMessage } from '../shared/messages'
 import { executeInMainWorld } from './helpers'
 import { deleteHistory, getHistory, getHistoryMap, setHistory } from './history-store'
+import { getNativeHistory, getNativeHistoryMap, setNativeHistory } from './native-history'
 import {
   handleDeleteFile,
   handleDeleteSuccessRefresh,
@@ -137,6 +138,18 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
 
     case 'GET_HISTORY': {
       return await getHistory(message.data.pickCode)
+    }
+
+    case 'GET_NATIVE_HISTORY': {
+      return await getNativeHistory(message.data.pickCode, message.data.shareId)
+    }
+
+    case 'GET_NATIVE_HISTORY_MAP': {
+      return await getNativeHistoryMap(message.data.pickCodes, message.data.shareId)
+    }
+
+    case 'SET_NATIVE_HISTORY': {
+      return { success: await setNativeHistory(message.data) }
     }
 
     case 'GET_HISTORY_MAP': {
