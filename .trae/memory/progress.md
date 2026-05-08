@@ -18,7 +18,7 @@
   - 进度条 hover preview 已按长期方案恢复：`src/player/core/hover-preview-session.ts` 静态导入 `../../lib/videoThumbnail`，不再运行时动态 `import('../../lib/videoThumbnail')`
   - 已移除 `src/player/player.ts` 中 `setupProgressHoverPreview()` 对 `primeThumbnailSourceUrl` 的动态导入预热入口
   - 播放列表封面暂不恢复，避免重新引入列表侧动态缩略图链路
-  - 下一步让用户刷新扩展和播放器页，确认控制台是否还出现 `/assets/videoThumbnail-*.js`、`/assets/m3u8-parser-*.js`、`/assets/player-playlist-cache-*.js`，并确认进度条 hover 预览图是否恢复
+  - 用户已在播放页面实测：无 `/assets/*` 404，进度条预览图正常，未发现明显控制台错误；相关修复已提交过一次
 
 ## 播放器默认无损与预览图状态
 
@@ -38,13 +38,13 @@
 - 修复预览图 hover 滑动时 blob URL 失效报错后，`pnpm build` 成功，`pnpm test` 成功
 - 移除 `artplayerPluginThumbnail:update` 的 VTT blob track，仅保留自定义 hover 预览 UI 后，`pnpm build` 成功，`pnpm test` 成功
 - 升级缩略图缓存到 `v4` 并过滤旧缓存中的 `blob:` 图片地址后，`pnpm build` 成功，`pnpm test` 成功
+- 用户播放页实测通过：播放页面无 404，进度条预览图正常，未发现明显错误；用户已提交一次相关修复
 
 ## 下一步建议
 
-1. 让用户刷新扩展和播放器页，确认是否仍有：
-   - `getVideoCovers 开始`
-   - `/assets/videoThumbnail-*.js`
-   - `/assets/player-playlist-cache-*.js`
-   - `/assets/m3u8-parser-*.js`
-2. 如果仍有，需要继续查是否存在非播放器页或 content 侧入口触发 `videoThumbnail` 动态导入
+1. 继续观察不同视频格式和不同时长的视频：
+   - 默认无损是否稳定
+   - 进度条预览图是否正常
+   - 控制台是否仍无 `/assets/*` 404 与 blob 图片错误
+2. 播放列表封面仍未恢复，后续如需恢复应单独处理，避免重新引入列表侧动态缩略图链路
 3. 每完成一个隔离结论，同步更新 `pitfalls.md` 与本文件
