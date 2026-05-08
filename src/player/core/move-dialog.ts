@@ -11,6 +11,11 @@ import {
 } from './move-dialog-api'
 
 // ─── Types ───
+interface MoveDialogResult {
+  moved: boolean
+  targetCid?: string
+}
+
 interface RecentMoveRecord {
   cid: string
   name: string
@@ -173,9 +178,14 @@ const DIALOG_STYLES = `
     margin-right: auto; font-size: 12px; color: rgba(15,23,42,.42);
   }
   .move-dialog-btn {
-    height: 38px; padding: 0 24px; border-radius: 8px; border: none;
+    width: 116px; height: 38px; padding: 0 14px; border-radius: 8px; border: none;
     font-size: 14px; cursor: pointer; font-weight: 500;
-    transition: all .15s; display: flex; align-items: center; gap: 6px;
+    transition: all .15s; display: inline-flex; align-items: center; justify-content: center; gap: 6px;
+    white-space: nowrap; overflow: hidden; text-overflow: ellipsis; flex: 0 0 116px;
+    line-height: 38px;
+  }
+  .move-dialog-btn span {
+    min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
   }
   .move-dialog-btn.cancel {
     background: #fff; color: rgba(15,23,42,.72); box-shadow: inset 0 0 0 1px rgba(15,23,42,.08);
@@ -237,6 +247,10 @@ const DIALOG_STYLES = `
     .move-dialog-footer {
       flex-wrap: wrap;
     }
+    .move-dialog-btn {
+      width: 104px;
+      flex-basis: 104px;
+    }
     .move-dialog-footer-tip {
       width: 100%;
       margin-right: 0;
@@ -266,6 +280,10 @@ function saveRecentMove(record: Omit<RecentMoveRecord, 'timestamp'>) {
   localStorage.setItem(RECENT_MOVES_KEY, JSON.stringify(recent))
 }
 
+function getLastMoveRecord(): RecentMoveRecord | null {
+  return getRecentMoves()[0] || null
+}
+
 // ─── Dialog Class ───
 export class MoveDialog {
   private mask!: HTMLDivElement
@@ -284,7 +302,7 @@ export class MoveDialog {
   private isRecentMode = false
   private isNewFolderVisible = false
 
-  private resolvePromise!: (moved: boolean) => void
+  private resolvePromise!: (result: MoveDialogResult) => void
 
   constructor(
     private fileId: string,
@@ -292,12 +310,13 @@ export class MoveDialog {
     private onMoved: () => void,
   ) {}
 
-  show(): Promise<boolean> {
+  show(): Promise<MoveDialogResult> {
     return new Promise((resolve) => {
       this.resolvePromise = resolve
       this.injectStyles()
       this.buildDOM()
-      this.loadFolder(this.initialCid || '0')
+      const lastMove = getLastMoveRecord()
+      this.loadFolder(lastMove?.cid || this.initialCid || '0')
     })
   }
 
@@ -314,7 +333,7 @@ export class MoveDialog {
     this.mask.addEventListener('pointerdown', (e) => e.stopPropagation())
     this.mask.addEventListener('mousedown', (e) => e.stopPropagation())
     this.mask.addEventListener('click', (e) => {
-      if (e.target === this.mask) this.close(false)
+      if (e.target === this.mask) this.close({ moved: false })
     })
 
     // ── Dialog Box ──
@@ -351,7 +370,7 @@ export class MoveDialog {
     const closeBtn = document.createElement('button')
     closeBtn.className = 'move-dialog-close'
     closeBtn.innerHTML = '✕'
-    closeBtn.addEventListener('click', () => this.close(false))
+    closeBtn.addEventListener('click', () => this.close({ moved: false }))
     headerSide.append(this.searchInput, closeBtn)
     header.appendChild(headerSide)
 
@@ -390,12 +409,18 @@ export class MoveDialog {
     const nfConfirm = document.createElement('button')
     nfConfirm.className = 'move-dialog-btn primary'
     nfConfirm.textContent = '创建'
-    nfConfirm.style.cssText = 'height:36px;padding:0 16px;font-size:13px;'
+    nfConfirm.style.width = '88px'
+    nfConfirm.style.flexBasis = '88px'
+    nfConfirm.style.height = '36px'
+    nfConfirm.style.fontSize = '13px'
     nfConfirm.addEventListener('click', () => this.createFolder(nfInput.value.trim()))
     const nfCancel = document.createElement('button')
     nfCancel.className = 'move-dialog-btn cancel'
     nfCancel.textContent = '取消'
-    nfCancel.style.cssText = 'height:36px;padding:0 12px;font-size:13px;'
+    nfCancel.style.width = '72px'
+    nfCancel.style.flexBasis = '72px'
+    nfCancel.style.height = '36px'
+    nfCancel.style.fontSize = '13px'
     nfCancel.addEventListener('click', () => this.toggleNewFolder())
     this.newFolderRow.append(nfInput, nfConfirm, nfCancel)
 
@@ -416,11 +441,11 @@ export class MoveDialog {
     const cancelBtn = document.createElement('button')
     cancelBtn.className = 'move-dialog-btn cancel'
     cancelBtn.textContent = '取消'
-    cancelBtn.addEventListener('click', () => this.close(false))
+    cancelBtn.addEventListener('click', () => this.close({ moved: false }))
 
     this.moveBtn = document.createElement('button')
     this.moveBtn.className = 'move-dialog-btn primary'
-    this.moveBtn.textContent = '移动到当前目录'
+    this.moveBtn.textContent = '移动到此'
     this.moveBtn.addEventListener('click', () => this.doMove())
 
     footer.append(footerTip, cancelBtn, this.moveBtn)
@@ -536,29 +561,20 @@ export class MoveDialog {
     if (!this.moveBtn) return
     if (this.isRecentMode) {
       this.moveBtn.textContent = '进入后再移动'
+      this.moveBtn.title = '进入后再移动'
       this.moveBtn.disabled = true
       return
     }
 
     if (this.isSearchMode) {
       this.moveBtn.textContent = '进入结果后再移动'
+      this.moveBtn.title = '进入结果后再移动'
       this.moveBtn.disabled = true
       return
     }
 
-    if (this.selectedCid) {
-      const selectedName = this.getTargetName(this.selectedCid)
-      this.moveBtn.textContent = selectedName && selectedName !== '未知文件夹'
-        ? `移动到 ${selectedName}`
-        : '移动到已选文件夹'
-      this.moveBtn.disabled = false
-      return
-    }
-
-    const currentName = this.getTargetName(this.currentCid)
-    this.moveBtn.textContent = currentName && currentName !== '未知文件夹'
-      ? `移动到 ${currentName}`
-      : '移动到当前目录'
+    this.moveBtn.textContent = '移动到此'
+    this.moveBtn.title = `移动到：${this.getTargetName(this.selectedCid || this.currentCid)}`
     this.moveBtn.disabled = false
   }
 
@@ -701,7 +717,7 @@ export class MoveDialog {
         getRuntimeApi()?.sendMessage({ type: 'MOVE_SUCCESS_REFRESH' }).catch(() => {})
       }
 
-      this.close(true)
+      this.close({ moved: true, targetCid })
       this.onMoved()
     } else {
       this.updateMoveButtonLabel()
@@ -734,14 +750,14 @@ export class MoveDialog {
     setTimeout(() => toast.remove(), 3000)
   }
 
-  private close(moved: boolean) {
+  private close(result: MoveDialogResult) {
     this.mask.style.opacity = '0'
     this.mask.style.transition = 'opacity .15s'
     setTimeout(() => {
       this.mask.remove()
       this.styleEl.remove()
     }, 150)
-    this.resolvePromise(moved)
+    this.resolvePromise(result)
   }
 
   private escapeHtml(str: string): string {

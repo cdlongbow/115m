@@ -1364,7 +1364,22 @@ class PlayerManager {
       cid || '0',
       () => this.refreshBreadcrumbs(),
     )
-    await dialog.show()
+    const result = await dialog.show()
+    if (result.moved) {
+      this.handleCurrentVideoMoved()
+    }
+  }
+
+  private handleCurrentVideoMoved() {
+    const movedPickCode = this.currentPickCode
+    if (!movedPickCode) return
+
+    const beforeCount = this.playlistItemsCache.length
+    this.playlistItemsCache = this.playlistItemsCache.filter(item => item.pickCode !== movedPickCode)
+    if (this.playlistItemsCache.length === beforeCount) return
+
+    this.syncOverlayPlaybackNav()
+    this.overlay?.updatePlaylist(this.playlistItemsCache)
   }
 
   private async toggleFavorite(fileId: string, nextMarked: boolean): Promise<boolean> {

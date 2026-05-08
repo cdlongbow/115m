@@ -54,8 +54,8 @@ alwaysApply: true
 
 ## 验证
 
-- 改代码、功能、配置后执行 `pnpm build`
-- 改逻辑、状态、消息、播放器核心链路时，同时执行 `pnpm test`
+- 普通功能、UI、业务逻辑修改后，先执行 `pnpm test`，再执行 `pnpm build`
+- 构建配置、manifest、入口加载、动态 import、资源路径相关修改后，先执行 `pnpm build`，再执行 `pnpm test`
 - 仅修改文档、`.trae/rules/*.md`、`.trae/memory/*.md` 时，不默认构建，除非影响构建判断或用户要求
 - 构建汇报用中文，包含：结果 / 命令 / 关键报错 / 是否继续修复
 
