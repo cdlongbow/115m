@@ -172,6 +172,11 @@ export class PlayerOverlayController {
     this.progressEl.removeEventListener('mouseleave', this.handleProgressLeave)
     this.headerEl?.removeEventListener('mouseenter', this.handleOverlayEnter)
     this.headerEl?.removeEventListener('mouseleave', this.handleOverlayLeave)
+    this.sidebarEl?.removeEventListener('mouseenter', this.handleOverlayEnter)
+    this.sidebarEl?.removeEventListener('mouseleave', this.handleOverlayLeave)
+    this.sidebarEl?.removeEventListener('pointerdown', this.stopInteractiveEvent)
+    this.sidebarEl?.removeEventListener('mousedown', this.stopInteractiveEvent)
+    this.sidebarEl?.removeEventListener('click', this.stopInteractiveEvent)
     this.playlistTabEl?.remove()
     this.headerEl?.remove()
     this.endPanelEl?.remove()
@@ -627,8 +632,13 @@ export class PlayerOverlayController {
     console.log('[115m] mountSidebarContent: sidebar found, setting up content')
 
     this.sidebarEl.innerHTML = ''
-    this.sidebarEl.style.cssText = 'width:0;min-width:0;flex:0 0 0;overflow:hidden;transition:width .25s ease, flex-basis .25s ease;background:#0a0a0a;border-left:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;box-sizing:border-box;height:100%;'
-    this.sidebarEl.classList.add('m115-playlist-sidebar')
+    this.sidebarEl.style.cssText = 'width:0;min-width:0;flex:0 0 0;overflow:hidden;transition:width .25s ease, flex-basis .25s ease;background:#0a0a0a;border-left:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;box-sizing:border-box;height:100%;pointer-events:none;'
+    this.sidebarEl.classList.add('m115-playlist-sidebar', 'm115-interactive')
+    this.sidebarEl.addEventListener('mouseenter', this.handleOverlayEnter)
+    this.sidebarEl.addEventListener('mouseleave', this.handleOverlayLeave)
+    this.sidebarEl.addEventListener('pointerdown', this.stopInteractiveEvent)
+    this.sidebarEl.addEventListener('mousedown', this.stopInteractiveEvent)
+    this.sidebarEl.addEventListener('click', this.stopInteractiveEvent)
 
     // Panel header
     const panelHeader = document.createElement('div')
@@ -681,6 +691,7 @@ export class PlayerOverlayController {
       this.sidebarEl.style.width = width
       this.sidebarEl.style.minWidth = width
       this.sidebarEl.style.flex = open ? `0 0 ${width}` : '0 0 0px'
+      this.sidebarEl.style.pointerEvents = open ? 'auto' : 'none'
 
       const computed = window.getComputedStyle(this.sidebarEl)
       console.log('[115m] setPlaylistOpen:', {
@@ -760,6 +771,10 @@ export class PlayerOverlayController {
   private handleProgressLeave = () => {
     this.isPointerOnProgress = false
     this.showTemporarily()
+  }
+
+  private stopInteractiveEvent = (event: Event) => {
+    event.stopPropagation()
   }
 
   private handlePlaylistToggle = async () => {

@@ -14,6 +14,20 @@ interface PlayHistoryRecord {
   watchEnd?: boolean
 }
 
+interface PendingPlayHistoryWrite {
+  params: {
+    pickCode: string
+    fileName: string
+    currentTime: number
+    duration: number
+    quality: string
+  }
+  timer: number | null
+}
+
+const pendingPlayHistoryWrites = new Map<string, PendingPlayHistoryWrite>()
+const lastPlayHistoryWriteAt = new Map<string, number>()
+
 export interface PlayHistoryMap {
   [pickCode: string]: PlayHistoryRecord | undefined
 }
@@ -27,6 +41,8 @@ const QUALITY_PREF_STORAGE_KEY = '115m-quality-preferences'
 const VIDEO_ROTATION_STORAGE_KEY = '115m-video-rotations'
 const PLAY_HISTORY_COMPLETED_REMAINING_SEC = 15
 const PLAY_HISTORY_COMPLETED_RATIO = 0.98
+const PLAY_HISTORY_WRITE_DEBOUNCE_MS = 3000
+const PLAY_HISTORY_MIN_WRITE_INTERVAL_MS = 15000
 const NATIVE_PLAY_HISTORY_ENABLED = true
 const LOCAL_PLAY_HISTORY_ENABLED = false
 
@@ -208,6 +224,47 @@ export function buildPlaylistProgressSnapshot(history?: PlayHistoryRecord): Play
   }
 }
 
+function clearPendingPlayHistoryWrite(pickCode: string) {
+  const pending = pendingPlayHistoryWrites.get(pickCode)
+  if (pending?.timer) {
+    window.clearTimeout(pending.timer)
+  }
+  pendingPlayHistoryWrites.delete(pickCode)
+}
+
+async function flushPlayHistoryWrite(pickCode: string) {
+  const pending = pendingPlayHistoryWrites.get(pickCode)
+  if (!pending) return
+
+  pendingPlayHistoryWrites.delete(pickCode)
+  lastPlayHistoryWriteAt.set(pickCode, Date.now())
+  await persistPlayHistory(pending.params)
+}
+
+function schedulePlayHistoryWrite(params: {
+  pickCode: string
+  fileName: string
+  currentTime: number
+  duration: number
+  quality: string
+}) {
+  const now = Date.now()
+  const lastWriteAt = lastPlayHistoryWriteAt.get(params.pickCode) || 0
+  const delay = Math.max(PLAY_HISTORY_WRITE_DEBOUNCE_MS, PLAY_HISTORY_MIN_WRITE_INTERVAL_MS - (now - lastWriteAt))
+  const previous = pendingPlayHistoryWrites.get(params.pickCode)
+
+  if (previous?.timer) {
+    window.clearTimeout(previous.timer)
+  }
+
+  pendingPlayHistoryWrites.set(params.pickCode, {
+    params,
+    timer: window.setTimeout(() => {
+      void flushPlayHistoryWrite(params.pickCode)
+    }, delay),
+  })
+}
+
 async function persistPlayHistory(params: {
   pickCode: string
   fileName: string
@@ -242,7 +299,8 @@ export function resetPlayHistory(params: {
   const { pickCode, fileName, duration, quality } = params
   if (!pickCode) return
 
-  sessionStorage.removeItem('lastSaveTime')
+  clearPendingPlayHistoryWrite(pickCode)
+  lastPlayHistoryWriteAt.set(pickCode, Date.now())
   void persistPlayHistory({
     pickCode,
     fileName,
@@ -260,17 +318,12 @@ export function savePlayHistory(params: {
   quality: string
 }) {
   const { pickCode, fileName, currentTime, duration, quality } = params
-  if (!duration) return
+  if (!pickCode || !duration) return
   if (isCompletedPlayback(currentTime, duration)) {
     resetPlayHistory({ pickCode, fileName, duration, quality })
     return
   }
   if (currentTime < 5) return
 
-  const lastSaveTime = Number.parseInt(sessionStorage.getItem('lastSaveTime') || '0', 10)
-  const now = Date.now()
-  if (now - lastSaveTime < 10000) return
-  sessionStorage.setItem('lastSaveTime', now.toString())
-
-  void persistPlayHistory({ pickCode, fileName, currentTime, duration, quality })
+  schedulePlayHistoryWrite({ pickCode, fileName, currentTime, duration, quality })
 }

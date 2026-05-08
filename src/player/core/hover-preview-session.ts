@@ -66,6 +66,8 @@ export class HoverPreviewSession {
   private hoverRequestVersion = 0
   private pendingPreciseBucketTime: number | null = null
   private lastDebugHoverBucketTime: number | null = null
+  private thumbnailDuration: number | null = null
+  private destroyed = false
 
   constructor(options: HoverPreviewSessionOptions) {
     this.art = options.art
@@ -77,6 +79,7 @@ export class HoverPreviewSession {
   }
 
   destroy() {
+    this.destroyed = true
     if (this.preciseCoverTimer) {
       window.clearTimeout(this.preciseCoverTimer)
       this.preciseCoverTimer = null
@@ -99,10 +102,20 @@ export class HoverPreviewSession {
     this.hoverRequestVersion = 0
     this.lastHoverBucketTime = null
     this.lastDebugHoverBucketTime = null
+    this.thumbnailDuration = null
+  }
+
+  handleDurationChange() {
+    const duration = this.art.duration || 0
+    if (!duration || !this.thumbnailDuration) return
+    if (Math.abs(duration - this.thumbnailDuration) < 1) return
+
+    this.resetThumbnailState()
+    this.scheduleThumbnailWarmup()
   }
 
   scheduleThumbnailWarmup() {
-    if (!THUMBNAIL_PREVIEW_ENABLED) {
+    if (this.destroyed || !THUMBNAIL_PREVIEW_ENABLED) {
       return
     }
 
@@ -124,7 +137,7 @@ export class HoverPreviewSession {
   }
 
   ensureThumbnailsForHover() {
-    if (!THUMBNAIL_PREVIEW_ENABLED) {
+    if (this.destroyed || !THUMBNAIL_PREVIEW_ENABLED) {
       return
     }
 
@@ -134,6 +147,16 @@ export class HoverPreviewSession {
   }
 
   getDisplayState(hoverTime: number): HoverPreviewDisplayState {
+    if (this.destroyed) {
+      return {
+        hoverTime,
+        preciseBucketTime: hoverTime,
+        nearest: null,
+        preciseCover: null,
+        coarseCover: null,
+      }
+    }
+
     const preciseBucketTime = this.getPreciseBucketTime(hoverTime)
     this.lastHoverBucketTime = preciseBucketTime
     this.latestHoverTime = hoverTime
@@ -168,7 +191,7 @@ export class HoverPreviewSession {
   }
 
   schedulePreciseCover(hoverTime: number, nearest: HoverCover | null) {
-    if (!THUMBNAIL_PREVIEW_ENABLED) {
+    if (this.destroyed || !THUMBNAIL_PREVIEW_ENABLED) {
       return
     }
 
@@ -223,15 +246,17 @@ export class HoverPreviewSession {
   }
 
   private async loadThumbnails() {
-    if (this.thumbnailsLoaded || this.thumbnailsLoading) return
+    if (this.destroyed || this.thumbnailsLoaded || this.thumbnailsLoading) return
     const duration = this.art.duration
     if (!duration || duration < 5) {
       return
     }
 
+    this.thumbnailDuration = duration
     this.thumbnailsLoading = true
     try {
       const timelineCovers = await getTimelineCovers(this.pickCode)
+      if (this.destroyed) return
       if (timelineCovers.length > 0) {
         this.onDebug('timeline cache hit', {
           pickCode: this.pickCode,
@@ -248,6 +273,7 @@ export class HoverPreviewSession {
 
       const initialCoverCount = this.getInitialCoverCount(duration)
       const covers = await getVideoCovers(this.pickCode, duration, initialCoverCount)
+      if (this.destroyed) return
       this.onDebug('coarse covers ready', {
         pickCode: this.pickCode,
         duration,
@@ -271,6 +297,35 @@ export class HoverPreviewSession {
     finally {
       this.thumbnailsLoading = false
     }
+  }
+
+  private resetThumbnailState() {
+    if (this.preciseCoverTimer) {
+      window.clearTimeout(this.preciseCoverTimer)
+      this.preciseCoverTimer = null
+    }
+    if (this.preloadTimer) {
+      window.clearTimeout(this.preloadTimer)
+      this.preloadTimer = null
+    }
+    if (this.backgroundRefineTimer) {
+      window.clearTimeout(this.backgroundRefineTimer)
+      this.backgroundRefineTimer = null
+    }
+
+    this.covers = []
+    this.preciseCovers.clear()
+    this.preciseQueue = []
+    this.preciseCoverRequestKey = null
+    this.pendingPreciseBucketTime = null
+    this.latestHoverTime = null
+    this.hoverRequestVersion += 1
+    this.lastHoverBucketTime = null
+    this.lastDebugHoverBucketTime = null
+    this.thumbnailDuration = null
+    this.thumbnailsLoaded = false
+    this.thumbnailsLoading = false
+    this.onCoversChanged([], this.art.duration || 0)
   }
 
   private getCoarseSamplingInterval(duration: number): number {
@@ -327,8 +382,10 @@ export class HoverPreviewSession {
   }
 
   private async runBackgroundRefinement(duration: number, refineCount: number) {
+    if (this.destroyed) return
     try {
       const covers = await getVideoCovers(this.pickCode, duration, refineCount)
+      if (this.destroyed) return
       if (covers.length === 0) {
         return
       }
@@ -406,7 +463,7 @@ export class HoverPreviewSession {
   }
 
   private async loadPreciseCover(bucketTime: number) {
-    if (!this.art.duration) {
+    if (this.destroyed || !this.art.duration) {
       return
     }
 
@@ -426,6 +483,7 @@ export class HoverPreviewSession {
     const requestStart = Date.now()
     try {
       const cover = await this.loadFallbackPreciseCover(bucketTime)
+      if (this.destroyed) return
       if (!cover) {
         this.onDebug('precise request empty', { bucketTime })
         return
@@ -459,13 +517,14 @@ export class HoverPreviewSession {
 
       const nextBucketTime = this.pendingPreciseBucketTime ?? this.preciseQueue.shift()
       this.pendingPreciseBucketTime = null
-      if (nextBucketTime != null && nextBucketTime !== bucketTime) {
+      if (!this.destroyed && nextBucketTime != null && nextBucketTime !== bucketTime) {
         void this.loadPreciseCover(nextBucketTime)
       }
     }
   }
 
   private async loadFallbackPreciseCover(bucketTime: number) {
+    if (this.destroyed) return null
     return await getVideoCoverAt(this.pickCode, bucketTime, this.art.duration)
   }
 }

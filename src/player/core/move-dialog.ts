@@ -1,3 +1,4 @@
+import { UI_LAYER } from './ui-layer'
 import { escapeHtml } from '../../shared/utils'
 import { canUseRuntimeMessaging, getRuntimeApi } from './runtime'
 import {
@@ -23,7 +24,7 @@ const MAX_RECENT = 8
 // ─── CSS Styles ───
 const DIALOG_STYLES = `
   .move-dialog-mask {
-    position: fixed; inset: 0; z-index: 10000000;
+    position: fixed; inset: 0; z-index: ${UI_LAYER.modal};
     background: rgba(0,0,0,.55); backdrop-filter: blur(6px);
     display: flex; align-items: center; justify-content: center;
     animation: mdFadeIn .2s ease;
@@ -309,14 +310,18 @@ export class MoveDialog {
   private buildDOM() {
     // ── Mask ──
     this.mask = document.createElement('div')
-    this.mask.className = 'move-dialog-mask'
+    this.mask.className = 'move-dialog-mask m115-interactive'
+    this.mask.addEventListener('pointerdown', (e) => e.stopPropagation())
+    this.mask.addEventListener('mousedown', (e) => e.stopPropagation())
     this.mask.addEventListener('click', (e) => {
       if (e.target === this.mask) this.close(false)
     })
 
     // ── Dialog Box ──
     const box = document.createElement('div')
-    box.className = 'move-dialog-box'
+    box.className = 'move-dialog-box m115-interactive'
+    box.addEventListener('pointerdown', (e) => e.stopPropagation())
+    box.addEventListener('mousedown', (e) => e.stopPropagation())
     box.addEventListener('click', (e) => e.stopPropagation())
 
     // ── Header ──

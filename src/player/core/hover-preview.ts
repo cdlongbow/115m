@@ -47,6 +47,7 @@ export class HoverPreviewController {
     this.ensurePreviewElements()
     this.bindProgressHoverEventsWithRetry(0)
     this.art.on('video:loadedmetadata', this.handleVideoLoadedmetadata)
+    this.art.on('video:durationchange', this.handleVideoDurationChange)
     this.session = new HoverPreviewSession({
       art: this.art,
       pickCode: this.pickCode,
@@ -62,30 +63,52 @@ export class HoverPreviewController {
     })
   }
 
-  updateSize() {
+  updateSize(cover?: HoverCover | null) {
     if (!this.previewImgEl || !this.previewEl) return
+
+    const coverWidth = cover?.width || 0
+    const coverHeight = cover?.height || 0
+    if (coverWidth > 0 && coverHeight > 0) {
+      this.applyPreviewSize(coverWidth, coverHeight)
+      return
+    }
+
     const video = this.art.video as HTMLVideoElement | undefined
     if (!video) return
 
     const vw = video.videoWidth || 0
     const vh = video.videoHeight || 0
-
     if (vw > 0 && vh > 0) {
-      if (vh > vw) {
-        const height = 160
-        const width = Math.round(height * (vw / vh))
-        this.previewImgEl.style.width = `${width}px`
-        this.previewImgEl.style.height = `${height}px`
-        this.previewEl.style.minWidth = `${width + 12}px`
-      }
-      else {
-        const width = 170
-        const height = Math.round(width * (vh / vw))
-        this.previewImgEl.style.width = `${width}px`
-        this.previewImgEl.style.height = `${height}px`
-        this.previewEl.style.minWidth = `${width + 12}px`
-      }
+      this.applyPreviewSize(vw, vh)
     }
+  }
+
+  private applyPreviewSize(sourceWidth: number, sourceHeight: number) {
+    if (!this.previewImgEl || !this.previewEl) return
+
+    if (sourceHeight > sourceWidth) {
+      const height = 160
+      const width = Math.round(height * (sourceWidth / sourceHeight))
+      this.previewImgEl.style.width = `${width}px`
+      this.previewImgEl.style.height = `${height}px`
+      this.previewEl.style.width = `${width + 16}px`
+      this.previewEl.style.minWidth = `${width + 16}px`
+      this.previewEl.style.maxWidth = `${width + 16}px`
+    }
+    else {
+      const width = 170
+      const height = Math.round(width * (sourceHeight / sourceWidth))
+      this.previewImgEl.style.width = `${width}px`
+      this.previewImgEl.style.height = `${height}px`
+      this.previewEl.style.width = `${width + 16}px`
+      this.previewEl.style.minWidth = `${width + 16}px`
+      this.previewEl.style.maxWidth = `${width + 16}px`
+    }
+  }
+
+  refresh() {
+    this.updateSize(this.lastRenderableCover)
+    this.refreshPreviewFromLastPointer()
   }
 
   destroy() {
@@ -96,6 +119,7 @@ export class HoverPreviewController {
     this.session?.destroy()
     this.session = null
     this.art.off('video:loadedmetadata', this.handleVideoLoadedmetadata)
+    this.art.off('video:durationchange', this.handleVideoDurationChange)
     this.cancelHide()
     const root = this.art.template.$player as HTMLElement
     root.removeEventListener('mousemove', this.handleRootMouseMove)
@@ -254,7 +278,27 @@ export class HoverPreviewController {
   }
 
   private handleVideoLoadedmetadata = () => {
+    this.clearDisplayState()
+    this.updateSize()
     this.refreshPreviewFromLastPointer()
+  }
+
+  private handleVideoDurationChange = () => {
+    this.clearDisplayState()
+    this.session?.handleDurationChange()
+  }
+
+  private clearDisplayState() {
+    this.covers = []
+    this.lastRenderableCover = null
+    this.lastHoverBucketTime = null
+    if (this.previewImgEl) {
+      this.previewImgEl.removeAttribute('src')
+      this.previewImgEl.style.visibility = 'hidden'
+    }
+    if (this.previewLoadingEl) {
+      this.previewLoadingEl.style.display = 'none'
+    }
   }
 
   private handleCoversChanged = (covers: HoverCover[], duration: number) => {
@@ -264,6 +308,7 @@ export class HoverPreviewController {
   private handlePreciseCoverReady = (bucketTime: number, cover: HoverCover) => {
     if (this.hoverActive && this.lastHoverBucketTime === bucketTime && this.previewEl && this.previewImgEl) {
       this.previewImgEl.src = cover.imgUrl
+      this.updateSize(cover)
       this.previewImgEl.style.visibility = 'visible'
       if (this.previewLoadingEl) {
         this.previewLoadingEl.style.display = 'none'
@@ -381,6 +426,7 @@ export class HoverPreviewController {
 
     if (state.nearest?.imgUrl) {
       this.previewImgEl.src = state.nearest.imgUrl
+      this.updateSize(state.nearest)
       this.previewImgEl.style.visibility = 'visible'
       if (this.previewLoadingEl) {
         this.previewLoadingEl.style.display = 'none'
@@ -390,6 +436,7 @@ export class HoverPreviewController {
     }
     else if (this.lastRenderableCover?.imgUrl) {
       this.previewImgEl.src = this.lastRenderableCover.imgUrl
+      this.updateSize(this.lastRenderableCover)
       this.previewImgEl.style.visibility = 'visible'
       if (this.previewLoadingEl) {
         this.previewLoadingEl.style.display = 'none'

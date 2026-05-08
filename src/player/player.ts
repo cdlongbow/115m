@@ -973,8 +973,7 @@ class PlayerManager {
         return items
       },
       onPlaylistOpenChange: () => {
-        this.scheduleVideoRotationReflow()
-        window.setTimeout(() => this.scheduleVideoRotationReflow(), 280)
+        this.progressHoverPreview?.refresh()
       },
       onPlaylistPlay: (pickCode, keepPlaylistOpen) => {
         if (pickCode && pickCode !== this.currentPickCode) {
@@ -1438,14 +1437,14 @@ class PlayerManager {
       }))
       this.syncOverlayPlaybackNav()
       this.overlay?.updatePlaylist(this.playlistItemsCache)
+      await this.artplayer.switchUrl(playback.initialPlayback.url)
+      if (requestId !== this.switchVideoRequestId || !this.artplayer) return
+
       this.setupProgressHoverPreview(playback.initialPlayback.url, playback.initialPlayback.type)
       this.renderQualityPanel()
       this.renderPlaybackNavControls()
       this.renderRotateControl()
       this.applyVideoRotation()
-
-      await this.artplayer.switchUrl(playback.initialPlayback.url)
-      if (requestId !== this.switchVideoRequestId || !this.artplayer) return
 
       if (autoPlay) {
         safePlay(this.artplayer)
