@@ -56,21 +56,20 @@ export class HomePlayBinder {
     const list = doc.querySelector('.list-contents')
     if (!list) return []
 
-    const items = Array.from(list.querySelectorAll<HTMLElement>('li[rel="item"],div[rel="item"],li[pick_code],li[pickcode],div[pick_code],div[pickcode]'))
-      .filter(item => this.isRenderablePlaylistItem(item))
-      .map((item) => {
-        const file = extractFileInfo(item)
-        if (!file?.isVideo || !isStoredPlaylistItem(file)) return null
-        return {
-          pickCode: file.pickCode,
-          fileId: file.fileId,
-          name: file.fileName,
-          size: file.fileSize,
-          isMarked: file.isMarked,
-          duration: file.duration,
-        }
+    const items: StoredPlayerPlaylistItem[] = []
+    for (const item of Array.from(list.querySelectorAll<HTMLElement>('li[rel="item"],div[rel="item"],li[pick_code],li[pickcode],div[pick_code],div[pickcode]'))) {
+      if (!this.isRenderablePlaylistItem(item)) continue
+      const file = extractFileInfo(item)
+      if (!file?.isVideo || !isStoredPlaylistItem(file)) continue
+      items.push({
+        pickCode: file.pickCode,
+        fileId: file.fileId,
+        name: file.fileName,
+        size: file.fileSize,
+        isMarked: file.isMarked,
+        duration: file.duration,
       })
-      .filter((item): item is StoredPlayerPlaylistItem => !!item)
+    }
 
     return items
   }

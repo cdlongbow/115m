@@ -8,7 +8,7 @@
 
 ## 接手顺序
 
-1. `AGENTS.md`
+1. `.trae/rules/project-baseline.md`
 2. 本文档
 3. 需求相关规则或 runbook
 4. 需求相关模块本身

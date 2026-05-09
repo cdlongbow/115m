@@ -5,6 +5,8 @@ import { blurTime, findNearestCover } from './hover-utils'
 export interface HoverCover {
   time: number
   imgUrl: string
+  width?: number
+  height?: number
 }
 
 export interface HoverPreviewDisplayState {

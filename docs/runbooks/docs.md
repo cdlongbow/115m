@@ -8,7 +8,7 @@
 
 ## 分层原则
 
-- `AGENTS.md`：只放项目总纲、协作方式和统一入口
+- `.trae/rules/project-baseline.md`：只放必须始终遵守的项目核心规则
 - `docs/AI-PREFERENCES.md`：只放长期稳定偏好
 - `docs/AI-HANDOFF.md`：只放项目地图、模块接手与需求落点
 - `docs/runbooks/*.md`：只放固定流程或确实复杂、容易遗漏的步骤清单
@@ -17,7 +17,7 @@
 ## 当前项目最小结构
 
 - `README.md`：项目简介、功能概览、基础命令、本地使用
-- `AGENTS.md`：项目总纲、协作方式、规则入口
+- `.trae/rules/project-baseline.md`：项目核心规则入口
 - `docs/AI-HANDOFF.md`：项目地图与典型任务落点
 - `docs/AI-PREFERENCES.md`：长期稳定偏好
 - `docs/runbooks/messages.md`：消息链路索引
@@ -39,7 +39,7 @@
 - 发布只保留 `release.md` 规则，不再保留发布文档
 - 基础开发命令与本地使用说明放回 `README.md`
 - `messages.md`、`player.md` 保留简短 runbook，仅承载落点索引和必要检查
-- `project-baseline.md` 作为项目级硬规则源；`AGENTS.md` 不再重复维护同一套规则
+- `project-baseline.md` 作为项目级硬规则源，不重复维护同一套规则
 - 规则和文档各自独立有用；文档只在统一入口出现，不作为规则前置依赖
 
 ## 写入规则
@@ -54,15 +54,14 @@
 - 本地使用
 - 协作文件入口
 
-### 写入 `AGENTS.md`
+### 写入 `.trae/rules/project-baseline.md`
 
 仅收录：
 
 - 项目定位
-- 协作方式
+- 必须始终遵守的核心规则
 - 文档与规则分工
 - 默认加载顺序
-- 规则入口
 - 安全要求
 
 ### 写入 `docs/AI-HANDOFF.md`

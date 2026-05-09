@@ -9,6 +9,7 @@
     "doctor": "node scripts/doctor.mjs",
     "release:check": "node scripts/release-check.mjs",
     "test": "vitest run",
+    "typecheck": "tsc --noEmit",
     "zip": "pnpm build && powershell -NoProfile -ExecutionPolicy Bypass -Command \"if (!(Test-Path release)) { New-Item -ItemType Directory -Path release | Out-Null }; $v=(Get-Content package.json -Raw | ConvertFrom-Json).version; $out='release/115m-v' + $v + '.zip'; if (Test-Path $out) { Remove-Item -Force $out }; Compress-Archive -Path 'dist/*' -DestinationPath $out -Force\""
   },
   "dependencies": {

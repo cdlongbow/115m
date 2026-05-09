@@ -23,9 +23,11 @@ function readJson(path) {
 
 const packagePath = resolve(root, 'package.json')
 const manifestPath = resolve(root, 'manifest.json')
-const releaseRunbookPath = resolve(root, 'docs/runbooks/release.md')
-const imageWallRunbookPath = resolve(root, 'docs/runbooks/image-wall.md')
-const telegramWorkflowPath = resolve(root, '.github/workflows/release-to-telegram.yml')
+const projectBaselinePath = resolve(root, '.trae/rules/project-baseline.md')
+const releaseRulePath = resolve(root, '.trae/rules/release.md')
+const docsRunbookPath = resolve(root, 'docs/runbooks/docs.md')
+const messagesRunbookPath = resolve(root, 'docs/runbooks/messages.md')
+const playerRunbookPath = resolve(root, 'docs/runbooks/player.md')
 
 if (!existsSync(packagePath)) fail('缺少 package.json')
 if (!existsSync(manifestPath)) fail('缺少 manifest.json')
@@ -36,14 +38,20 @@ const manifest = readJson(manifestPath)
 if (pkg.version === manifest.version) ok(`package.json 与 manifest.json 版本一致：${pkg.version}`)
 else fail(`版本不一致：package.json=${pkg.version}, manifest.json=${manifest.version}`)
 
-if (existsSync(releaseRunbookPath)) ok('已存在 release runbook')
-else warn('缺少 docs/runbooks/release.md')
+if (existsSync(projectBaselinePath)) ok('已存在项目核心规则')
+else fail('缺少 .trae/rules/project-baseline.md')
 
-if (existsSync(imageWallRunbookPath)) ok('已存在 image-wall runbook')
-else warn('缺少 docs/runbooks/image-wall.md')
+if (existsSync(releaseRulePath)) ok('已存在发布规则')
+else warn('缺少 .trae/rules/release.md')
 
-if (existsSync(telegramWorkflowPath)) ok('已存在 Telegram Release workflow')
-else warn('缺少 .github/workflows/release-to-telegram.yml')
+if (existsSync(docsRunbookPath)) ok('已存在文档维护 runbook')
+else warn('缺少 docs/runbooks/docs.md')
+
+if (existsSync(messagesRunbookPath)) ok('已存在消息链路 runbook')
+else warn('缺少 docs/runbooks/messages.md')
+
+if (existsSync(playerRunbookPath)) ok('已存在播放器 runbook')
+else warn('缺少 docs/runbooks/player.md')
 
 try {
   const branch = execSync('git branch --show-current', { cwd: root, encoding: 'utf8' }).trim()

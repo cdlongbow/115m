@@ -52,7 +52,7 @@ function createToast(doc: Document, message: string) {
   window.setTimeout(() => toast.remove(), 1600)
 }
 
-function createLightboxController(doc: Document): LightboxController {
+function createLightboxController(doc: Document, sendRuntimeMessageSafe: typeof import('./runtime').sendRuntimeMessageSafe): LightboxController {
   const overlay = doc.createElement('div')
   overlay.className = 'm115-viewer'
 
@@ -484,7 +484,7 @@ function createLightboxController(doc: Document): LightboxController {
     const current = getDeleteTarget()
     if (!current?.fileId) return
     try {
-      const response = await sendRuntimeMessageSafe({
+      const response = await sendRuntimeMessageSafe<{ ok?: boolean, error?: string }>({
         type: 'DELETE_FILES',
         payload: {
           ids: [current.fileId],
@@ -683,7 +683,7 @@ export function createImageModule(sendRuntimeMessageSafe: typeof import('./runti
   const getLightboxController = (doc: Document): LightboxController => {
     const existing = lightboxByDoc.get(doc)
     if (existing) return existing
-    const created = createLightboxController(doc)
+    const created = createLightboxController(doc, sendRuntimeMessageSafe)
     lightboxByDoc.set(doc, created)
     return created
   }

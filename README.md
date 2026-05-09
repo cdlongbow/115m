@@ -7,7 +7,7 @@
 - 图片查看器增强：切图、缩放、删除
 - 点击视频后用独立播放器播放
 
-协作规则看 `AGENTS.md`。
+协作规则看 `.trae/rules/project-baseline.md`。
 
 ## 功能
 
@@ -57,7 +57,7 @@ pnpm release:check
 
 ## 协作文件
 
-- 项目规则：`AGENTS.md`
+- 项目核心规则：`.trae/rules/project-baseline.md`
 - 文档与规则维护规范：`docs/runbooks/docs.md`
 - AI 接手说明：`docs/AI-HANDOFF.md`
 

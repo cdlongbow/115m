@@ -973,7 +973,7 @@ class PlayerManager {
         return items
       },
       onPlaylistOpenChange: () => {
-        this.progressHoverPreview?.refresh()
+        this.hoverPreview?.refresh()
       },
       onPlaylistPlay: (pickCode, keepPlaylistOpen) => {
         if (pickCode && pickCode !== this.currentPickCode) {
