@@ -9,6 +9,7 @@ import { renderMediaWall } from './core/media-wall'
 import { initSidebar, injectSidebarPrehide } from './core/sidebar'
 import { sendRuntimeMessageSafe } from './core/runtime'
 import { initUnarchiveHelper } from './core/unarchive-helper'
+import { injectUnarchiveButton, setupUnarchiveActions } from './core/unarchive-actions'
 import { HomePlayBinder } from './core/home-play-binder'
 import { watchWangpanFrame, primeSidebarPrehideForPage } from './core/home-frame'
 import { HomeScrollBinder } from './core/home-scroll-binder'
@@ -92,6 +93,7 @@ class HomeController {
     if (!list) return
 
     renderMediaWall(doc)
+    setupUnarchiveActions(doc)
 
     const items = doc.querySelectorAll('li[pick_code],li[pickcode],div[pick_code],div[pickcode]')
     items.forEach((node) => {
@@ -103,6 +105,7 @@ class HomeController {
       if (!file) return
 
       addDownloadIntercept(item, file)
+      injectUnarchiveButton(item, file)
 
       if (!file.isVideo) return
 

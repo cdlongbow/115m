@@ -22,6 +22,8 @@
 - 画质切换和记忆
 - 播放进度记忆
 - 播放器内移动文件，并同步刷新列表页
+- 压缩包一键解压到同名文件夹
+- 多个压缩包批量解压，批量时遇到需要密码的压缩包会跳过并提示
 
 ## 目录
 
@@ -67,7 +69,10 @@ pnpm release:check
 
 ## 说明
 
-感谢 [115master](https://github.com/cbingb666/115master) 的开源有了此项目的基础。
-后续又整合 [115-魔改](https://sleazyfork.org/zh-CN/scripts/560291-115-%E9%AD%94%E6%94%B9) 进 Chrome 扩展，主要为自用场景继续发展。
+感谢以下项目和脚本提供基础、思路或接口参考：
+
+- [115master](https://github.com/cbingb666/115master)：提供了本项目早期基础。
+- [115-魔改](https://sleazyfork.org/zh-CN/scripts/560291-115-%E9%AD%94%E6%94%B9)：部分功能思路整合进 Chrome 扩展。
+- [nap511](https://github.com/zerorooot/nap511)：在线解压功能提供了接口思路参考。
 
 项目作者不懂编程，项目代码主要由 AI 按需求协助开发和维护。
