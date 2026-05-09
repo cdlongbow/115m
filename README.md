@@ -1,13 +1,8 @@
 # 115m
 
-`115m` 是一个 115 网盘增强扩展。
+`115m` 是一个 115 网盘 Chrome 增强扩展，用来改善文件浏览、图片查看和视频播放体验。
 
-主要围绕三块体验增强：
-- 列表页媒体增强：文件夹封面、图片区、视频预览
-- 图片查看器增强：切图、缩放、删除
-- 点击视频后用独立播放器播放
-
-协作规则看 `.trae/rules/project-baseline.md`。
+它主要提供列表页媒体预览、增强图片查看器、独立视频播放器、播放进度记忆、压缩包解压等功能。
 
 ## 功能
 
@@ -25,43 +20,29 @@
 - 压缩包一键解压到同名文件夹
 - 多个压缩包批量解压，批量时遇到需要密码的压缩包会跳过并提示
 
-## 目录
+## 安装使用
 
-- `src/content/`：115 页面内容脚本
-- `src/player/`：独立播放器
-- `src/background/`：后台逻辑
-- `src/shared/`：共享消息和工具
-- `src/lib/`：接口、解码、缩略图等通用能力
+本项目暂未上架 Chrome 扩展商店，需要通过 Chrome 开发者模式手动加载。
 
-## 命令
+普通用户建议直接下载发布版使用：
 
-```bash
-pnpm install
-pnpm test
-pnpm build
-pnpm zip
-pnpm release:check
-```
+1. 打开本项目 GitHub Releases 页面
+2. 下载最新发布版的 zip 压缩包
+3. 将 zip 解压到一个固定目录，后续不要随意移动或删除
+4. 打开 `chrome://extensions/`
+5. 开启「开发者模式」
+6. 点击「加载已解压的扩展程序」
+7. 选择解压后的扩展目录
 
-- `pnpm test`：跑测试
-- `pnpm build`：构建扩展
-- `pnpm zip`：按当前版本打包到 `release/`
-- `pnpm release:check`：检查版本、zip、发布说明和 gh 登录状态
+更新版本时，下载新版 zip 后重新解压覆盖或放到新目录，再到扩展管理页点击重新加载。
 
-## 本地使用
+如果需要自己修改代码或参与开发，可以使用源码构建：
 
 1. 执行 `pnpm install`
 2. 执行 `pnpm build`
-3. 打开 `chrome://extensions/`
-4. 开启开发者模式
-5. 加载 `dist/` 目录
-6. 改代码后重新执行 `pnpm build`，再在扩展页点重新加载
+3. 在扩展管理页加载项目构建生成的 `dist/` 目录
 
-## 协作文件
-
-- 项目核心规则：`.trae/rules/project-baseline.md`
-- 文档与规则维护规范：`docs/runbooks/docs.md`
-- AI 接手说明：`docs/AI-HANDOFF.md`
+请确认扩展来源可信，不要安装来历不明的修改版。
 
 ## 开源协议
 
