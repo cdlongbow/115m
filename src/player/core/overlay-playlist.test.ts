@@ -4,7 +4,7 @@ vi.mock('../../lib/videoThumbnail', () => ({
   getVideoCovers: vi.fn(),
 }))
 
-import { buildPlaylistHtml, formatPlaylistSeconds } from './overlay-playlist'
+import { buildPlaylistHtml, bindPlaylistInteractions, formatPlaylistSeconds } from './overlay-playlist'
 
 describe('overlay playlist helpers', () => {
   it('formats seconds to mm:ss', () => {
@@ -24,5 +24,7 @@ describe('overlay playlist helpers', () => {
     expect(html).toContain('Test')
     expect(html).toContain('1 MB')
     expect(html).toContain('background:rgba(255,255,255,.12)')
+    expect(html).toContain('data-action="move"')
+    expect(html).toContain('data-action="delete"')
   })
 })

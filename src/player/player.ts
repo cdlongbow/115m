@@ -980,6 +980,8 @@ class PlayerManager {
           this.navigateToVideo(pickCode, keepPlaylistOpen)
         }
       },
+      onPlaylistMove: async item => await this.movePlaylistVideo(item),
+      onPlaylistDelete: async item => await this.deletePlaylistVideo(item),
       onDeleteFile: async (fileId, parentId, pickCode) => await this.deleteCurrentVideo(fileId, parentId, pickCode),
       onPlayPrevious: () => this.playPrevious(),
       onPlayNext: () => this.playNext(),
@@ -1370,8 +1372,29 @@ class PlayerManager {
     }
   }
 
+  private async movePlaylistVideo(item: OverlayPlaylistItem): Promise<void> {
+    if (!item.fileId) {
+      this.overlay?.showToast('文件 ID 缺失')
+      return
+    }
+
+    const parentId = this.getPlaylistItemParentId(item)
+    const dialog = new MoveDialog(
+      item.fileId,
+      parentId || '0',
+      () => item.pickCode === this.currentPickCode ? this.refreshBreadcrumbs() : undefined,
+    )
+    const result = await dialog.show()
+    if (result.moved) {
+      this.handlePlaylistVideoMoved(item.pickCode)
+    }
+  }
+
   private handleCurrentVideoMoved() {
-    const movedPickCode = this.currentPickCode
+    this.handlePlaylistVideoMoved(this.currentPickCode)
+  }
+
+  private handlePlaylistVideoMoved(movedPickCode: string) {
     if (!movedPickCode) return
 
     const beforeCount = this.playlistItemsCache.length
@@ -1380,6 +1403,18 @@ class PlayerManager {
 
     this.syncOverlayPlaybackNav()
     this.overlay?.updatePlaylist(this.playlistItemsCache)
+  }
+
+  private getPlaylistItemParentId(item: OverlayPlaylistItem): string {
+    if (item.pickCode === this.currentPickCode) {
+      return this.currentParentId()
+    }
+    return readPlaylistCidFromLocation(window.location.search) || this.currentParentId()
+  }
+
+  private currentParentId(): string {
+    const meta = readOverlayMetaFromQuery()
+    return meta.cid || meta.parentId || '0'
   }
 
   private async toggleFavorite(fileId: string, nextMarked: boolean): Promise<boolean> {
@@ -1393,6 +1428,29 @@ class PlayerManager {
   }
 
   private async deleteCurrentVideo(fileId: string, parentId: string, pickCode: string): Promise<void> {
+    await this.deleteVideoFromPlaylist({ fileId, parentId, pickCode, navigateAfterDelete: true })
+  }
+
+  private async deletePlaylistVideo(item: OverlayPlaylistItem): Promise<void> {
+    if (!item.fileId || !item.pickCode) {
+      this.overlay?.showToast('缺少删除参数')
+      return
+    }
+    await this.deleteVideoFromPlaylist({
+      fileId: item.fileId,
+      parentId: this.getPlaylistItemParentId(item),
+      pickCode: item.pickCode,
+      navigateAfterDelete: item.pickCode === this.currentPickCode,
+    })
+  }
+
+  private async deleteVideoFromPlaylist(params: {
+    fileId: string
+    parentId: string
+    pickCode: string
+    navigateAfterDelete: boolean
+  }): Promise<void> {
+    const { fileId, parentId, pickCode, navigateAfterDelete } = params
     const items = await this.fetchPlaylistItems().catch(() => this.playlistItemsCache)
     const { nextPickCode } = getDeleteFallback(items, pickCode)
     const keepPlaylistOpen = this.keepPlaylistOpenOnInit || this.overlay?.isPlaylistExpanded() === true
@@ -1403,6 +1461,11 @@ class PlayerManager {
     this.playlistItemsCache = this.playlistItemsCache.filter(item => item.pickCode !== pickCode)
     this.syncOverlayPlaybackNav()
     this.overlay?.updatePlaylist(this.playlistItemsCache)
+
+    if (!navigateAfterDelete) {
+      this.overlay?.showToast('已删除')
+      return
+    }
 
     if (nextPickCode) {
       this.navigateToVideo(nextPickCode, keepPlaylistOpen, true)

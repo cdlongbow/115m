@@ -46,6 +46,8 @@ export interface PlayerOverlayOptions {
   onPlaylistToggle: (open: boolean) => Promise<OverlayPlaylistItem[]>
   onPlaylistOpenChange?: (open: boolean) => void
   onPlaylistPlay: (pickCode: string, keepPlaylistOpen: boolean) => void
+  onPlaylistMove: (item: OverlayPlaylistItem) => Promise<void>
+  onPlaylistDelete: (item: OverlayPlaylistItem) => Promise<void>
   onDeleteFile: (fileId: string, parentId: string, pickCode: string) => Promise<void>
   onPlayPrevious: () => void
   onPlayNext: () => void
@@ -457,7 +459,11 @@ export class PlayerOverlayController {
     const currentPickCode = this.options.getCurrentPickCode()
 
     this.playlistListEl.innerHTML = buildPlaylistHtml(items, currentPickCode)
-    bindPlaylistInteractions(this.playlistListEl, currentPickCode, this.options.onPlaylistPlay)
+    bindPlaylistInteractions(this.playlistListEl, currentPickCode, items, {
+      onPlay: this.options.onPlaylistPlay,
+      onMove: this.options.onPlaylistMove,
+      onDelete: this.options.onPlaylistDelete,
+    })
     scrollActivePlaylistNodeIntoView(this.playlistListEl, currentPickCode)
     lazyLoadPlaylistCovers(this.playlistListEl, items)
   }
