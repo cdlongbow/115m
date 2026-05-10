@@ -241,15 +241,15 @@ function showToast(doc: Document, text: string, timeout = 5000) {
 
 function collectSelectedArchiveFiles(doc: Document): FileInfo[] {
   const selectors = [
-    '.list-contents li.selected[pick_code]',
-    '.list-contents li.cur[pick_code]',
-    '.list-contents [rel="item"].selected[pick_code]',
+    '.list-contents li.selected[pick_code],.list-contents li.selected[pickcode]',
+    '.list-contents li.cur[pick_code],.list-contents li.cur[pickcode]',
+    '.list-contents [rel="item"].selected[pick_code],.list-contents [rel="item"].selected[pickcode]',
     '.list-contents input:checked',
   ]
   const nodes = new Set<HTMLElement>()
   for (const selector of selectors) {
     doc.querySelectorAll(selector).forEach((node) => {
-      const item = node instanceof HTMLInputElement ? node.closest<HTMLElement>('[rel="item"][pick_code]') : node as HTMLElement
+      const item = node instanceof HTMLInputElement ? node.closest<HTMLElement>('[rel="item"][pick_code],[rel="item"][pickcode]') : node as HTMLElement
       if (item) nodes.add(item)
     })
   }
@@ -265,6 +265,12 @@ function collectSelectedArchiveFiles(doc: Document): FileInfo[] {
       parentId: item.getAttribute('cid') || item.getAttribute('p_id') || undefined,
     }
   }).filter(file => file.pickCode && isArchiveFileName(file.fileName))
+}
+
+function updateBatchButtonVisibility(doc: Document) {
+  const btn = doc.getElementById('m115-batch-unarchive-btn') as HTMLElement | null
+  if (!btn) return
+  btn.style.display = collectSelectedArchiveFiles(doc).length ? '' : 'none'
 }
 
 async function runBatch(doc: Document, files: FileInfo[]) {
@@ -288,7 +294,11 @@ async function runBatch(doc: Document, files: FileInfo[]) {
 }
 
 function injectBatchButton(doc: Document) {
-  if (doc.getElementById('m115-batch-unarchive-btn')) return
+  const existing = doc.getElementById('m115-batch-unarchive-btn')
+  if (existing) {
+    updateBatchButtonVisibility(doc)
+    return
+  }
   const toolbar = doc.querySelector<HTMLElement>('#js_operate_box ul')
   if (!toolbar) return
 
@@ -303,14 +313,21 @@ function injectBatchButton(doc: Document) {
     event.stopImmediatePropagation()
     const files = collectSelectedArchiveFiles(doc)
     if (!files.length) {
-      alert('请先选中要解压的压缩包')
+      updateBatchButtonVisibility(doc)
       return
     }
     if (!confirm(`将解压 ${files.length} 个压缩包，并分别创建同名文件夹。是否继续？`)) return
     void runBatch(doc, files)
   }, true)
 
+  doc.addEventListener('click', () => window.setTimeout(() => updateBatchButtonVisibility(doc), 0), true)
+  doc.addEventListener('pointerup', () => window.setTimeout(() => updateBatchButtonVisibility(doc), 0), true)
+  doc.addEventListener('keyup', () => window.setTimeout(() => updateBatchButtonVisibility(doc), 0), true)
+  doc.addEventListener('change', () => updateBatchButtonVisibility(doc), true)
+  const observer = new MutationObserver(() => updateBatchButtonVisibility(doc))
+  observer.observe(doc.documentElement, { subtree: true, attributes: true, attributeFilter: ['class', 'checked'] })
   toolbar.insertAdjacentElement('afterbegin', btn)
+  updateBatchButtonVisibility(doc)
 }
 
 function injectStyles(doc: Document) {

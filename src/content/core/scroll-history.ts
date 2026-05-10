@@ -36,10 +36,10 @@ function buildKey(cid: string, offset: string): string {
 /**
  * 保存滚动位置
  */
-export function saveScrollPosition(cid: string, offset: string, scrollTop: number) {
+export function saveScrollPosition(key: string, scrollTop: number) {
   if (scrollTop <= 0) return
   const store = getStore()
-  store[buildKey(cid, offset)] = scrollTop
+  store[key] = scrollTop
   setStore(store)
 }
 
@@ -47,14 +47,14 @@ export function saveScrollPosition(cid: string, offset: string, scrollTop: numbe
  * 恢复滚动位置（如果有记录的话）
  * @returns 是否成功恢复了位置
  */
-export function restoreScrollPosition(cid: string, offset: string, scrollBox: Element): boolean {
+export function restoreScrollPosition(key: string, scrollBox: Element): boolean {
   const store = getStore()
-  const key = buildKey(cid, offset)
   const scrollTop = store[key]
   if (scrollTop && scrollTop > 0) {
     scrollBox.scrollTo({ top: scrollTop, behavior: 'instant' })
     return true
   }
+  scrollBox.scrollTo({ top: 0, behavior: 'instant' })
   return false
 }
 
@@ -62,11 +62,30 @@ export function restoreScrollPosition(cid: string, offset: string, scrollBox: El
  * 从 document 或 URL 中提取 cid 和 offset
  */
 export function extractListParams(doc: Document): { cid: string, offset: string } {
-  // 优先从 URL 取（iframe 的 location）
   const params = new URLSearchParams(doc.defaultView?.location.search ?? '')
   const cid = params.get('cid') ?? '0'
   const offset = params.get('offset') ?? '0'
   return { cid, offset }
+}
+
+function readAttr(item: Element, names: string[]): string {
+  for (const name of names) {
+    const value = item.getAttribute(name)
+    if (value) return value
+  }
+  return ''
+}
+
+function extractListFingerprint(doc: Document): string {
+  const items = Array.from(doc.querySelectorAll<HTMLElement>('.list-contents [rel="item"],.list-thumb [rel="item"],.list-contents li,.list-thumb li')).slice(0, 20)
+  const ids = items.map(item => readAttr(item, ['cid', 'file_id', 'fid', 'fileid', 'pick_code', 'pickcode']) || item.querySelector('.file-name .name,.name')?.textContent?.trim() || '').filter(Boolean)
+  return ids.join('|')
+}
+
+export function buildListKey(doc: Document): string {
+  const { cid, offset } = extractListParams(doc)
+  const fingerprint = extractListFingerprint(doc)
+  return buildKey(cid, `${offset}_${fingerprint}`)
 }
 
 /**
@@ -113,6 +132,7 @@ export class ScrollPositionManager {
   private scrollBox: Element | null = null
   private doc: Document | null = null
   private handleScroll: (() => void) | null = null
+  private key = ''
 
   /**
    * 绑定滚动容器
@@ -122,19 +142,20 @@ export class ScrollPositionManager {
 
     this.scrollBox = scrollBox
     this.doc = doc
+    this.key = buildListKey(doc)
 
-    // 先尝试恢复
-    const { cid, offset } = extractListParams(doc)
-    restoreScrollPosition(cid, offset, scrollBox)
+    restoreScrollPosition(this.key, scrollBox)
 
-    // 节流监听滚动
     this.handleScroll = throttle(() => {
-      if (!this.doc || !this.scrollBox) return
-      const { cid, offset } = extractListParams(this.doc)
-      saveScrollPosition(cid, offset, this.scrollBox.scrollTop)
+      if (!this.scrollBox || !this.key) return
+      saveScrollPosition(this.key, this.scrollBox.scrollTop)
     }, 150)
 
     scrollBox.addEventListener('scroll', this.handleScroll, { passive: true })
+  }
+
+  matches(scrollBox: Element, doc: Document): boolean {
+    return this.scrollBox === scrollBox && this.key === buildListKey(doc)
   }
 
   /**
@@ -147,5 +168,6 @@ export class ScrollPositionManager {
     this.scrollBox = null
     this.doc = null
     this.handleScroll = null
+    this.key = ''
   }
 }
