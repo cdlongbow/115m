@@ -14,6 +14,37 @@ const memoryCoverCache = new Map<string, VideoThumbnail[]>()
 const memorySingleCoverCache = new Map<string, Promise<VideoThumbnail | null>>()
 const memoryTimelineCache = new Map<string, VideoThumbnail[]>()
 
+export interface VideoCoverOptions {
+  maxWidth?: number
+  maxHeight?: number
+  quality?: number
+  cacheScope?: string
+  deferCacheWrite?: boolean
+  useTimelineCache?: boolean
+}
+
+interface RenderCoverOptions {
+  maxWidth: number
+  maxHeight: number
+  quality: number
+}
+
+const defaultCoverOptions: Required<Pick<VideoCoverOptions, 'maxWidth' | 'maxHeight' | 'quality' | 'cacheScope' | 'deferCacheWrite' | 'useTimelineCache'>> = {
+  maxWidth: MAX_WIDTH,
+  maxHeight: MAX_HEIGHT,
+  quality: 0.85,
+  cacheScope: 'default',
+  deferCacheWrite: false,
+  useTimelineCache: true,
+}
+
+function resolveCoverOptions(options: VideoCoverOptions = {}) {
+  return {
+    ...defaultCoverOptions,
+    ...options,
+  }
+}
+
 function isContextInvalidatedError(error: unknown): boolean {
   return String(error).includes('Extension context invalidated')
 }
@@ -45,8 +76,8 @@ function normalizeCachedCovers(covers: VideoThumbnail[] | undefined): VideoThumb
   return covers.filter(cover => !!cover?.imgUrl && isStableImageUrl(cover.imgUrl))
 }
 
-function getBatchCacheKey(pickCode: string, coverNum: number): string {
-  return `115m_covers_${CACHE_VERSION}_${pickCode}_${coverNum}`
+function getBatchCacheKey(pickCode: string, coverNum: number, scope = defaultCoverOptions.cacheScope): string {
+  return `115m_covers_${CACHE_VERSION}_${scope}_${pickCode}_${coverNum}`
 }
 
 function getSingleCacheKey(pickCode: string, time: number): string {
@@ -135,12 +166,12 @@ async function coverToStorableDataUrl(cover: VideoThumbnail): Promise<VideoThumb
   return { ...cover, imgUrl }
 }
 
-async function renderCover(result: FrameData): Promise<VideoThumbnail | null> {
+async function renderCover(result: FrameData, options: RenderCoverOptions = defaultCoverOptions): Promise<VideoThumbnail | null> {
   const resize = getImageResize(
     result.videoFrame.displayWidth,
     result.videoFrame.displayHeight,
-    MAX_WIDTH,
-    MAX_HEIGHT,
+    options.maxWidth,
+    options.maxHeight,
   )
   const canvas = new OffscreenCanvas(resize.width, resize.height)
   const ctx = canvas.getContext('2d')
@@ -164,7 +195,7 @@ async function renderCover(result: FrameData): Promise<VideoThumbnail | null> {
     result.videoFrame.close()
   }
 
-  const blob = await canvas.convertToBlob({ type: 'image/webp', quality: 0.85 })
+  const blob = await canvas.convertToBlob({ type: 'image/webp', quality: options.quality })
   const imgUrl = await blobToDataUrl(blob)
 
   return {
@@ -179,6 +210,7 @@ async function generateSingleCover(
   clipper: M3U8ClipperNew,
   time: number,
   preferAccurate = false,
+  options: RenderCoverOptions = defaultCoverOptions,
 ): Promise<VideoThumbnail | null> {
   const seekModes = preferAccurate ? [false, true] : [true, false]
 
@@ -189,10 +221,9 @@ async function generateSingleCover(
         continue
       }
 
-      return await renderCover(result)
+      return await renderCover(result, options)
     }
     catch (error) {
-      // Ignore per-attempt seek failures here. Thumbnail generation has fallback attempts.
     }
   }
 
@@ -205,6 +236,7 @@ async function generateCoverWithFallbacks(
   duration: number,
   fallbackWindow: number,
   preferAccurate = false,
+  options: RenderCoverOptions = defaultCoverOptions,
 ): Promise<VideoThumbnail | null> {
   const candidateTimes = uniqueTimes([
     clampTime(time, duration),
@@ -215,7 +247,7 @@ async function generateCoverWithFallbacks(
   ])
 
   for (const candidateTime of candidateTimes) {
-    const cover = await generateSingleCover(clipper, candidateTime, preferAccurate)
+    const cover = await generateSingleCover(clipper, candidateTime, preferAccurate, options)
     if (cover) {
       return cover
     }
@@ -228,6 +260,7 @@ async function generateAccurateCover(
   clipper: M3U8ClipperNew,
   time: number,
   duration: number,
+  options: RenderCoverOptions = defaultCoverOptions,
 ): Promise<VideoThumbnail | null> {
   const candidateTimes = uniqueTimes([
     clampTime(time, duration),
@@ -247,7 +280,7 @@ async function generateAccurateCover(
   let bestDelta = Number.POSITIVE_INFINITY
 
   for (const candidateTime of candidateTimes) {
-    const cover = await generateSingleCover(clipper, candidateTime, true)
+    const cover = await generateSingleCover(clipper, candidateTime, true, options)
     if (!cover) {
       continue
     }
@@ -379,7 +412,9 @@ export async function getVideoCoverAt(
   pickCode: string,
   time: number,
   duration?: number,
+  options?: VideoCoverOptions,
 ): Promise<VideoThumbnail | null> {
+  const resolvedOptions = resolveCoverOptions(options)
   const normalizedTime = clampTime(time, duration)
   const cacheKey = getSingleCacheKey(pickCode, normalizedTime)
   let pending = memorySingleCoverCache.get(cacheKey)
@@ -393,6 +428,7 @@ export async function getVideoCoverAt(
           clipper,
           normalizedTime,
           duration ?? normalizedTime + 30,
+          resolvedOptions,
         )
         console.log('[115m][preview] getVideoCoverAt', {
           pickCode,
@@ -419,18 +455,19 @@ export async function getVideoCoverAt(
   }
 }
 
-export async function getVideoCovers(pickCode: string, duration: number, coverNum = 5): Promise<VideoThumbnail[]> {
+export async function getVideoCovers(pickCode: string, duration: number, coverNum = 5, options?: VideoCoverOptions): Promise<VideoThumbnail[]> {
+  const resolvedOptions = resolveCoverOptions(options)
   console.log('[115m] getVideoCovers 开始:', { pickCode, duration, coverNum })
   const startedAt = Date.now()
 
-  const cacheKey = getBatchCacheKey(pickCode, coverNum)
+  const cacheKey = getBatchCacheKey(pickCode, coverNum, resolvedOptions.cacheScope)
   const inMemory = normalizeCachedCovers(memoryCoverCache.get(cacheKey))
   if (inMemory.length > 0) {
     memoryCoverCache.set(cacheKey, inMemory)
     return inMemory
   }
 
-  const timelineCovers = await readTimelineCovers(pickCode)
+  const timelineCovers = resolvedOptions.useTimelineCache ? await readTimelineCovers(pickCode) : []
   const timelineSelection = selectCoverSet(timelineCovers, duration, coverNum)
   if (timelineSelection.length >= coverNum) {
     memoryCoverCache.set(cacheKey, timelineSelection)
@@ -466,7 +503,7 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
     console.log('[115m] 截取时间点:', missingTimes)
 
     const covers = await mapWithConcurrency(missingTimes, SEEK_CONCURRENCY, async time =>
-      generateCoverWithFallbacks(clipper, time, duration, fallbackWindow, false),
+      generateCoverWithFallbacks(clipper, time, duration, fallbackWindow, false, resolvedOptions),
     )
     const mergedTimeline = sortAndDedupeCovers([
       ...timelineCovers,
@@ -491,12 +528,27 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
     memoryCoverCache.set(cacheKey, results)
 
     try {
-      if (storageArea) {
-        const storableResults = await Promise.all(results.map(coverToStorableDataUrl))
-        await storageArea.set({ [cacheKey]: storableResults })
-        console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
+      const writeCache = async () => {
+        if (storageArea) {
+          const storableResults = await Promise.all(results.map(coverToStorableDataUrl))
+          await storageArea.set({ [cacheKey]: storableResults })
+          console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
+        }
+        if (resolvedOptions.useTimelineCache) {
+          await writeTimelineCovers(pickCode, mergedTimeline)
+        }
       }
-      await writeTimelineCovers(pickCode, mergedTimeline)
+
+      if (resolvedOptions.deferCacheWrite) {
+        void writeCache().catch((error) => {
+          if (!isContextInvalidatedError(error)) {
+            console.warn('[115m] 写入缓存失败:', error)
+          }
+        })
+      }
+      else {
+        await writeCache()
+      }
     }
     catch (error) {
       if (isContextInvalidatedError(error)) {

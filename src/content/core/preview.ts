@@ -184,6 +184,15 @@ function formatTranscodeStatus(res: TranscodeResponse): { text: string, color: s
   }
 }
 
+const listPreviewCoverOptions = {
+  maxWidth: 320,
+  maxHeight: 180,
+  quality: 0.78,
+  cacheScope: 'list-v1',
+  deferCacheWrite: true,
+  useTimelineCache: false,
+}
+
 /** 预览图加载状态 */
 interface PreviewState {
   isLoading: boolean
@@ -233,7 +242,7 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
           return
         }
 
-        const covers = await getVideoCovers(file.pickCode, file.duration, 5)
+        const covers = await getVideoCovers(file.pickCode, file.duration, 5, listPreviewCoverOptions)
         if (!covers.length) {
           showTranscodeButton(container, file.pickCode)
           state.isLoaded = true
