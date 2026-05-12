@@ -22,7 +22,7 @@ function rememberArchiveName(name: string) {
     sessionStorage.setItem(LAST_ARCHIVE_NAME_KEY, stripArchiveExtension(name))
   }
   catch {
-    // ignore storage errors
+    return
   }
 }
 
@@ -81,10 +81,29 @@ function getSelectedArchiveName(doc: Document): string | null {
   return null
 }
 
-function bindArchiveNameCapture(doc: Document) {
-  doc.addEventListener('click', (event) => {
+function getDialogTitle(dialog: HTMLElement): string {
+  return dialog.querySelector('[rel="base_title"]')?.textContent?.trim() || ''
+}
+
+function isInsideUnarchiveDialog(target: HTMLElement): boolean {
+  const dialog = target.closest<HTMLElement>('.dialog-box.file-select')
+  return !!dialog && getDialogTitle(dialog) === '解压到'
+}
+
+function hasUnarchiveDialog(doc: Document): boolean {
+  return Array.from(doc.querySelectorAll<HTMLElement>('.dialog-box.file-select')).some(dialog => getDialogTitle(dialog) === '解压到')
+}
+
+function bindDialogActions(doc: Document) {
+  const onClick = (event: MouseEvent) => {
     const target = event.target as HTMLElement | null
     if (!target) return
+
+    const addDirButton = target.closest<HTMLElement>('[btn="add_dir"]')
+    if (addDirButton && isInsideUnarchiveDialog(addDirButton)) {
+      scheduleEnhanceCreateFolderDialog(doc)
+      return
+    }
 
     const item = target.closest<HTMLElement>('li[pick_code],li[pickcode],div[pick_code],div[pickcode],[rel="item"]')
     if (!item) return
@@ -97,38 +116,53 @@ function bindArchiveNameCapture(doc: Document) {
     if (name && isArchiveFileName(name)) {
       rememberArchiveName(name)
     }
-  }, true)
+  }
+
+  doc.addEventListener('click', onClick, true)
+  return () => doc.removeEventListener('click', onClick, true)
 }
 
-function createFillBar(doc: Document, input: HTMLInputElement, archiveName: string): HTMLElement {
-  const bar = doc.createElement('div')
-  bar.className = 'm115-unzip-fill-bar'
+function fillInput(input: HTMLInputElement, value: string) {
+  input.value = value
+  input.dispatchEvent(new Event('input', { bubbles: true }))
+  input.dispatchEvent(new Event('change', { bubbles: true }))
+  input.focus()
+  input.setSelectionRange(value.length, value.length)
+}
 
-  const fillText = doc.createElement('span')
-  fillText.className = 'm115-unzip-fill-text'
-  fillText.textContent = archiveName
-  fillText.title = '点击填充压缩包名'
-  fillText.addEventListener('click', () => {
-    input.value = archiveName
-    input.dispatchEvent(new Event('input', { bubbles: true }))
-    input.dispatchEvent(new Event('change', { bubbles: true }))
-    input.focus()
-    input.setSelectionRange(archiveName.length, archiveName.length)
+function createFillInfo(doc: Document, archiveName: string): HTMLElement {
+  const preview = doc.createElement('div')
+  preview.className = 'm115-unzip-fill-preview'
+  preview.textContent = archiveName
+  preview.title = archiveName
+  return preview
+}
+
+function createFillButton(doc: Document, input: HTMLInputElement, archiveName: string): HTMLAnchorElement {
+  const action = doc.createElement('a')
+  action.href = 'javascript:;'
+  action.className = 'dgac-cancel m115-unzip-fill-button'
+  action.textContent = '一键填充'
+  action.title = '使用压缩包名作为文件夹名'
+  action.addEventListener('click', (event) => {
+    event.preventDefault()
+    fillInput(input, archiveName)
   })
-
-  bar.appendChild(fillText)
-  return bar
+  return action
 }
 
-function enhanceCreateFolderDialog(doc: Document) {
+function ensureActionLayout(dialog: HTMLElement) {
+  const actionRow = dialog.querySelector<HTMLElement>('.dialog-action')
+  if (!actionRow || actionRow.classList.contains('m115-unzip-dialog-action')) return
+  actionRow.classList.add('m115-unzip-dialog-action')
+}
+
+function enhanceCreateFolderDialog(doc: Document): boolean {
+  if (!hasUnarchiveDialog(doc)) return false
+
   const dialogs = Array.from(doc.querySelectorAll<HTMLElement>('.dialog-box.dialog-mini.window-current'))
   for (const dialog of dialogs) {
-    const title = dialog.querySelector('[rel="base_title"]')?.textContent?.trim() || ''
-    if (title !== '新建文件夹') {
-      continue
-    }
-
-    if (dialog.querySelector('.m115-unzip-fill-bar')) {
+    if (getDialogTitle(dialog) !== '新建文件夹') {
       continue
     }
 
@@ -142,15 +176,36 @@ function enhanceCreateFolderDialog(doc: Document) {
       continue
     }
 
-    if (!input.value.trim()) {
-      input.value = archiveName
-      input.dispatchEvent(new Event('input', { bubbles: true }))
-      input.dispatchEvent(new Event('change', { bubbles: true }))
-      input.setSelectionRange(archiveName.length, archiveName.length)
+    const existingPreview = dialog.querySelector<HTMLElement>('.m115-unzip-fill-preview')
+    if (existingPreview) {
+      existingPreview.textContent = archiveName
+      existingPreview.title = archiveName
+    }
+    else {
+      const fillInfo = createFillInfo(doc, archiveName)
+      input.parentElement?.insertAdjacentElement('beforebegin', fillInfo)
     }
 
-    const fillBar = createFillBar(doc, input, archiveName)
-    input.parentElement?.insertAdjacentElement('beforebegin', fillBar)
+    ensureActionLayout(dialog)
+
+    if (!dialog.querySelector('.m115-unzip-fill-button')) {
+      const cancelButton = dialog.querySelector<HTMLElement>('.dialog-action [btn="cancel"], .dialog-action .dgac-cancel:not(.m115-unzip-fill-button)')
+      if (cancelButton?.parentElement) {
+        const actionButton = createFillButton(doc, input, archiveName)
+        cancelButton.insertAdjacentElement('beforebegin', actionButton)
+      }
+    }
+
+    return true
+  }
+
+  return false
+}
+
+function scheduleEnhanceCreateFolderDialog(doc: Document) {
+  const delays = [60, 160, 320, 600]
+  for (const delay of delays) {
+    window.setTimeout(() => enhanceCreateFolderDialog(doc), delay)
   }
 }
 
@@ -162,30 +217,31 @@ function injectStyles(doc: Document) {
   const style = doc.createElement('style')
   style.id = 'm115-unzip-fill-style'
   style.textContent = `
-    .m115-unzip-fill-bar {
-      display: flex;
-      align-items: center;
-      margin: 0 0 8px;
-      color: #9ca3af;
-      font-size: 12px;
-      line-height: 1.4;
-      flex-wrap: nowrap;
-      white-space: nowrap;
-      overflow: hidden;
-      text-overflow: ellipsis;
-    }
-
-    .m115-unzip-fill-text {
+    .dialog-box.dialog-mini .m115-unzip-fill-preview {
+      box-sizing: border-box;
+      width: calc(100% - 80px);
+      margin: 0 40px 8px;
+      padding: 0 2px;
       color: #2563eb;
-      cursor: pointer;
+      font-size: 12px;
+      line-height: 1.6;
+      white-space: nowrap;
       overflow: hidden;
       text-overflow: ellipsis;
-      white-space: nowrap;
-      min-width: 0;
     }
 
-    .m115-unzip-fill-text:hover {
-      text-decoration: underline;
+    .dialog-action.m115-unzip-dialog-action {
+      display: flex;
+      justify-content: flex-end;
+      align-items: center;
+      gap: 12px;
+    }
+
+    .dialog-action.m115-unzip-dialog-action .m115-unzip-fill-button,
+    .dialog-action.m115-unzip-dialog-action .dgac-cancel,
+    .dialog-action.m115-unzip-dialog-action .dgac-confirm {
+      float: none;
+      margin: 0;
     }
   `
   doc.head?.appendChild(style)
@@ -193,17 +249,6 @@ function injectStyles(doc: Document) {
 
 export function initUnarchiveHelper(doc: Document) {
   injectStyles(doc)
-  bindArchiveNameCapture(doc)
-  enhanceCreateFolderDialog(doc)
-
-  const observer = new MutationObserver(() => {
-    enhanceCreateFolderDialog(doc)
-  })
-
-  observer.observe(doc.documentElement, {
-    childList: true,
-    subtree: true,
-  })
-
-  return () => observer.disconnect()
+  const cleanup = bindDialogActions(doc)
+  return cleanup
 }
