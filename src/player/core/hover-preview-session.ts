@@ -27,11 +27,8 @@ interface HoverPreviewSessionOptions {
 }
 
 const PRECISE_COVER_BUCKET = 0.5
-const PRECISE_COVER_MIN_DELTA = 1.5
 const PRECISE_COVER_DEBOUNCE = 50
-const PRECISE_PREFETCH_RANGE = 1
 const MIN_COARSE_COVER_COUNT = 24
-const MAX_COARSE_COVER_COUNT = 60
 export const THUMBNAIL_PREVIEW_ENABLED = true
 
 function mergeCovers(covers: HoverCover[]): HoverCover[] {
@@ -218,7 +215,7 @@ export class HoverPreviewSession {
       return
     }
 
-    if (nearest && Math.abs(nearest.time - hoverTime) < PRECISE_COVER_MIN_DELTA) {
+    if (nearest && Math.abs(nearest.time - hoverTime) < this.getPreciseMinDelta(this.art.duration)) {
       return
     }
 
@@ -332,27 +329,43 @@ export class HoverPreviewSession {
 
   private getCoarseSamplingInterval(duration: number): number {
     if (duration <= 5 * 60) {
-      return 10
+      return 8
     }
     if (duration <= 10 * 60) {
-      return 12
+      return 10
     }
     if (duration <= 20 * 60) {
-      return 18
+      return 15
     }
     if (duration <= 40 * 60) {
+      return 24
+    }
+    if (duration <= 90 * 60) {
       return 36
     }
-    if (duration <= 60 * 60) {
-      return 48
+    if (duration <= 180 * 60) {
+      return 45
     }
     return 60
+  }
+
+  private getMaxCoarseCoverCount(duration: number): number {
+    if (duration <= 20 * 60) {
+      return 72
+    }
+    if (duration <= 90 * 60) {
+      return 120
+    }
+    if (duration <= 180 * 60) {
+      return 150
+    }
+    return 180
   }
 
   private getInitialCoverCount(duration: number): number {
     const targetInterval = this.getCoarseSamplingInterval(duration)
     const count = Math.ceil(duration / targetInterval)
-    return Math.max(MIN_COARSE_COVER_COUNT, Math.min(count, MAX_COARSE_COVER_COUNT))
+    return Math.max(MIN_COARSE_COVER_COUNT, Math.min(count, this.getMaxCoarseCoverCount(duration)))
   }
 
   private getBackgroundRefineCoverCount(duration: number): number {
@@ -414,6 +427,36 @@ export class HoverPreviewSession {
     }
   }
 
+  private getPreciseMinDelta(duration: number): number {
+    if (duration <= 20 * 60) {
+      return 1.5
+    }
+    if (duration <= 90 * 60) {
+      return 1
+    }
+    return 0.75
+  }
+
+  private getPrecisePrefetchRange(duration: number): number {
+    if (duration <= 20 * 60) {
+      return 1
+    }
+    if (duration <= 90 * 60) {
+      return 2
+    }
+    return 3
+  }
+
+  private getPrecisePrefetchStep(duration: number): number {
+    if (duration <= 20 * 60) {
+      return PRECISE_COVER_BUCKET
+    }
+    if (duration <= 90 * 60) {
+      return 2
+    }
+    return 3
+  }
+
   private getPreciseBucketTime(hoverTime: number): number {
     return blurTime(hoverTime, PRECISE_COVER_BUCKET, this.art.duration || hoverTime)
   }
@@ -452,13 +495,16 @@ export class HoverPreviewSession {
   }
 
   private prefetchNearbyPreciseCovers(bucketTime: number) {
-    if (!this.art.duration) {
+    const duration = this.art.duration
+    if (!duration) {
       return
     }
 
-    for (let offset = 1; offset <= PRECISE_PREFETCH_RANGE; offset += 1) {
-      const previousBucket = this.getPreciseBucketTime(Math.max(0, bucketTime - offset * PRECISE_COVER_BUCKET))
-      const nextBucket = this.getPreciseBucketTime(Math.min(this.art.duration, bucketTime + offset * PRECISE_COVER_BUCKET))
+    const range = this.getPrecisePrefetchRange(duration)
+    const step = this.getPrecisePrefetchStep(duration)
+    for (let offset = 1; offset <= range; offset += 1) {
+      const previousBucket = this.getPreciseBucketTime(Math.max(0, bucketTime - offset * step))
+      const nextBucket = this.getPreciseBucketTime(Math.min(duration, bucketTime + offset * step))
       this.enqueuePreciseCover(previousBucket)
       this.enqueuePreciseCover(nextBucket)
     }
