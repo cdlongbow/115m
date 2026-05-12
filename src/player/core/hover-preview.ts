@@ -142,6 +142,7 @@ export class HoverPreviewController {
     }
     this.covers = []
     this.lastRenderableCover = null
+    this.lastDisplayedCover = null
     this.lastHoverBucketTime = null
     this.lastPointerClientX = null
     this.lastPointerClientY = null
