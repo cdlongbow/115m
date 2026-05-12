@@ -29,6 +29,7 @@ export class HoverPreviewController {
   private lastPointerClientX: number | null = null
   private lastPointerClientY: number | null = null
   private lastRenderableCover: HoverCover | null = null
+  private lastDisplayedCover: HoverCover | null = null
   private session: HoverPreviewSession | null = null
   private covers: HoverCover[] = []
   private lastHoverBucketTime: number | null = null
@@ -226,7 +227,11 @@ export class HoverPreviewController {
 
     event.preventDefault()
     event.stopImmediatePropagation()
-    this.art.seek = hoverTime
+    this.hoverActive = true
+    this.cancelHide()
+    this.rememberPointer(event)
+    this.updatePreviewPosition(event)
+    this.art.seek = this.getSeekTimeForCurrentPreview(hoverTime)
   }
 
   private handleProgressMouseLeave = () => {
@@ -291,6 +296,7 @@ export class HoverPreviewController {
   private clearDisplayState() {
     this.covers = []
     this.lastRenderableCover = null
+    this.lastDisplayedCover = null
     this.lastHoverBucketTime = null
     if (this.previewImgEl) {
       this.previewImgEl.removeAttribute('src')
@@ -310,6 +316,8 @@ export class HoverPreviewController {
       this.previewImgEl.src = cover.imgUrl
       this.updateSize(cover)
       this.previewImgEl.style.visibility = 'visible'
+      this.lastRenderableCover = cover
+      this.lastDisplayedCover = cover
       if (this.previewLoadingEl) {
         this.previewLoadingEl.style.display = 'none'
       }
@@ -433,6 +441,7 @@ export class HoverPreviewController {
       }
       this.previewEl.style.display = 'block'
       this.lastRenderableCover = state.nearest
+      this.lastDisplayedCover = state.nearest
     }
     else if (this.lastRenderableCover?.imgUrl) {
       this.previewImgEl.src = this.lastRenderableCover.imgUrl
@@ -442,8 +451,10 @@ export class HoverPreviewController {
         this.previewLoadingEl.style.display = 'none'
       }
       this.previewEl.style.display = 'block'
+      this.lastDisplayedCover = this.lastRenderableCover
     }
     else {
+      this.lastDisplayedCover = null
       this.previewImgEl.style.visibility = 'hidden'
       if (this.previewLoadingEl) {
         this.previewLoadingEl.style.display = 'flex'
@@ -452,6 +463,15 @@ export class HoverPreviewController {
     }
     this.previewTimeEl.textContent = formatTimeLabel(hoverTime)
     this.session.schedulePreciseCover(hoverTime, state.nearest)
+  }
+
+  private getSeekTimeForCurrentPreview(hoverTime: number): number {
+    const displayedTime = this.lastDisplayedCover?.time
+    if (typeof displayedTime !== 'number' || !Number.isFinite(displayedTime)) {
+      return hoverTime
+    }
+
+    return clamp(displayedTime, 0, this.art.duration || displayedTime)
   }
 
   private getHoverTimeFromClientX(clientX: number): number | null {
