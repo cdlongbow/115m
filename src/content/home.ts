@@ -88,6 +88,13 @@ class HomeController {
     doc.head?.appendChild(style)
   }
 
+  private isWangpanFileItem(item: HTMLElement) {
+    if (!item.closest('.list-contents')) return false
+    if (item.matches('[status],[delete_id],[cate_id],[complete]')) return false
+    if (item.querySelector('[rel="opt"] .ifo-opendir,[task_popup="goto"],[task_popup="copy"],[task_popup="del"]')) return false
+    return !!item.querySelector('.file-opr,.file-name .name,.file-thumb')
+  }
+
   private scanAndRender(doc: Document) {
     const list = doc.querySelector('.list-contents')
     if (!list) return
@@ -100,6 +107,7 @@ class HomeController {
       const item = node as HTMLElement
       if (this.scannedItems.has(item)) return
       this.scannedItems.add(item)
+      if (!this.isWangpanFileItem(item)) return
 
       const file = extractFileInfo(item)
       if (!file) return
