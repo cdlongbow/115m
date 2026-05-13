@@ -15,13 +15,13 @@ const ICON_BASE = 'https://115.com/icons'
 
 const NAV_ITEMS: SidebarNavItem[] = [
   { id: 'wangpan', title: '网盘', icon: `${ICON_BASE}/storage_allcloudfiles.svg`, href: 'https://115.com/?cid=0&offset=0&mode=wangpan', defaultEnabled: true },
-  { id: 'upload', title: '最近上传', icon: `${ICON_BASE}/storage_recentuploads.svg`, href: '//115.com/?tab=upload&mode=wangpan', dataNav: 'upload', defaultEnabled: true },
+  { id: 'upload', title: '最近上传', icon: `${ICON_BASE}/storage/channel_recent_upload.svg`, href: '//115.com/?tab=upload&mode=wangpan', dataNav: 'upload', defaultEnabled: true },
   { id: 'star', title: '星标文件', icon: `${ICON_BASE}/storage_starredfiles.svg`, href: '//115.com/?tab=label&label_id=-1&show_label=1&mode=wangpan', dataNav: 'star', defaultEnabled: true },
   { id: 'recyclebin', title: '回收站', icon: `${ICON_BASE}/storage_recyclebin.svg`, href: '//115.com/?tab=rb&mode=wangpan', dataNav: 'rb', defaultEnabled: true },
   { id: 'clouddownload', title: '云下载', icon: `${ICON_BASE}/storage_clouddownload.svg`, href: '//115.com/?tab=offline&mode=wangpan', dataNav: 'offline', defaultEnabled: false },
-  { id: 'receive', title: '最近接收', icon: `${ICON_BASE}/storage_recentreceived.svg`, href: '//115.com/?tab=share_save_receive&mode=wangpan', dataNav: 'share_save_receive', defaultEnabled: false },
+  { id: 'receive', title: '最近接收', icon: `${ICON_BASE}/storage/channel_recent_receive.svg`, href: '//115.com/?tab=share_save_receive&mode=wangpan', dataNav: 'share_save_receive', defaultEnabled: false },
   { id: 'tags', title: '文件标签', icon: `${ICON_BASE}/storage_filetags.svg`, href: 'javascript:;', dataNav: 'label', defaultEnabled: false },
-  { id: 'share', title: '链接分享', icon: `${ICON_BASE}/storage_link_shared.svg`, href: '//115.com/?mode=share_save', dataNav: 'share_save', defaultEnabled: false },
+  { id: 'share', title: '链接分享', icon: `${ICON_BASE}/storage/channel_link_share.svg`, href: '//115.com/?mode=share_save', dataNav: 'share_save', defaultEnabled: false },
 ]
 
 function getSortedItems(items: SidebarNavItem[]): SidebarNavItem[] {
