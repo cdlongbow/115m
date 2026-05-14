@@ -133,6 +133,7 @@ class PlayerManager {
   private rotationReflowRaf = 0
   private lastPlaylistProgressSyncSec = -1
   private nativePlaybackRetryCount = 0
+  private nativeAudioProbeTimer: number | null = null
   private currentRotation = 0
   private currentPlaybackRate = 1
   private currentPlaybackMode: PlaybackMode = loadPlaybackMode()
@@ -527,8 +528,12 @@ class PlayerManager {
         onPlaying: () => {
           this.clearPlaybackEndState()
           this.nativePlaybackRetryCount = 0
+          this.clearNativeAudioProbe()
           this.perfMarks.playing = performance.now()
           this.reportFirstFrameSummary()
+          if (this.isNativeVideo) {
+            this.scheduleNativeAudioProbe()
+          }
         },
         onEnded: () => {
           this.handlePlaybackEnded()
@@ -1062,8 +1067,9 @@ class PlayerManager {
   }
 
 
-  private async fallbackToHls() {
-    console.log('[115m] fallbackToHls triggered, current m3u8List length:', this.m3u8List.length)
+  private async fallbackToHls(reason = '播放失败') {
+    this.clearNativeAudioProbe()
+    console.log('[115m] fallbackToHls triggered, current m3u8List length:', this.m3u8List.length, 'reason:', reason)
     
     if (!this.artplayer) {
       this.showError('播放失败，无可用的视频源')
@@ -1098,6 +1104,7 @@ class PlayerManager {
     
     console.log('[115m] fallbackToHls: switching to', bestQualityUrl.substring(0, 80) + '...')
     this.renderQualityPanel()
+    this.overlay?.showToast(`${reason}，已切换 115原画`)
     try {
       await this.artplayer.switchUrl(bestQualityUrl)
     }
@@ -1105,6 +1112,41 @@ class PlayerManager {
       console.error('[115m] fallbackToHls switchUrl failed:', error)
       this.showError('播放失败，无可用的视频源')
     }
+  }
+
+  private clearNativeAudioProbe() {
+    if (this.nativeAudioProbeTimer != null) {
+      window.clearTimeout(this.nativeAudioProbeTimer)
+      this.nativeAudioProbeTimer = null
+    }
+  }
+
+  private scheduleNativeAudioProbe() {
+    this.clearNativeAudioProbe()
+    this.nativeAudioProbeTimer = window.setTimeout(() => {
+      this.nativeAudioProbeTimer = null
+      void this.checkNativeAudioDecode()
+    }, 2500)
+  }
+
+  private async checkNativeAudioDecode() {
+    if (!this.artplayer || !this.isNativeVideo || this.currentPlaybackType !== 'native') return
+    const video = this.artplayer.video as HTMLVideoElement & { webkitAudioDecodedByteCount?: number }
+    if (video.paused || video.currentTime < 1) {
+      this.scheduleNativeAudioProbe()
+      return
+    }
+    const decodedBytes = video.webkitAudioDecodedByteCount
+    if (typeof decodedBytes !== 'number' || decodedBytes > 0) return
+    const hasHlsAudioTracks = await this.masterPlaylistHasAudioTracks()
+    if (!hasHlsAudioTracks) return
+    console.warn('[115m][audio] native source has no decoded audio, fallback to HLS')
+    await this.fallbackToHls('无损音频不兼容')
+  }
+
+  private async masterPlaylistHasAudioTracks() {
+    const masterText = await this.fetchMasterPlaylistText()
+    return !!masterText && /#EXT-X-MEDIA:TYPE=AUDIO/i.test(masterText)
   }
 
   private async handleNativePlaybackError() {
@@ -1586,6 +1628,7 @@ class PlayerManager {
 
   destroy() {
     this.clearPlaybackEndState()
+    this.clearNativeAudioProbe()
     const runtime = getRuntimeApi()
     runtime?.onMessage?.removeListener(this.handleRuntimeMessage)
     this.overlay?.destroy()

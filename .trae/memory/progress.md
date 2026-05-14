@@ -9,6 +9,7 @@
 
 - 播放器页 `/assets/*` 404 的关键边界：content / page 启动链不能运行时动态 import 播放器入口；`src/content/video-page.ts` 应保持顶层静态 import 播放器模块
 - MKV 默认无损已修复：`canUseNativeUltraSource()` 已允许 `mkv` 走 native ultra
+- 无损原文件若出画但无音频解码，会自动回退到 115 原画 HLS，以恢复 m3u8 主清单里的多音轨
 - 进度条预览图已恢复：`hover-preview-session.ts` 顶层静态导入 `videoThumbnail` 相关方法，不能恢复运行时动态 import
 - 播放列表封面已恢复：`overlay-playlist.ts` 顶层静态导入 `getVideoCovers`，`PLAYLIST_COVER_FEATURE_ENABLED = true`
 - 缩略图缓存版本为 `v4`，缓存读取会过滤 `blob:` 等非稳定图片地址，UI 使用稳定 `data:` 图片地址
