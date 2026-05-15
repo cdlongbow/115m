@@ -154,7 +154,7 @@ export function scrollActivePlaylistNodeIntoView(listEl: HTMLElement, currentPic
 
 export function lazyLoadPlaylistCovers(listEl: HTMLElement, items: OverlayPlaylistItem[]) {
   if (!PLAYLIST_COVER_FEATURE_ENABLED) {
-    return
+    return () => {}
   }
 
   const thumbEls = listEl.querySelectorAll<HTMLElement>('.m115-pl-thumb')
@@ -184,4 +184,6 @@ export function lazyLoadPlaylistCovers(listEl: HTMLElement, items: OverlayPlayli
   }, { root: listEl, rootMargin: '200px 0px' })
 
   thumbEls.forEach(el => observer.observe(el))
+
+  return () => observer.disconnect()
 }

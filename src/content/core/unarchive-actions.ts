@@ -5,6 +5,8 @@ const ARCHIVE_EXTENSIONS = ['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz']
 const COMPOUND_ARCHIVE_EXTENSIONS = ['tar.gz', 'tar.bz2', 'tar.xz']
 const MAX_PROGRESS_CHECKS = 120
 const PROGRESS_DELAY_MS = 1500
+const MAX_BATCH_UNARCHIVE_FILES = 5
+let batchRunning = false
 
 type MainWorldResponse = { ok?: boolean, text?: string, error?: string, status?: number } | null
 
@@ -274,23 +276,34 @@ function updateBatchButtonVisibility(doc: Document) {
 }
 
 async function runBatch(doc: Document, files: FileInfo[]) {
-  const results: UnarchiveResult[] = []
-  for (let i = 0; i < files.length; i++) {
-    const file = files[i]
-    showToast(doc, `正在解压 ${i + 1}/${files.length}：${file.fileName}`, 0)
-    try {
-      results.push(await unarchiveOne(file, percent => showToast(doc, `正在解压 ${i + 1}/${files.length}：${file.fileName}\n状态：${formatExtractStatus(percent)}`, 0), false))
-    }
-    catch (error) {
-      results.push({ ok: false, fileName: file.fileName, message: error instanceof Error ? error.message : String(error) })
-    }
+  if (batchRunning) {
+    showToast(doc, '已有批量解压任务正在运行', 3000)
+    return
   }
 
-  const success = results.filter(item => item.ok).length
-  const failed = results.length - success
-  const detail = failed ? `\n失败：${results.filter(item => !item.ok).map(item => `${item.fileName}：${item.message}`).join('\n')}` : ''
-  const refreshed = success > 0 && await refreshNativeList(doc)
-  showToast(doc, `解压完成：成功 ${success} 个，失败 ${failed} 个${detail}\n${refreshed ? '列表已刷新。' : '请刷新页面查看新文件夹。'}`, 3000)
+  batchRunning = true
+  const results: UnarchiveResult[] = []
+  try {
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i]
+      showToast(doc, `正在解压 ${i + 1}/${files.length}：${file.fileName}`, 0)
+      try {
+        results.push(await unarchiveOne(file, percent => showToast(doc, `正在解压 ${i + 1}/${files.length}：${file.fileName}\n状态：${formatExtractStatus(percent)}`, 0), false))
+      }
+      catch (error) {
+        results.push({ ok: false, fileName: file.fileName, message: error instanceof Error ? error.message : String(error) })
+      }
+    }
+
+    const success = results.filter(item => item.ok).length
+    const failed = results.length - success
+    const detail = failed ? `\n失败：${results.filter(item => !item.ok).map(item => `${item.fileName}：${item.message}`).join('\n')}` : ''
+    const refreshed = success > 0 && await refreshNativeList(doc)
+    showToast(doc, `解压完成：成功 ${success} 个，失败 ${failed} 个${detail}\n${refreshed ? '列表已刷新。' : '请刷新页面查看新文件夹。'}`, 3000)
+  }
+  finally {
+    batchRunning = false
+  }
 }
 
 function injectBatchButton(doc: Document) {
@@ -316,7 +329,15 @@ function injectBatchButton(doc: Document) {
       updateBatchButtonVisibility(doc)
       return
     }
-    if (!confirm(`将解压 ${files.length} 个压缩包，并分别创建同名文件夹。是否继续？`)) return
+    if (files.length > MAX_BATCH_UNARCHIVE_FILES) {
+      showToast(doc, `一次最多解压 ${MAX_BATCH_UNARCHIVE_FILES} 个压缩包，请减少选择数量`, 4000)
+      return
+    }
+    if (batchRunning) {
+      showToast(doc, '已有批量解压任务正在运行', 3000)
+      return
+    }
+    if (!confirm(`将解压 ${files.length} 个压缩包，并分别创建同名文件夹。该操作会持续请求 115 接口，是否继续？`)) return
     void runBatch(doc, files)
   }, true)
 

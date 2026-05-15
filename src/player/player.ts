@@ -249,8 +249,9 @@ class PlayerManager {
       this.renderRotateControl()
       this.renderSpeedControl()
 
-      void loadPlayHistory(this.currentPickCode, (time) => {
-        if (this.artplayer) {
+      const initPickCode = this.currentPickCode
+      void loadPlayHistory(initPickCode, (time) => {
+        if (this.artplayer && this.currentPickCode === initPickCode) {
           this.artplayer.seek = time
         }
       })
@@ -269,6 +270,10 @@ class PlayerManager {
       this.hlsInstance.destroy()
       this.hlsInstance = null
     }
+    if (this.currentHlsSourceUrl?.startsWith('blob:')) {
+      URL.revokeObjectURL(this.currentHlsSourceUrl)
+    }
+    this.currentHlsSourceUrl = null
     this.currentHlsLogicalUrl = url
     const sourceUrl = await this.buildHlsPlaybackUrl(url)
     this.currentHlsSourceUrl = sourceUrl
@@ -1015,8 +1020,10 @@ class PlayerManager {
   }
 
   private async fetchFileFavoriteStatus(fileId: string): Promise<void> {
+    const requestPickCode = this.currentPickCode
     try {
-      const favoriteStatus = await fetchFavoriteStatus(sendRuntimeMessageSafe, this.currentPickCode)
+      const favoriteStatus = await fetchFavoriteStatus(sendRuntimeMessageSafe, requestPickCode)
+      if (requestPickCode !== this.currentPickCode) return
       if (favoriteStatus !== null) {
         this.overlay?.updateFavoriteStatus(favoriteStatus)
       }
@@ -1396,8 +1403,9 @@ class PlayerManager {
   /**
    * 主动通过 API 获取面包屑，不依赖 DOM 提取或 URL 参数
    */
-  private async fetchBreadcrumbs(): Promise<void> {
+  private async fetchBreadcrumbs(expectedPickCode = this.currentPickCode): Promise<void> {
     const pathFromQuery = readPathFromLocation(window.location.search)
+    if (expectedPickCode !== this.currentPickCode) return
     if (pathFromQuery.length > 0) {
       this.overlay?.updateBreadcrumbs(pathFromQuery)
       return
@@ -1405,8 +1413,9 @@ class PlayerManager {
 
     // 通过 API 获取（需要 cid 或 pickCode）
     const cid = readPlaylistCidFromLocation(window.location.search)
-    const path = await fetchBreadcrumbPath(sendRuntimeMessageSafe, cid, this.currentPickCode)
+    const path = await fetchBreadcrumbPath(sendRuntimeMessageSafe, cid, expectedPickCode)
 
+    if (expectedPickCode !== this.currentPickCode) return
     if (path.length > 0) {
       this.overlay?.updateBreadcrumbs(path)
     }
@@ -1635,7 +1644,7 @@ class PlayerManager {
         }
       })
 
-      void this.fetchBreadcrumbs()
+      void this.fetchBreadcrumbs(pickCode)
 
       if (targetItem?.fileId) {
         void this.fetchFileFavoriteStatus(targetItem.fileId)

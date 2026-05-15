@@ -43,6 +43,23 @@ interface IsTranscodedResult {
   count?: number
 }
 
+const TRANSCODE_COOLDOWN_MS = 45_000
+const transcodeCooldown = new Map<string, { ts: number, response: unknown }>()
+
+function getTranscodeCooldown(pickCode: string) {
+  const cached = transcodeCooldown.get(pickCode)
+  if (!cached) return null
+  if (Date.now() - cached.ts > TRANSCODE_COOLDOWN_MS) {
+    transcodeCooldown.delete(pickCode)
+    return null
+  }
+  return cached.response
+}
+
+function setTranscodeCooldown(pickCode: string, response: unknown) {
+  transcodeCooldown.set(pickCode, { ts: Date.now(), response })
+}
+
 function buildQueuedResponse(job: TranscodeCheckResult | null | undefined, detail: string, pushAccepted?: boolean) {
   return {
     ok: true,
@@ -315,8 +332,14 @@ export async function handleDeleteSuccessRefresh(message: MsgDeleteSuccessRefres
 
 // ─── TRANSCODE_ACCELERATE ───
 export async function handleTranscode(message: MsgTranscode) {
+  const pickCodeForCooldown = message.data.pickCode
+  const cached = getTranscodeCooldown(pickCodeForCooldown)
+  if (cached) {
+    return { ...(cached as object), deduped: true }
+  }
+
   try {
-    const context = await getTranscodeContext(message.data.pickCode)
+    const context = await getTranscodeContext(pickCodeForCooldown)
     if ('error' in context) {
       return { ok: false, state: 'failed', error: context.error }
     }
@@ -325,7 +348,9 @@ export async function handleTranscode(message: MsgTranscode) {
 
     const before = await checkTranscodeJob(sha1, pickCode)
     if (before?.status === 3) {
-      return buildQueuedResponse(before, 'already queued')
+      const response = buildQueuedResponse(before, 'already queued')
+      setTranscodeCooldown(pickCode, response)
+      return response
     }
 
     const pushResult = await pushVipTranscode(sha1, pickCode)
@@ -333,33 +358,41 @@ export async function handleTranscode(message: MsgTranscode) {
     const transcoded = await checkIsTranscoded(pickCode)
 
     if (after?.status === 3 || (typeof before?.priority === 'number' && typeof after?.priority === 'number' && after.priority > before.priority)) {
-      return buildQueuedResponse(after, pushResult?.msg || 'queued after vip push', !!pushResult?.state)
+      const response = buildQueuedResponse(after, pushResult?.msg || 'queued after vip push', !!pushResult?.state)
+      setTranscodeCooldown(pickCode, response)
+      return response
     }
 
     if (transcoded?.state === 1 && after?.status !== 3) {
-      return {
+      const response = {
         ok: true,
         state: 'manual_required',
         pushAccepted: !!pushResult?.state,
         detail: pushResult?.msg || 'transcode not queued automatically',
       }
+      setTranscodeCooldown(pickCode, response)
+      return response
     }
 
     if (pushResult?.state) {
-      return {
+      const response = {
         ok: true,
         state: 'pending_check',
         pushAccepted: true,
         detail: pushResult.msg || 'vip push accepted',
       }
+      setTranscodeCooldown(pickCode, response)
+      return response
     }
 
-    return {
+    const response = {
       ok: true,
       state: 'manual_required',
       pushAccepted: false,
       detail: pushResult?.msg || 'vip push rejected',
     }
+    setTranscodeCooldown(pickCode, response)
+    return response
   }
   catch (e: any) {
     console.error('[115m] transcode error:', e)

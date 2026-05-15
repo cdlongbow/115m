@@ -102,6 +102,7 @@ export class PlayerOverlayController {
   private isPointerOnProgress = false
   private playlistOpen = false
   private playlistItems: OverlayPlaylistItem[] = []
+  private cleanupPlaylistCovers: (() => void) | null = null
 
   constructor(private readonly options: PlayerOverlayOptions) {
     this.root = options.art.template.$player as HTMLElement
@@ -179,6 +180,8 @@ export class PlayerOverlayController {
     this.sidebarEl?.removeEventListener('pointerdown', this.stopInteractiveEvent)
     this.sidebarEl?.removeEventListener('mousedown', this.stopInteractiveEvent)
     this.sidebarEl?.removeEventListener('click', this.stopInteractiveEvent)
+    this.cleanupPlaylistCovers?.()
+    this.cleanupPlaylistCovers = null
     this.playlistTabEl?.remove()
     this.headerEl?.remove()
     this.endPanelEl?.remove()
@@ -458,6 +461,8 @@ export class PlayerOverlayController {
     this.playlistItems = items
     const currentPickCode = this.options.getCurrentPickCode()
 
+    this.cleanupPlaylistCovers?.()
+    this.cleanupPlaylistCovers = null
     this.playlistListEl.innerHTML = buildPlaylistHtml(items, currentPickCode)
     bindPlaylistInteractions(this.playlistListEl, currentPickCode, items, {
       onPlay: this.options.onPlaylistPlay,
@@ -465,7 +470,7 @@ export class PlayerOverlayController {
       onDelete: this.options.onPlaylistDelete,
     })
     scrollActivePlaylistNodeIntoView(this.playlistListEl, currentPickCode)
-    lazyLoadPlaylistCovers(this.playlistListEl, items)
+    this.cleanupPlaylistCovers = lazyLoadPlaylistCovers(this.playlistListEl, items)
   }
 
   private setVisible(visible: boolean) {
