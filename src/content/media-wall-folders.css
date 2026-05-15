@@ -188,24 +188,26 @@
 }
 
 .m115-folder-action-btn[data-role='star'] {
-  top: 8px;
-  right: -0.5px;
-  width: 29px;
-  height: 28px;
-  background: linear-gradient(135deg, rgba(255, 253, 245, 0.96) 0%, rgba(255, 248, 220, 0.94) 100%);
-  color: #b07c10;
+  top: 4px;
+  right: 4px;
+  width: 34px;
+  height: 34px;
+  background: linear-gradient(135deg, rgba(28, 32, 40, 0.1) 0%, rgba(28, 32, 40, 0.46) 54%, rgba(28, 32, 40, 0.7) 100%);
+  color: rgba(255, 219, 123, 0.95);
   border: 0;
+  border-radius: 0 7px 0 12px;
   display: flex;
   align-items: center;
   justify-content: center;
+  padding: 0;
   clip-path: polygon(0 0, 100% 0, 100% 100%);
   box-shadow:
-    inset 1.5px 1.5px 2px rgba(0, 0, 0, 0.04),
-    inset -1px -1px 2px rgba(255, 255, 255, 0.85);
-  backdrop-filter: blur(4px);
+    inset -1px 1px 0 rgba(255, 255, 255, 0.12),
+    inset 0 -1px 8px rgba(0, 0, 0, 0.18);
+  backdrop-filter: blur(3px) saturate(1.05);
   z-index: 3;
   opacity: 0;
-  transform: translate(6px, -6px);
+  transform: translate(5px, -5px);
   pointer-events: none;
 }
 
@@ -218,13 +220,13 @@
 }
 
 .m115-folder-action-btn[data-role='star'].is-active {
-  color: #dd8d07;
-  background: linear-gradient(135deg, rgba(255, 253, 245, 0.98) 0%, rgba(255, 248, 220, 0.96) 100%);
+  color: #ffd86b;
+  background: linear-gradient(135deg, rgba(66, 48, 18, 0.18) 0%, rgba(91, 63, 18, 0.56) 55%, rgba(102, 68, 14, 0.78) 100%);
 }
 
 .m115-folder-action-btn[data-role='star'] .m115-folder-icon {
-  transform: translate(4.5px, -4.5px);
-  filter: drop-shadow(0 0.5px 0.5px rgba(0, 0, 0, 0.08));
+  transform: translate(5px, -5px);
+  filter: drop-shadow(0 1px 1px rgba(0, 0, 0, 0.28));
 }
 
 .m115-folder-action-btn[data-role='star'] svg {
@@ -232,7 +234,7 @@
   height: 13px;
   fill: none;
   stroke: currentColor;
-  stroke-width: 1.5px;
+  stroke-width: 1.65px;
 }
 
 .m115-folder-action-btn[data-role='star'].is-active svg {
