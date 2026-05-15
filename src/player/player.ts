@@ -51,6 +51,8 @@ import { buildPlaybackNavState, getDeleteFallback, getPlaylistPosition } from '.
 import { readTemporaryPlayerPlaylist } from '../shared/player-playlist-cache'
 import { canUseNativeUltraSource, isConservativeNativeUltraExtension, shouldFallbackNativeSilentAudio, shouldRetryNativePlayback } from './core/native-playback'
 import { applyRotationToVideo, buildRotateControlItem, getNextRotationDegrees } from './core/player-rotation'
+import { bindClickSelectorBehavior } from './core/player-selector'
+import { SubtitleManager } from './core/subtitle-manager'
 
 function injectPlayerSkinStyles() {
   if (document.getElementById('m115-player-skin-style')) return
@@ -61,6 +63,21 @@ function injectPlayerSkinStyles() {
 }
 
 injectPlayerSkinStyles()
+
+function getSubtitleControlLabel(title: string, hasItems: boolean) {
+  if (!hasItems) return '无字幕'
+  if (!title) return '字幕'
+
+  const cleanedTitle = title.replace(/^\s*\[(?:内置字幕|外挂字幕)\]\s*/i, '').trim() || title.trim()
+  const normalizedTitle = cleanedTitle.toLowerCase()
+  if (normalizedTitle.includes('简') && normalizedTitle.includes('中')) return '简中'
+  if (normalizedTitle.includes('繁') && normalizedTitle.includes('中')) return '繁中'
+  if (normalizedTitle.includes('英')) return '英文'
+  if (normalizedTitle.includes('日')) return '日文'
+  if (normalizedTitle.includes('双语')) return '双语'
+
+  return cleanedTitle.length > 4 ? `${cleanedTitle.slice(0, 4)}…` : cleanedTitle
+}
 
 interface PlayerConfig {
   pickCode: string
@@ -144,6 +161,8 @@ class PlayerManager {
   private audioTrackOptions: AudioTrackOption[] = []
   private currentAudioTrackId = -1
   private currentAudioTrackLabel = '音轨'
+  private subtitleManager: SubtitleManager | null = null
+  private subtitleControlEl: HTMLElement | null = null
   private audioTrackSyncTimers: number[] = []
   private currentHlsSourceUrl: string | null = null
   private currentHlsLogicalUrl: string | null = null
@@ -252,6 +271,7 @@ class PlayerManager {
       const currentUrl = this.artplayer?.url || ''
       this.refreshQualityState(currentUrl)
       this.renderQualityPanel()
+      this.renderSubtitleControl()
       this.renderPlaybackNavControls()
       this.renderRotateControl()
       this.renderSpeedControl()
@@ -407,6 +427,7 @@ class PlayerManager {
         this.buildRotateControlItem(),
         this.buildQualityControlItem(),
         this.buildAudioControlItem(),
+        this.buildSubtitleControlItem(),
         this.buildPlaybackModeControlItem(),
         this.buildSpeedControlItem(),
       ],
@@ -497,6 +518,7 @@ class PlayerManager {
 
     this.setupTopNav()
     this.setupProgressHoverPreview(videoUrl, type)
+    this.setupSubtitles()
     void this.fetchBreadcrumbs()
 
     if (this.artplayer) {
@@ -525,6 +547,7 @@ class PlayerManager {
           })
           this.renderQualityPanel()
           this.renderAudioControl()
+          this.renderSubtitleControl()
           this.renderPlaybackModeControl()
           this.renderPlaybackNavControls()
           this.renderRotateControl()
@@ -535,6 +558,7 @@ class PlayerManager {
           this.updateQualityByUrl(this.artplayer?.url || '')
           this.renderQualityPanel()
           this.renderAudioControl()
+          this.renderSubtitleControl()
           this.renderPlaybackModeControl()
           this.renderSpeedControl()
           this.applyVideoRotation()
@@ -637,6 +661,85 @@ class PlayerManager {
   private renderAudioControl() {
     if (!this.artplayer) return
     updateArtplayerControl(this.artplayer, PlayerManager.AUDIO_CONTROL_NAME, this.buildAudioControlItem())
+  }
+
+  private buildSubtitleControlItem(): any {
+    const items = this.subtitleManager?.getItems() || []
+    const selectedSid = this.subtitleManager?.getSelectedSid() || ''
+    const selected = items.find(item => item.sid === selectedSid)
+    const currentSubtitleLabel = selected?.title || (items.length ? '字幕' : '无字幕')
+    const compactSubtitleLabel = getSubtitleControlLabel(selected?.title || '', items.length > 0)
+    const listHtml = [
+      `<button type="button" class="m115-subtitle-option ${selectedSid ? '' : 'is-active'}" data-sid="">关闭字幕</button>`,
+      ...items.map(item => `<button type="button" class="m115-subtitle-option ${item.sid === selectedSid ? 'is-active' : ''}" data-sid="${this.escapeAttr(item.sid)}">${this.escapeHtml(item.title)}</button>`),
+    ].join('')
+
+    return {
+      name: 'm115-subtitle-control',
+      index: 10.3,
+      position: 'right',
+      style: {
+        marginRight: 'var(--m115-control-gap)',
+        width: 'var(--m115-subtitle-width)',
+        minWidth: 'var(--m115-subtitle-width)',
+        maxWidth: 'var(--m115-subtitle-width)',
+        height: 'var(--m115-control-size)',
+        minHeight: 'var(--m115-control-size)',
+        maxHeight: 'var(--m115-control-size)',
+        textAlign: 'center' as const,
+      },
+      html: `<div class="m115-subtitle-control art-control-selector">
+        <span class="art-selector-value m115-subtitle-value" title="${this.escapeAttr(currentSubtitleLabel)}">${this.escapeHtml(compactSubtitleLabel)}</span>
+        <div class="art-selector-list">${listHtml}</div>
+      </div>`,
+      mounted: (el: HTMLElement) => {
+        el.classList.add('m115-subtitle-control')
+        bindClickSelectorBehavior(el)
+        el.style.display = items.length > 0 ? 'flex' : 'inline-flex'
+        this.subtitleControlEl = el
+        el.querySelectorAll<HTMLButtonElement>('.m115-subtitle-option').forEach((button) => {
+          button.addEventListener('click', (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            void this.subtitleManager?.select(button.dataset.sid || '')
+          })
+        })
+      },
+    }
+  }
+
+  private renderSubtitleControl() {
+    if (!this.artplayer) return
+    updateArtplayerControl(this.artplayer, 'm115-subtitle-control', this.buildSubtitleControlItem())
+  }
+
+  private setupSubtitles() {
+    if (!this.artplayer || this.subtitleManager) return
+    const container = this.artplayer.video.parentElement as HTMLElement | null
+    if (!container) return
+
+    this.subtitleManager = new SubtitleManager({
+      container,
+      getVideo: () => this.artplayer?.video || null,
+      sendMessage: sendRuntimeMessageSafe,
+      onListChange: () => this.renderSubtitleControl(),
+      onTrackChange: () => this.renderSubtitleControl(),
+      onError: message => this.overlay?.showToast(message),
+    })
+    void this.subtitleManager.loadList(this.currentPickCode)
+  }
+
+  private resetSubtitlesForCurrentVideo() {
+    this.subtitleManager?.clearTrack()
+    void this.subtitleManager?.loadList(this.currentPickCode)
+  }
+
+  private escapeHtml(value: string) {
+    return value.replace(/[&<>"]/g, char => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' })[char] || char)
+  }
+
+  private escapeAttr(value: string) {
+    return this.escapeHtml(value).replace(/'/g, '&#39;')
   }
 
   private renderSpeedControl() {
@@ -1644,7 +1747,9 @@ class PlayerManager {
       if (requestId !== this.switchVideoRequestId || !this.artplayer) return
 
       this.setupProgressHoverPreview(playback.initialPlayback.url, playback.initialPlayback.type)
+      this.resetSubtitlesForCurrentVideo()
       this.renderQualityPanel()
+      this.renderSubtitleControl()
       this.renderPlaybackNavControls()
       this.renderRotateControl()
       this.applyVideoRotation()
@@ -1733,6 +1838,9 @@ class PlayerManager {
       this.infoMenuTimer = null
     }
     this.infoMenuEl = null
+    this.subtitleManager?.destroy()
+    this.subtitleManager = null
+    this.subtitleControlEl = null
     if (this.cleanupKeyboard) {
       this.cleanupKeyboard()
       this.cleanupKeyboard = null

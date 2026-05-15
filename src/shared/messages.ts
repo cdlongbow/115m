@@ -72,6 +72,11 @@ export interface MsgFetchM3u8 {
   data: { pickCode: string }
 }
 
+export interface MsgFetchSubtitles {
+  type: 'FETCH_SUBTITLES'
+  data: { pickCode: string }
+}
+
 export interface MsgMainWorldFetch {
   type: 'MAIN_WORLD_FETCH'
   data: { url: string, body: string }
@@ -157,6 +162,7 @@ export type RuntimeMessage =
   | MsgDeleteHistory
   | MsgOpenTab
   | MsgFetchM3u8
+  | MsgFetchSubtitles
   | MsgMainWorldFetch
   | MsgMainWorldGet
   | MsgFetchPlaylist

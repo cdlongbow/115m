@@ -11,6 +11,7 @@ import {
   handleDeleteFile,
   handleDeleteSuccessRefresh,
   handleFetchM3u8,
+  handleFetchSubtitles,
   handleFetchPlaylist,
   handleMoveFile,
   handleMoveSuccessRefresh,
@@ -72,7 +73,9 @@ const MAIN_WORLD_ALLOWED_PATHS = [
   { host: 'webapi.115.com', path: '/files' },
   { host: 'webapi.115.com', path: '/files/' },
   { host: 'webapi.115.com', path: '/rb/delete' },
+  { host: 'webapi.115.com', path: '/movies/subtitle' },
   { host: 'proapi.115.com', path: '/app/chrome/downurl' },
+  { host: '115vod.com', path: '/webapi/movies/subtitle' },
 ]
 const DOWNLOAD_ALLOWED_HOSTS = ['115cdn.net']
 
@@ -162,6 +165,10 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
     case 'FETCH_M3U8':
       assertTrustedSender(sender, message.type)
       return handleFetchM3u8(message)
+
+    case 'FETCH_SUBTITLES':
+      assertTrustedSender(sender, message.type)
+      return handleFetchSubtitles(message, sender)
 
     case 'FETCH_PLAYLIST':
       assertTrustedSender(sender, message.type)

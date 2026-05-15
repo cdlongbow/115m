@@ -6,6 +6,7 @@ import type {
   MsgDeleteSuccessRefresh,
   MsgFetchM3u8,
   MsgFetchPlaylist,
+  MsgFetchSubtitles,
   MsgMoveFile,
   MsgTranscode,
   MsgTranscodeStatus,
@@ -19,7 +20,7 @@ import {
   removeDeletedNodeIn115Tab,
   showMoveFileDialogIn115Page,
 } from '../platform/115/file-actions'
-import { find115TabId, query115Tabs, queryPlayerTabs } from '../platform/115/main-world'
+import { executeInMainWorld } from './helpers'
 
 interface TranscodeCheckResult {
   result?: number
@@ -204,6 +205,73 @@ export async function handleFetchM3u8(message: MsgFetchM3u8) {
   }
   catch (e: any) {
     return { error: e?.message || String(e) }
+  }
+}
+
+export async function handleFetchSubtitles(message: MsgFetchSubtitles, sender?: chrome.runtime.MessageSender) {
+  try {
+    const pickCode = encodeURIComponent(message.data.pickCode)
+    
+    // 经查阅 115master-main 参考项目，获取字幕应直接请求 webapi.115.com
+    const url = `https://webapi.115.com/movies/subtitle?pickcode=${pickCode}`
+    const legacyUrl = `https://115.com/webapi/movies/subtitle?pickcode=${pickCode}`
+    
+    // 注入简单的 fetch 逻辑，确保最纯粹的请求环境
+    const script = `
+      (async () => {
+        try {
+          const res = await fetch("${url}", { credentials: "include" });
+          const text = await res.text();
+          return { ok: true, text };
+        } catch (e) {
+          return { ok: false, error: e.message };
+        }
+      })()
+    `
+
+    try {
+      const mainWorldResult = await executeInMainWorld(sender, script)
+      if (mainWorldResult?.ok && mainWorldResult.text) {
+        let parsed: any = null
+        try {
+          parsed = JSON.parse(mainWorldResult.text)
+        } catch (e) {}
+
+        if (parsed) {
+          console.log('[115m][bg] fetch subtitles via script injection success', parsed)
+          return parsed
+        }
+      }
+    } catch (e) {
+      console.log('[115m][bg] script injection fetch failed', e)
+    }
+
+    // 备用 fallback: 直接在 background fetch
+    const res = await fetch(url, {
+      credentials: 'include',
+      headers: { 
+        'Accept': 'application/json, text/javascript, */*; q=0.01',
+        'X-Requested-With': 'XMLHttpRequest',
+      },
+    })
+    
+    const text = await res.text()
+    let result: any = null
+    try {
+      result = JSON.parse(text)
+    } catch (e) {}
+    
+    console.log('[115m][bg] fetch subtitles fallback result:', result)
+    
+    if (result) {
+      return result
+    }
+    
+    return { data: [], error: 'empty' }
+  }
+  catch (e: any) {
+    console.warn('[115m][bg] fetch subtitles failed', e)
+    return { data: [], error: e?.message || String(e) }
   }
 }
 

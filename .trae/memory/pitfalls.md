@@ -29,3 +29,10 @@
 
 - 修改播放器核心文件前必须先读当前文件内容
 - 大文件优先小范围替换，避免整文件重写造成截断
+
+## 字幕链路
+
+- `SubtitleManager.loadList()` 若先 `++loadToken` 再调用 `clearTrack()`，会再次递增 token，导致接口返回后始终命中 `token !== this.loadToken` 并被直接丢弃，UI 会长期停留在“无字幕”
+- 115 字幕接口即使已返回有效列表，若前端只支持 `srt/ass`，遇到 `webvtt` 或 MicroDVD `.sub` 仍可能表现为“字幕解析为空”；排查时不要只盯接口是否为空
+- `src/background/handlers.ts` 当前应从 `src/background/helpers.ts` 引用 `executeInMainWorld`；误从 `src/platform/115/main-world.ts` 直接导入会导致构建失败
+- 控制栏字幕文案若直接使用原始标题，像 `[内置字幕]简体中文` 这类名称会挤压右侧按钮；应先去前缀并限制为短标签或固定宽度
