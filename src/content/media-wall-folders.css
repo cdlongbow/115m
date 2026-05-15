@@ -213,10 +213,16 @@
 
 .m115-folder-card:hover .m115-folder-action-btn[data-role='star'],
 .m115-folder-action-btn[data-role='star']:focus-visible,
+.m115-folder-action-btn[data-role='star'].is-pending,
 .m115-folder-action-btn[data-role='star'].is-active {
   opacity: 1;
   transform: translate(0, 0);
   pointer-events: auto;
+}
+
+.m115-folder-action-btn[data-role='star'].is-pending {
+  cursor: wait;
+  filter: saturate(0.9);
 }
 
 .m115-folder-action-btn[data-role='star'].is-active {

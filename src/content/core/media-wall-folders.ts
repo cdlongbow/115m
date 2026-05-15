@@ -155,6 +155,40 @@ export function openNativeFolderContextMenu(sourceItem: HTMLElement, hiddenClass
   })
 }
 
+function isSourceItemStarred(sourceItem: HTMLElement, starAction: HTMLElement | null): boolean {
+  return starAction?.getAttribute('is_star') === '1'
+    || sourceItem.getAttribute('is_star') === '1'
+    || sourceItem.getAttribute('star') === '1'
+    || sourceItem.classList.contains('is-starred')
+}
+
+function syncStarButtonState(starBtn: HTMLButtonElement, active: boolean) {
+  starBtn.classList.toggle('is-active', active)
+  starBtn.classList.remove('is-pending')
+  starBtn.disabled = false
+  starBtn.title = active ? '取消星标' : '星标'
+  starBtn.setAttribute('aria-label', active ? '取消星标' : '星标')
+}
+
+function scheduleFolderStarSync(
+  doc: Document,
+  starBtn: HTMLButtonElement,
+  sourceItem: HTMLElement,
+  starAction: HTMLElement | null,
+  scheduleMediaWallRefresh: (doc: Document) => void,
+) {
+  const sync = () => syncStarButtonState(starBtn, isSourceItemStarred(sourceItem, starAction))
+  window.setTimeout(sync, 180)
+  window.setTimeout(() => {
+    sync()
+    scheduleMediaWallRefresh(doc)
+  }, 600)
+  window.setTimeout(() => {
+    sync()
+    scheduleMediaWallRefresh(doc)
+  }, 1200)
+}
+
 export function buildFolderItem(item: HTMLElement): MediaWallFolderItem | null {
   if (item.getAttribute('file_type') !== '0') return null
 
@@ -170,7 +204,7 @@ export function buildFolderItem(item: HTMLElement): MediaWallFolderItem | null {
     title,
     coverUrl,
     sourceItem: item,
-    isStarred: starAction?.getAttribute('is_star') === '1',
+    isStarred: isSourceItemStarred(item, starAction),
     hasRemark: !!remarkAction && getComputedStyle(remarkAction).display !== 'none',
     starAction,
     remarkAction,
@@ -284,12 +318,11 @@ export function renderFoldersSection(
     starBtn.addEventListener('click', (event) => {
       event.preventDefault()
       event.stopPropagation()
-      const nextActive = !starBtn.classList.contains('is-active')
-      starBtn.classList.toggle('is-active', nextActive)
-      starBtn.title = nextActive ? '取消星标' : '星标'
-      starBtn.setAttribute('aria-label', nextActive ? '取消星标' : '星标')
-      folder.starAction?.click()
-      scheduleMediaWallRefresh(doc)
+      if (!folder.starAction || starBtn.disabled) return
+      starBtn.disabled = true
+      starBtn.classList.add('is-pending')
+      folder.starAction.click()
+      scheduleFolderStarSync(doc, starBtn, folder.sourceItem, folder.starAction, scheduleMediaWallRefresh)
     })
     actions.appendChild(starBtn)
 
