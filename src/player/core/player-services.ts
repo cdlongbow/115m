@@ -7,7 +7,9 @@ import { normalizePlaylistItems } from './playlist'
 import type { OverlayPathItem, OverlayPlaylistItem } from './overlay'
 import { fetchM3u8WithRetry } from './source'
 
-type RuntimeSender = <T = unknown>(message: unknown) => Promise<T | null>
+type RuntimeSender = <T = unknown>(message: unknown, retries?: number, delay?: number, timeoutMs?: number) => Promise<T | null>
+
+const PLAYBACK_SOURCE_TIMEOUT_MS = 12000
 
 export interface ResolvedPlaybackBundle {
   qualityPreference: QualityPreference | null
@@ -25,12 +27,15 @@ export async function resolvePlaybackBundle(
   let m3u8Error: unknown = null
   let ultraError: unknown = null
 
+  const timedSendMessage: RuntimeSender = (message, retries, delay, timeoutMs = PLAYBACK_SOURCE_TIMEOUT_MS) =>
+    sendMessage(message, retries, delay, timeoutMs)
+
   const m3u8Promise = fetchM3u8WithRetry(pickCode).catch((error) => {
     m3u8Error = error
     return [] as M3u8Item[]
   })
 
-  const ultraPromise = fetchBestDownloadResult(sendMessage, pickCode).catch((error) => {
+  const ultraPromise = fetchBestDownloadResult(timedSendMessage, pickCode).catch((error) => {
     ultraError = error
     return null
   })

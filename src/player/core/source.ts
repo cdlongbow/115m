@@ -2,6 +2,8 @@ import type { M3u8Item } from '../../lib/types'
 import { fetchBestDownloadResult } from '../../lib/pro-api'
 import { sendRuntimeMessageSafe } from './runtime'
 
+const PLAYBACK_SOURCE_MESSAGE_TIMEOUT_MS = 12000
+
 /**
  * 获取无损播放源
  * 优先：Pro API 通过主世界 executeScript（正确 Origin）
@@ -41,7 +43,7 @@ export async function fetchM3u8WithRetry(pickCode: string): Promise<M3u8Item[]> 
       const res = await sendRuntimeMessageSafe<{ list?: M3u8Item[], error?: string }>({
         type: 'FETCH_M3U8',
         data: { pickCode },
-      })
+      }, 0, 0, PLAYBACK_SOURCE_MESSAGE_TIMEOUT_MS)
       if (res?.list && res.list[0]) {
         return res.list
       }

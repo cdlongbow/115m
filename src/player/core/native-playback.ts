@@ -5,10 +5,11 @@ export function shouldRetryNativePlayback(params: { retryCount: number, hasStart
 const NATIVE_PLAYABLE_EXTENSIONS = new Set([
   'mp4',
   'm4v',
-  'mkv',
   'webm',
-  'ogv',
-  'ogg',
+])
+
+const NATIVE_TRYABLE_EXTENSIONS = new Set([
+  'mov',
 ])
 
 function readExtension(value: string) {
@@ -21,13 +22,33 @@ function readExtension(value: string) {
 export function canUseNativeUltraSource(title: string, ultraUrl: string | null) {
   const titleExt = readExtension(title)
   if (titleExt) {
-    return NATIVE_PLAYABLE_EXTENSIONS.has(titleExt)
+    return NATIVE_PLAYABLE_EXTENSIONS.has(titleExt) || NATIVE_TRYABLE_EXTENSIONS.has(titleExt)
   }
 
   const urlExt = readExtension(ultraUrl || '')
   if (urlExt) {
-    return NATIVE_PLAYABLE_EXTENSIONS.has(urlExt)
+    return NATIVE_PLAYABLE_EXTENSIONS.has(urlExt) || NATIVE_TRYABLE_EXTENSIONS.has(urlExt)
   }
 
-  return true
+  return false
+}
+
+export function isConservativeNativeUltraExtension(title: string, ultraUrl: string | null) {
+  const titleExt = readExtension(title)
+  if (titleExt) return NATIVE_PLAYABLE_EXTENSIONS.has(titleExt)
+
+  const urlExt = readExtension(ultraUrl || '')
+  if (urlExt) return NATIVE_PLAYABLE_EXTENSIONS.has(urlExt)
+
+  return false
+}
+
+export function shouldFallbackNativeSilentAudio(params: {
+  title: string
+  ultraUrl: string | null
+  nativeUltraConservative: boolean
+}) {
+  const titleExt = readExtension(params.title)
+  const urlExt = readExtension(params.ultraUrl || '')
+  return params.nativeUltraConservative || titleExt === 'mkv' || urlExt === 'mkv'
 }

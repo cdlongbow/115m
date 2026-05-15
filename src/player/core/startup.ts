@@ -17,7 +17,8 @@ export function resolveInitialPlayback(params: {
   m3u8List: M3u8Item[]
 }): InitialPlaybackPlan | null {
   const { qualityPreference, ultraUrl, canUseNativeUltraSource = true, m3u8List } = params
-  const playableUltraUrl = canUseNativeUltraSource ? ultraUrl : null
+  const canUseRememberedNativeUltra = qualityPreference?.label === '无损' && !!ultraUrl
+  const playableUltraUrl = canUseNativeUltraSource || canUseRememberedNativeUltra ? ultraUrl : null
 
   if (qualityPreference) {
     if (qualityPreference.label === '无损' && playableUltraUrl) {

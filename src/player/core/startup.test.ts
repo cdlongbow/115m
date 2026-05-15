@@ -51,20 +51,20 @@ describe('resolveInitialPlayback', () => {
     })
   })
 
-  it('skips native ultra for unsupported containers even when ultra url exists', () => {
+  it('respects remembered native source even for manually selected unsupported containers', () => {
     expect(resolveInitialPlayback({
       qualityPreference: { label: '无损', quality: 9999 },
-      ultraUrl: 'https://lossless.example/video.ts',
+      ultraUrl: 'https://lossless.example/video.mkv',
       canUseNativeUltraSource: false,
       m3u8List: [
         { name: 'YH', quality: 9999, url: 'https://origin.example/master.m3u8' },
       ],
     })).toEqual({
-      url: 'https://origin.example/master.m3u8',
-      type: 'hls',
+      url: 'https://lossless.example/video.mkv',
+      type: 'native',
       currentQuality: 9999,
-      currentQualityLabel: '115原画',
-      isNativeVideo: false,
+      currentQualityLabel: '无损',
+      isNativeVideo: true,
     })
   })
 })

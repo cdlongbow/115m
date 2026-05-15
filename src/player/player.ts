@@ -49,7 +49,7 @@ import {
 import { deleteVideoFile, fetchFavoriteStatus, updateFavoriteStatus } from './core/player-api'
 import { buildPlaybackNavState, getDeleteFallback, getPlaylistPosition } from './core/playlist-navigation'
 import { readTemporaryPlayerPlaylist } from '../shared/player-playlist-cache'
-import { canUseNativeUltraSource, shouldRetryNativePlayback } from './core/native-playback'
+import { canUseNativeUltraSource, isConservativeNativeUltraExtension, shouldFallbackNativeSilentAudio, shouldRetryNativePlayback } from './core/native-playback'
 import { applyRotationToVideo, buildRotateControlItem, getNextRotationDegrees } from './core/player-rotation'
 
 function injectPlayerSkinStyles() {
@@ -129,6 +129,8 @@ class PlayerManager {
   private readonly keepPlaylistOpenOnInit: boolean
   private readonly playlistToken?: string
   private readonly nativeUltraSupported: boolean
+  private readonly nativeUltraConservative: boolean
+  private readonly title: string
   private currentPlaybackType: 'native' | 'hls' = 'hls'
   private cleanupResize: (() => void) | null = null
   private cleanupRotationContainerObserver: (() => void) | null = null
@@ -168,8 +170,13 @@ class PlayerManager {
     this.clickTs = config.clickTs || 0
     this.keepPlaylistOpenOnInit = config.keepPlaylistOpen === true
     this.playlistToken = config.playlistToken
+    this.title = new URLSearchParams(window.location.search).get('title') || ''
     this.nativeUltraSupported = canUseNativeUltraSource(
-      new URLSearchParams(window.location.search).get('title') || '',
+      this.title,
+      null,
+    )
+    this.nativeUltraConservative = isConservativeNativeUltraExtension(
+      this.title,
       null,
     )
     this.initStartTs = performance.now()
@@ -1082,7 +1089,7 @@ class PlayerManager {
   }
 
 
-  private async fallbackToHls(reason = '播放失败') {
+  private async fallbackToHls(reason = '播放失败', rememberOriginal = false) {
     this.clearNativeAudioProbe()
     console.log('[115m] fallbackToHls triggered, current m3u8List length:', this.m3u8List.length, 'reason:', reason)
     
@@ -1112,6 +1119,9 @@ class PlayerManager {
     const { url: bestQualityUrl, patch } = applyFallbackToHlsState(this.getPlaybackState())
     this.applyPlaybackStatePatch(patch)
     this.currentPlaybackType = 'hls'
+    if (rememberOriginal) {
+      saveQualityPreference(this.currentPickCode, '115原画', 9999)
+    }
     if (!bestQualityUrl) {
       this.showError('播放失败，无可用的视频源')
       return
@@ -1157,10 +1167,15 @@ class PlayerManager {
       this.scheduleNativeAudioProbe()
       return
     }
+    if (!shouldFallbackNativeSilentAudio({
+      title: this.title,
+      ultraUrl: this.ultraUrl,
+      nativeUltraConservative: this.nativeUltraConservative,
+    })) return
     const hasHlsAudioTracks = await this.masterPlaylistHasAudioTracks()
     if (!hasHlsAudioTracks) return
     console.warn('[115m][audio] native source has no decoded audio, fallback to HLS')
-    await this.fallbackToHls('无损音频不兼容')
+    await this.fallbackToHls('无损音频不兼容，已改用 115原画', true)
   }
 
   private async masterPlaylistHasAudioTracks() {

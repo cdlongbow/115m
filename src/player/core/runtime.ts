@@ -86,6 +86,7 @@ export async function sendRuntimeMessageSafe<T = unknown>(
   message: unknown,
   retries = 3,
   delay = 1000,
+  timeoutMs = 0,
 ): Promise<T | null> {
   if (!canUseRuntimeMessaging()) {
     console.warn('[115m] sendRuntimeMessage skipped: runtime unavailable', message)
@@ -95,7 +96,13 @@ export async function sendRuntimeMessageSafe<T = unknown>(
     try {
       const runtime = getRuntimeApi()
       if (!runtime?.sendMessage) return null
-      const result = await runtime.sendMessage(message) as T
+      const messagePromise = runtime.sendMessage(message) as Promise<T>
+      const result = await (timeoutMs > 0
+        ? Promise.race<T | undefined>([
+            messagePromise,
+            new Promise<undefined>(resolve => window.setTimeout(resolve, timeoutMs)),
+          ])
+        : messagePromise)
       if (result !== undefined) {
         return result
       }
