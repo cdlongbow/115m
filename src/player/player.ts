@@ -100,6 +100,8 @@ class PlayerManager {
   private static readonly ROTATE_CONTROL_NAME = 'm115-rotate-control'
   private static readonly PREV_CONTROL_NAME = 'm115-prev-control'
   private static readonly NEXT_CONTROL_NAME = 'm115-next-control'
+  private static readonly VIDEO_SWITCH_COOLDOWN_MS = 1200
+  private static readonly NATIVE_AUDIO_PROBE_DELAY_MS = 4500
   private artplayer: Artplayer | null = null
   private hlsInstance: HlsType | null = null
   private m3u8List: M3u8Item[] = []
@@ -144,6 +146,10 @@ class PlayerManager {
   private currentHlsSourceUrl: string | null = null
   private currentHlsLogicalUrl: string | null = null
   private preferredAudioTrackId: number | null = null
+  private isSwitchingVideo = false
+  private lastVideoSwitchStartedAt = 0
+  private pendingVideoSwitch: { pickCode: string, keepPlaylistOpen: boolean, autoPlay: boolean } | null = null
+  private switchCooldownTimer: number | null = null
   private readonly handleRuntimeMessage = (message: any) => {
     if (message?.type === 'MOVE_SUCCESS_REFRESH') {
       void this.refreshBreadcrumbs()
@@ -650,24 +656,26 @@ class PlayerManager {
 
   private buildPrevControlItem(): any {
     const state = buildPlaybackNavState(getPlaylistPosition(this.playlistItemsCache, this.currentPickCode))
+    const enabled = state.hasPrevious && !this.isSwitchingVideo
     return buildNavControlItem({
       controlName: PlayerManager.PREV_CONTROL_NAME,
       direction: 'prev',
       index: 9,
-      enabled: state.hasPrevious,
-      title: state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集',
+      enabled,
+      title: this.isSwitchingVideo ? '正在切换视频' : (state.previousTitle ? `上一集：${state.previousTitle}` : '没有上一集'),
       onClick: () => { void this.playPrevious() },
     })
   }
 
   private buildNextControlItem(): any {
     const state = buildPlaybackNavState(getPlaylistPosition(this.playlistItemsCache, this.currentPickCode))
+    const enabled = state.hasNext && !this.isSwitchingVideo
     return buildNavControlItem({
       controlName: PlayerManager.NEXT_CONTROL_NAME,
       direction: 'next',
       index: 11,
-      enabled: state.hasNext,
-      title: state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集',
+      enabled,
+      title: this.isSwitchingVideo ? '正在切换视频' : (state.nextTitle ? `下一集：${state.nextTitle}` : '没有下一集'),
       onClick: () => { void this.playNext() },
     })
   }
@@ -1126,7 +1134,7 @@ class PlayerManager {
     this.nativeAudioProbeTimer = window.setTimeout(() => {
       this.nativeAudioProbeTimer = null
       void this.checkNativeAudioDecode()
-    }, 2500)
+    }, PlayerManager.NATIVE_AUDIO_PROBE_DELAY_MS)
   }
 
   private async checkNativeAudioDecode() {
@@ -1138,6 +1146,10 @@ class PlayerManager {
     }
     const decodedBytes = video.webkitAudioDecodedByteCount
     if (typeof decodedBytes !== 'number' || decodedBytes > 0) return
+    if (video.readyState < HTMLMediaElement.HAVE_FUTURE_DATA || video.currentTime < 3) {
+      this.scheduleNativeAudioProbe()
+      return
+    }
     const hasHlsAudioTracks = await this.masterPlaylistHasAudioTracks()
     if (!hasHlsAudioTracks) return
     console.warn('[115m][audio] native source has no decoded audio, fallback to HLS')
@@ -1160,7 +1172,12 @@ class PlayerManager {
     }
 
     if (hasStartedPlaying) {
-      this.overlay?.showToast('无损播放出现波动，请稍后重试，或手动切换 115原画')
+      this.overlay?.showToast('无损播放出现波动，已保留当前无损源，可手动切换 115原画')
+      return
+    }
+
+    if (!this.artplayer.video.error || this.artplayer.video.networkState !== HTMLMediaElement.NETWORK_NO_SOURCE) {
+      this.overlay?.showToast('无损播放异常，已重试保留无损源，可手动切换 115原画')
       return
     }
 
@@ -1263,9 +1280,16 @@ class PlayerManager {
 
   private syncOverlayPlaybackNav() {
     this.renderPlaybackNavControls()
-    this.overlay?.updatePlaybackNav(buildPlaybackNavState(
+    const state = buildPlaybackNavState(
       getPlaylistPosition(this.playlistItemsCache, this.currentPickCode),
-    ))
+    )
+    this.overlay?.updatePlaybackNav({
+      ...state,
+      hasPrevious: state.hasPrevious && !this.isSwitchingVideo,
+      hasNext: state.hasNext && !this.isSwitchingVideo,
+      previousTitle: this.isSwitchingVideo ? '正在切换视频' : state.previousTitle,
+      nextTitle: this.isSwitchingVideo ? '正在切换视频' : state.nextTitle,
+    })
   }
 
   private syncCurrentPlaylistProgress(force = false) {
@@ -1523,7 +1547,40 @@ class PlayerManager {
   }
 
   private navigateToVideo(pickCode: string, keepPlaylistOpen = false, autoPlay = false) {
-    void this.switchToVideo(pickCode, keepPlaylistOpen, autoPlay)
+    if (!pickCode || pickCode === this.currentPickCode) return
+
+    this.pendingVideoSwitch = { pickCode, keepPlaylistOpen, autoPlay }
+    this.schedulePendingVideoSwitch()
+  }
+
+  private schedulePendingVideoSwitch() {
+    if (this.isSwitchingVideo || !this.pendingVideoSwitch) return
+
+    const elapsed = Date.now() - this.lastVideoSwitchStartedAt
+    const delay = Math.max(0, PlayerManager.VIDEO_SWITCH_COOLDOWN_MS - elapsed)
+
+    if (this.switchCooldownTimer != null) {
+      window.clearTimeout(this.switchCooldownTimer)
+      this.switchCooldownTimer = null
+    }
+
+    if (delay > 0) {
+      this.switchCooldownTimer = window.setTimeout(() => {
+        this.switchCooldownTimer = null
+        this.schedulePendingVideoSwitch()
+      }, delay)
+      return
+    }
+
+    const next = this.pendingVideoSwitch
+    this.pendingVideoSwitch = null
+    void this.switchToVideo(next.pickCode, next.keepPlaylistOpen, next.autoPlay)
+  }
+
+  private setVideoSwitching(switching: boolean) {
+    if (this.isSwitchingVideo === switching) return
+    this.isSwitchingVideo = switching
+    this.syncOverlayPlaybackNav()
   }
 
   private async switchToVideo(pickCode: string, keepPlaylistOpen = false, autoPlay = false) {
@@ -1533,6 +1590,8 @@ class PlayerManager {
     const targetItem = findPlaylistItemByPickCode(this.playlistItemsCache, pickCode)
 
     this.clearPlaybackEndState()
+    this.lastVideoSwitchStartedAt = Date.now()
+    this.setVideoSwitching(true)
 
     try {
       const playback = await this.resolvePlaybackForPickCode(pickCode)
@@ -1586,6 +1645,12 @@ class PlayerManager {
       if (requestId !== this.switchVideoRequestId) return
       this.overlay?.showToast(error instanceof Error ? error.message : '切换视频失败')
     }
+    finally {
+      if (requestId === this.switchVideoRequestId) {
+        this.setVideoSwitching(false)
+        this.schedulePendingVideoSwitch()
+      }
+    }
   }
 
   private async resolvePlaybackForPickCode(pickCode: string) {
@@ -1629,6 +1694,10 @@ class PlayerManager {
   destroy() {
     this.clearPlaybackEndState()
     this.clearNativeAudioProbe()
+    if (this.switchCooldownTimer != null) {
+      window.clearTimeout(this.switchCooldownTimer)
+      this.switchCooldownTimer = null
+    }
     const runtime = getRuntimeApi()
     runtime?.onMessage?.removeListener(this.handleRuntimeMessage)
     this.overlay?.destroy()

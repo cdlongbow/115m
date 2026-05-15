@@ -4,6 +4,28 @@ import type { OverlayPlaylistItem } from './overlay'
 
 const esc = escapeHtml
 const PLAYLIST_COVER_FEATURE_ENABLED = true
+const PLAYLIST_COVER_CONCURRENCY = 1
+let activePlaylistCoverTasks = 0
+const playlistCoverTaskQueue: Array<() => void> = []
+
+function runPlaylistCoverTask<T>(task: () => Promise<T>): Promise<T> {
+  return new Promise((resolve, reject) => {
+    const run = () => {
+      activePlaylistCoverTasks += 1
+      task().then(resolve, reject).finally(() => {
+        activePlaylistCoverTasks -= 1
+        playlistCoverTaskQueue.shift()?.()
+      })
+    }
+
+    if (activePlaylistCoverTasks < PLAYLIST_COVER_CONCURRENCY) {
+      run()
+      return
+    }
+
+    playlistCoverTaskQueue.push(run)
+  })
+}
 
 export function formatPlaylistSeconds(sec: number) {
   const total = Math.max(0, Math.floor(sec))
@@ -152,12 +174,11 @@ export function lazyLoadPlaylistCovers(listEl: HTMLElement, items: OverlayPlayli
       const duration = item.duration || 0
       if (duration <= 0) return
 
-      void getVideoCovers(item.pickCode, duration, 1).then((covers) => {
-        if (covers.length > 0) {
+      void runPlaylistCoverTask(() => getVideoCovers(item.pickCode, duration, 1)).then((covers) => {
+        if (covers.length > 0 && thumbEl.isConnected) {
           thumbEl.innerHTML = `<img src="${covers[0].imgUrl}" alt="" style="width:100%;height:100%;object-fit:contain;object-position:center;display:block" />`
         }
       }).catch(() => {
-        // keep placeholder on error
       })
     }
   }, { root: listEl, rootMargin: '200px 0px' })
