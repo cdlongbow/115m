@@ -21,6 +21,9 @@ export interface MediaWallImageItem {
   parentId: string
   pickCode: string
   sourceItem: HTMLElement
+  open: () => void
+  select: (event?: MouseEvent) => void
+  contextMenu: (event: MouseEvent) => void
 }
 
 export interface LightboxController {

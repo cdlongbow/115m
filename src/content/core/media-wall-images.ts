@@ -1,4 +1,5 @@
 import type { MediaWallImageItem, LightboxController } from './media-wall-types'
+import { openNativeFolder, openNativeFolderContextMenu, selectNativeFolder } from './media-wall-folders'
 
 function readAttr(item: HTMLElement, names: string[]): string {
   for (const name of names) {
@@ -18,6 +19,32 @@ function toOriginalImageUrl(url: string): string {
   return url.replace(/_\d+(\?|$)/, '_0$1')
 }
 
+function isSourceItemSelected(sourceItem: HTMLElement): boolean {
+  const nativeInput = sourceItem.querySelector<HTMLInputElement>('input[type="checkbox"]')
+  return !!nativeInput?.checked
+    || sourceItem.classList.contains('selected')
+    || sourceItem.classList.contains('cur')
+    || sourceItem.getAttribute('selected') === 'selected'
+    || sourceItem.getAttribute('check') === '1'
+    || sourceItem.getAttribute('is_selected') === '1'
+    || sourceItem.getAttribute('data-selected') === 'true'
+    || sourceItem.getAttribute('aria-selected') === 'true'
+}
+
+function startSelectionSync(sourceItem: HTMLElement, sync: () => void): () => void {
+  const observer = new MutationObserver(() => sync())
+  observer.observe(sourceItem, {
+    attributes: true,
+    attributeFilter: ['class', 'selected', 'check', 'is_selected', 'data-selected', 'aria-selected'],
+    subtree: true,
+    childList: true,
+  })
+  sourceItem.querySelectorAll('input[type="checkbox"]').forEach((input) => {
+    input.addEventListener('change', sync)
+  })
+  return () => observer.disconnect()
+}
+
 export function buildImageItem(item: HTMLElement): MediaWallImageItem | null {
   if (item.getAttribute('file_type') !== '1') return null
   if (item.getAttribute('iv') === '1') return null
@@ -35,6 +62,9 @@ export function buildImageItem(item: HTMLElement): MediaWallImageItem | null {
     parentId: readAttr(item, ['p_id', 'pid', 'parent_id', 'cid']) || new URLSearchParams(location.search).get('cid') || '0',
     pickCode: readAttr(item, ['pick_code', 'pickcode']),
     sourceItem: item,
+    open: () => openNativeFolder(item, 'm115-wall-hidden-item'),
+    select: (event?: MouseEvent) => selectNativeFolder(item, 'm115-wall-hidden-item', event),
+    contextMenu: (event: MouseEvent) => openNativeFolderContextMenu(item, 'm115-wall-hidden-item', event),
   }
 }
 
@@ -691,7 +721,6 @@ export function createImageModule(sendRuntimeMessageSafe: typeof import('./runti
   const renderImagesSection = (
     doc: Document,
     images: MediaWallImageItem[],
-    forwardNativeContextMenu: (sourceItem: HTMLElement, event: MouseEvent) => void,
   ) => {
     const section = doc.createElement('section')
     section.className = 'm115-wall-section'
@@ -704,12 +733,22 @@ export function createImageModule(sendRuntimeMessageSafe: typeof import('./runti
     const grid = doc.createElement('div')
     grid.className = 'm115-image-grid'
     const lightbox = getLightboxController(doc)
+    const stopSyncList: Array<() => void> = []
+
+    const syncSelectionState = () => {
+      images.forEach((image) => {
+        const card = grid.querySelector<HTMLElement>(`.m115-image-card[data-image-id="${CSS.escape(image.id)}"]`)
+        if (!card) return
+        card.classList.toggle('is-selected', isSourceItemSelected(image.sourceItem))
+      })
+    }
 
     images.forEach((image, index) => {
       const button = doc.createElement('button')
       button.type = 'button'
       button.className = 'm115-image-card'
       button.title = image.title
+      button.dataset.imageId = image.id
 
       const thumbWrap = doc.createElement('span')
       thumbWrap.className = 'm115-image-thumb-wrap'
@@ -727,14 +766,53 @@ export function createImageModule(sendRuntimeMessageSafe: typeof import('./runti
       thumbWrap.appendChild(thumb)
       button.appendChild(thumbWrap)
       button.appendChild(name)
-      button.addEventListener('click', () => lightbox.open(images, index))
+      const selection = doc.createElement('button')
+      selection.type = 'button'
+      selection.className = 'm115-folder-selection'
+      selection.setAttribute('aria-label', '选择图片')
+      selection.innerHTML = '<span class="m115-folder-selection-box"><svg viewBox="0 0 16 16" xmlns="http://www.w3.org/2000/svg"><path d="M3.5 8.2L6.6 11.3L12.5 5.4" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg></span>'
+      selection.addEventListener('mousedown', (event) => {
+        if (event.button !== 0) return
+        event.preventDefault()
+        event.stopPropagation()
+        image.select(event)
+        window.setTimeout(syncSelectionState, 0)
+        window.setTimeout(syncSelectionState, 60)
+      })
+      selection.addEventListener('click', (event) => {
+        event.preventDefault()
+        event.stopPropagation()
+        window.setTimeout(syncSelectionState, 0)
+        window.setTimeout(syncSelectionState, 60)
+      })
+      button.appendChild(selection)
+      button.addEventListener('click', (event) => {
+        if (event.defaultPrevented) return
+        if (event.ctrlKey || event.metaKey || event.shiftKey || event.altKey) {
+          image.select(event)
+          window.setTimeout(syncSelectionState, 0)
+          window.setTimeout(syncSelectionState, 60)
+          return
+        }
+        lightbox.open(images, index)
+      })
       button.addEventListener('contextmenu', (event) => {
         event.preventDefault()
         event.stopPropagation()
-        forwardNativeContextMenu(image.sourceItem, event)
+        image.contextMenu(event)
       })
       grid.appendChild(button)
+      stopSyncList.push(startSelectionSync(image.sourceItem, syncSelectionState))
     })
+
+    syncSelectionState()
+    window.setTimeout(syncSelectionState, 0)
+    window.setTimeout(syncSelectionState, 80)
+    window.setTimeout(syncSelectionState, 180)
+
+    section.addEventListener('DOMNodeRemoved', () => {
+      stopSyncList.forEach(stopSync => stopSync())
+    }, { once: true })
 
     section.appendChild(grid)
     return section

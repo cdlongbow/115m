@@ -105,7 +105,7 @@ function forwardNativeContextMenu(sourceItem: HTMLElement, event: MouseEvent) {
 }
 
 function renderImagesSection(doc: Document, images: MediaWallImageItem[]) {
-  return imageModule.renderImagesSection(doc, images, forwardNativeContextMenu)
+  return imageModule.renderImagesSection(doc, images)
 }
 
 function collectMediaItems(list: HTMLElement) {
