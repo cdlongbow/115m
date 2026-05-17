@@ -9,6 +9,7 @@
     "downloads",
     "cookies",
     "scripting",
+    "webNavigation",
     "tabs",
     "activeTab",
     "contextMenus"

@@ -42,12 +42,22 @@ export async function sendRuntimeMessageSafe<T = unknown>(
   delay = 300,
 ): Promise<T | null> {
   const messageLabel = formatRuntimeMessage(message)
+  console.log(`[115m][runtime] sendRuntimeMessage start type=${messageLabel} retries=${retries} delay=${delay}`)
 
   for (let i = 0; i <= retries; i++) {
     try {
-      return await chrome.runtime.sendMessage(message) as T
+      const response = await chrome.runtime.sendMessage(message) as T
+      const responseState = response && typeof response === 'object' && 'state' in (response as Record<string, unknown>)
+        ? String((response as Record<string, unknown>).state ?? '')
+        : ''
+      const responseError = response && typeof response === 'object' && 'error' in (response as Record<string, unknown>)
+        ? String((response as Record<string, unknown>).error ?? '')
+        : ''
+      console.log(`[115m][runtime] sendRuntimeMessage success type=${messageLabel} attempt=${i} state=${responseState} error=${responseError}`)
+      return response
     }
     catch (error) {
+      console.warn(`[115m][runtime] sendRuntimeMessage failed type=${messageLabel} attempt=${i} error=${String(error)}`)
       if (isContextInvalidated(error)) {
         // Extension reload invalidates the old page context. Show a refresh tip without polluting error panels.
         showContextInvalidatedTip()

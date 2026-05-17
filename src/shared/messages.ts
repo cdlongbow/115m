@@ -79,12 +79,17 @@ export interface MsgFetchSubtitles {
 
 export interface MsgMainWorldFetch {
   type: 'MAIN_WORLD_FETCH'
-  data: { url: string, body: string }
+  data: { url: string, body: string, contentType?: string }
 }
 
 export interface MsgMainWorldGet {
   type: 'MAIN_WORLD_GET'
   data: { url: string }
+}
+
+export interface MsgTranscodeFrameReady {
+  type: 'TRANSCODE_FRAME_READY'
+  data: { pickCode: string }
 }
 
 export interface MsgFetchPlaylist {
@@ -123,7 +128,7 @@ export interface MsgPing {
 
 export interface MsgTranscode {
   type: 'TRANSCODE_ACCELERATE'
-  data: { pickCode: string }
+  data: { pickCode: string, batchFolder?: boolean, batchLimit?: number }
 }
 
 export interface MsgTranscodeStatus {
@@ -165,6 +170,7 @@ export type RuntimeMessage =
   | MsgFetchSubtitles
   | MsgMainWorldFetch
   | MsgMainWorldGet
+  | MsgTranscodeFrameReady
   | MsgFetchPlaylist
   | MsgMoveFile
   | MsgDeleteFile

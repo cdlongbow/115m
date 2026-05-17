@@ -21,6 +21,9 @@ interface TranscodeResponse {
   state?: 'queued' | 'manual_required' | 'pending_check' | 'completed_refresh' | 'failed'
   error?: string
   detail?: string
+  batchQueued?: number
+  batchTotal?: number
+  batchSkipped?: number
   queueCount?: number
   etaSeconds?: number
   priority?: number
@@ -37,6 +40,7 @@ function formatTranscodeEta(etaSeconds: number): string {
 }
 
 function formatTranscodeStatus(res: TranscodeResponse): { text: string, color: string } {
+  const batchText = typeof res.batchQueued === 'number' && res.batchQueued > 0 ? `，同文件夹已提交 ${res.batchQueued} 个` : ''
   if (res.state === 'queued') {
     const parts: string[] = []
     if (typeof res.queueCount === 'number') {
@@ -46,14 +50,14 @@ function formatTranscodeStatus(res: TranscodeResponse): { text: string, color: s
       parts.push(`预计 ${formatTranscodeEta(res.etaSeconds)}`)
     }
     return {
-      text: parts.length > 0 ? `VIP 加速排队中: ${parts.join('，')}` : 'VIP 加速排队中',
+      text: parts.length > 0 ? `VIP 加速排队中: ${parts.join('，')}${batchText}` : `VIP 加速排队中${batchText}`,
       color: '#52c41a',
     }
   }
 
   if (res.state === 'pending_check') {
     return {
-      text: 'VIP 自动加速已发起，等待队列确认',
+      text: `VIP 自动加速已发起，等待队列确认${batchText}`,
       color: '#52c41a',
     }
   }
@@ -298,6 +302,7 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
   container.appendChild(wrapper)
 
   let pollTimer: number | undefined
+  let transcodeFrame: HTMLIFrameElement | undefined
 
   const stopPolling = () => {
     if (typeof pollTimer === 'number') {
@@ -326,6 +331,53 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
     button.textContent = 'VIP加速转码'
   }
 
+  const cleanupTranscodeFrame = () => {
+    transcodeFrame?.remove()
+    transcodeFrame = undefined
+  }
+
+  const prepareTranscodeFrame = async () => {
+    cleanupTranscodeFrame()
+
+    const frame = document.createElement('iframe')
+    transcodeFrame = frame
+    frame.dataset['115mTranscodeFrame'] = pickCode
+    frame.src = `https://115vod.com/?pickcode=${encodeURIComponent(pickCode)}&share_id=0`
+    frame.style.cssText = [
+      'position:fixed',
+      'right:16px',
+      'top:72px',
+      'width:360px',
+      'height:220px',
+      'opacity:1',
+      'border:1px solid rgba(255,106,0,.45)',
+      'border-radius:10px',
+      'box-shadow:0 10px 30px rgba(0,0,0,.18)',
+      'background:#fff',
+      'z-index:2147483647',
+      'pointer-events:auto',
+    ].join(';')
+    document.documentElement.appendChild(frame)
+
+    await new Promise<void>((resolve, reject) => {
+      const timer = window.setTimeout(() => reject(new Error('115vod iframe load timeout')), 8000)
+      frame.addEventListener('load', () => {
+        window.clearTimeout(timer)
+        resolve()
+      }, { once: true })
+    })
+
+    const ready = await sendRuntimeMessageSafe<{ ok?: boolean, error?: string }>({
+      type: 'TRANSCODE_FRAME_READY',
+      data: { pickCode },
+    })
+    if (!ready?.ok) {
+      throw new Error(ready?.error || '115vod iframe not ready')
+    }
+  }
+
+  const enableTranscodeFrameFallback = false
+
   const applyStatus = (res: TranscodeResponse) => {
     if (res.ok && res.state && res.state !== 'manual_required') {
       const status = formatTranscodeStatus(res)
@@ -351,10 +403,12 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
   }
 
   const runStatusCheck = () => {
+    console.log(`[115m][transcode] runStatusCheck start pickCode=${pickCode}`)
     sendRuntimeMessageSafe<TranscodeResponse>({
       type: 'TRANSCODE_STATUS',
       data: { pickCode },
     }).then((res) => {
+      console.log(`[115m][transcode] runStatusCheck response pickCode=${pickCode} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
       if (res && applyStatus(res)) {
         return
       }
@@ -369,6 +423,7 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
 
   const runTranscode = (manual = false) => {
     stopPolling()
+    console.log(`[115m][transcode] runTranscode start pickCode=${pickCode} manual=${String(manual)}`)
     if (manual) {
       button.disabled = true
       button.textContent = '加速中...'
@@ -376,10 +431,13 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       label.style.color = '#1677ff'
     }
 
-    sendRuntimeMessageSafe<TranscodeResponse>({
+    const frameReady = enableTranscodeFrameFallback ? prepareTranscodeFrame() : Promise.resolve()
+    frameReady.then(() => sendRuntimeMessageSafe<TranscodeResponse>({
       type: 'TRANSCODE_ACCELERATE',
-      data: { pickCode },
-    }).then((res) => {
+      data: { pickCode, batchFolder: true },
+    })).then((res) => {
+      cleanupTranscodeFrame()
+      console.log(`[115m][transcode] runTranscode response pickCode=${pickCode} manual=${String(manual)} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
       if (res && applyStatus(res)) {
         return
       }
@@ -395,7 +453,9 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       button.hidden = false
       button.disabled = false
       button.textContent = 'VIP加速转码'
-    }).catch(() => {
+    }).catch((error) => {
+      cleanupTranscodeFrame()
+      console.warn(`[115m][transcode] runTranscode exception pickCode=${pickCode} manual=${String(manual)} error=${error instanceof Error ? error.message : String(error)}`)
       acceleratedSet.delete(pickCode)
       if (manual) {
         setManualFallback('手动加速异常，请稍后重试')
@@ -413,6 +473,7 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
   button.addEventListener('click', (event) => {
     event.preventDefault()
     event.stopPropagation()
+    console.log(`[115m][transcode] manual button click pickCode=${pickCode}`)
     acceleratedSet.add(pickCode)
     runTranscode(true)
   })

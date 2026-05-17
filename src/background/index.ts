@@ -7,6 +7,7 @@ import type { RuntimeMessage } from '../shared/messages'
 import { executeInMainWorld } from './helpers'
 import { deleteHistory, getHistory, getHistoryMap, setHistory } from './history-store'
 import { getNativeHistory, getNativeHistoryMap, setNativeHistory } from './native-history'
+import { register115VodFrameSession } from '../platform/115/main-world'
 import {
   handleDeleteFile,
   handleDeleteSuccessRefresh,
@@ -130,6 +131,7 @@ function assertDownloadUrl(rawUrl: string) {
 }
 
 async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.MessageSender): Promise<any> {
+  console.log(`[115m][bg] handleMessage type=${message.type} sender=${readSenderUrl(sender)}`)
   switch (message.type) {
     case 'PING':
       return { pong: true }
@@ -137,12 +139,16 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
     case 'MAIN_WORLD_FETCH':
       assertTrustedSender(sender, message.type)
       assertAllowedMainWorldUrl(message.data.url)
-      return executeInMainWorld(sender, message.data.url, message.data.body)
+      return executeInMainWorld(sender, message.data.url, message.data.body, message.data.contentType)
 
     case 'MAIN_WORLD_GET':
       assertTrustedSender(sender, message.type)
       assertAllowedMainWorldUrl(message.data.url)
       return executeInMainWorld(sender, message.data.url)
+
+    case 'TRANSCODE_FRAME_READY':
+      assertTrustedSender(sender, message.type)
+      return register115VodFrameSession(sender, message.data.pickCode)
 
     case 'OPEN_TAB': {
       const now = Date.now()
