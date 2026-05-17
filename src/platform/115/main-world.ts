@@ -45,6 +45,14 @@ async function queryTabsByUrls(urls: string[]) {
   })
 }
 
+function isTransientFrameError(error: unknown): boolean {
+  return /Frame with ID \d+ was removed|No frame with id|The tab was closed|Cannot access contents of url/i.test(String(error))
+}
+
+function wait(ms: number) {
+  return new Promise(resolve => setTimeout(resolve, ms))
+}
+
 interface RunIn115MainWorldOptions<TArgs extends unknown[], TResult> {
   sender?: chrome.runtime.MessageSender
   tabId?: number
@@ -148,12 +156,27 @@ export async function runIn115MainWorld<TArgs extends unknown[], TResult>(
     return undefined
   }
 
-  const injected = await chrome.scripting.executeScript({
-    target: options.frameId === undefined ? { tabId } : { tabId, frameIds: [options.frameId] },
-    world: 'MAIN',
-    func: options.func,
-    args: options.args,
-  })
+  let injected: chrome.scripting.InjectionResult<unknown>[]
+  try {
+    injected = await chrome.scripting.executeScript({
+      target: options.frameId === undefined ? { tabId } : { tabId, frameIds: [options.frameId] },
+      world: 'MAIN',
+      func: options.func,
+      args: options.args,
+    })
+  }
+  catch (error) {
+    if (!isTransientFrameError(error)) {
+      throw error
+    }
+    await wait(500)
+    injected = await chrome.scripting.executeScript({
+      target: { tabId },
+      world: 'MAIN',
+      func: options.func,
+      args: options.args,
+    })
+  }
 
   return injected?.[0]?.result as TResult | undefined
 }
@@ -277,10 +300,9 @@ async function fetchTextDirectVod(
     const isPost = safeBody.length > 0
     const headers: Record<string, string> = {
       Accept: 'application/json, text/javascript, */*; q=0.01',
-      'X-Requested-With': 'XMLHttpRequest',
     }
-    if (isPost) {
-      headers['Content-Type'] = contentType ?? 'application/x-www-form-urlencoded; charset=UTF-8'
+    if (isPost && contentType) {
+      headers['Content-Type'] = contentType
     }
 
     const response = await fetch(url, {
@@ -315,14 +337,14 @@ async function fetchTextIn115VodMainWorldQueued(
       }
     }
 
-    if (mode === 'main_world' || mode === 'auto') {
+    if (mode === 'main_world' || (mode === 'auto' && safeBody.length === 0)) {
       const mainWorld = await fetchTextIn115MainWorld(undefined, url, body, contentType)
       if (mainWorld.ok || mode === 'main_world') {
         return mainWorld
       }
     }
 
-    if (mode !== 'page' && mode !== 'auto') {
+    if (mode !== 'page') {
       return { ok: false, text: '', error: '115vod page mode disabled' }
     }
 

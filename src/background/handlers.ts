@@ -53,6 +53,14 @@ const MAX_BATCH_TRANSCODE_COUNT = 20
 const transcodeCooldown = new Map<string, { ts: number, response: unknown }>()
 const batchTranscodeCooldown = new Map<string, number>()
 
+function isTransientFrameError(error: unknown): boolean {
+  return /Frame with ID \d+ was removed|No frame with id|The tab was closed|Cannot access contents of url/i.test(String(error))
+}
+
+function isPageModeDisabledError(error: unknown): boolean {
+  return /115vod page mode disabled/i.test(String(error))
+}
+
 function getTranscodeCooldown(pickCode: string) {
   const cached = transcodeCooldown.get(pickCode)
   if (!cached) return null
@@ -575,6 +583,12 @@ export async function handleTranscode(message: MsgTranscode) {
     return response
   }
   catch (e: any) {
+    if (isTransientFrameError(e)) {
+      return { ok: true, state: 'pending_check', detail: '页面切换中，稍后刷新转码状态' }
+    }
+    if (isPageModeDisabledError(e)) {
+      return { ok: true, state: 'manual_required', detail: '自动加速不可用，可手动重试' }
+    }
     console.error('[115m] transcode error:', e)
     return { ok: false, state: 'failed', error: e?.message || String(e) }
   }

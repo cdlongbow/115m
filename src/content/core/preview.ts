@@ -163,6 +163,7 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
           row.appendChild(thumb)
         })
 
+        container.classList.remove('is-transcode-tip')
         container.innerHTML = ''
         container.appendChild(row)
         state.isLoaded = true
@@ -272,6 +273,7 @@ const acceleratedSet = new Set<string>()
  * 在预览区域自动触发 VIP 加速转码并显示状态
  */
 function showTranscodeButton(container: HTMLElement, pickCode: string) {
+  container.classList.add('is-transcode-tip')
   container.innerHTML = ''
 
   const wrapper = document.createElement('div')

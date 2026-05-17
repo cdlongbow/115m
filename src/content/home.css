@@ -180,6 +180,32 @@
   box-sizing: border-box;
 }
 
+.m115-cover-container.is-transcode-tip {
+  height: 42px;
+  min-height: 42px;
+  margin-top: 4px;
+  padding-left: 83px;
+  overflow: visible;
+}
+
+.m115-cover-container.is-transcode-tip .m115-transcode-area {
+  height: 42px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  white-space: nowrap;
+}
+
+.m115-cover-container.is-transcode-tip .m115-transcode-label {
+  font-size: 13px;
+  line-height: 20px;
+}
+
+.m115-cover-container.is-transcode-tip .m115-transcode-btn {
+  margin-top: 0 !important;
+  padding: 6px 12px !important;
+}
+
 /* ====== 骨架屏 ====== */
 .m115-cover-skeleton {
   width: 696px; /* 锁死标准排版尺寸，完美对齐 */
