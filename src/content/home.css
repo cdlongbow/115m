@@ -246,6 +246,7 @@
   justify-content: center;
   background: transparent !important; 
   box-sizing: border-box !important;
+  cursor: zoom-in;
 }
 
 .m115-cover-img {
@@ -259,5 +260,74 @@
   vertical-align: top;
   user-select: none;
   box-sizing: border-box !important;
+}
+
+.m115-cover-lightbox {
+  position: fixed;
+  inset: 0;
+  z-index: 2147483647;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(0, 0, 0, .86);
+  cursor: zoom-out;
+}
+
+.m115-cover-lightbox-img {
+  max-width: min(92vw, 960px);
+  max-height: 86vh;
+  object-fit: contain;
+  border-radius: 6px;
+  box-shadow: 0 16px 48px rgba(0, 0, 0, .36);
+  cursor: zoom-out;
+}
+
+.m115-cover-lightbox-close,
+.m115-cover-lightbox-nav {
+  position: fixed;
+  border: none;
+  color: #fff;
+  background: rgba(255, 255, 255, .16);
+  cursor: pointer;
+  line-height: 1;
+}
+
+.m115-cover-lightbox-close {
+  top: 22px;
+  right: 26px;
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  font-size: 34px;
+}
+
+.m115-cover-lightbox-nav {
+  top: 50%;
+  width: 52px;
+  height: 72px;
+  margin-top: -36px;
+  border-radius: 10px;
+  font-size: 56px;
+}
+
+.m115-cover-lightbox-nav.is-prev {
+  left: 28px;
+}
+
+.m115-cover-lightbox-nav.is-next {
+  right: 28px;
+}
+
+.m115-cover-lightbox-time {
+  position: fixed;
+  left: 50%;
+  bottom: 28px;
+  transform: translateX(-50%);
+  padding: 6px 12px;
+  border-radius: 999px;
+  color: #fff;
+  background: rgba(0, 0, 0, .42);
+  font-size: 13px;
+  line-height: 18px;
 }
 

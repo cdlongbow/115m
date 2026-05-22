@@ -1,4 +1,5 @@
 import { getVideoCovers } from '../../lib/videoThumbnail'
+import type { VideoThumbnail } from '../../lib/videoThumbnail'
 import type { FileInfo } from './types'
 import { sendRuntimeMessageSafe } from './runtime'
 import {
@@ -83,12 +84,132 @@ function formatTranscodeStatus(res: TranscodeResponse): { text: string, color: s
 }
 
 const listPreviewCoverOptions = {
-  maxWidth: 320,
-  maxHeight: 180,
+  maxWidth: 640,
+  maxHeight: 640,
   quality: 0.78,
-  cacheScope: 'list-v1',
+  cacheScope: 'list-v3',
   deferCacheWrite: true,
   useTimelineCache: false,
+}
+
+let lightboxRoot: HTMLDivElement | null = null
+let lightboxImg: HTMLImageElement | null = null
+let lightboxTime: HTMLDivElement | null = null
+let lightboxCovers: VideoThumbnail[] = []
+let lightboxIndex = 0
+
+function renderLightboxImage() {
+  const cover = lightboxCovers[lightboxIndex]
+  if (!cover || !lightboxImg || !lightboxTime) return
+
+  lightboxImg.src = cover.imgUrl
+  lightboxImg.alt = `预览 ${Math.floor(cover.time)}s`
+  lightboxTime.textContent = `${lightboxIndex + 1}/${lightboxCovers.length} · ${Math.floor(cover.time)}s`
+}
+
+function closeCoverLightbox() {
+  lightboxRoot?.remove()
+  lightboxRoot = null
+  lightboxImg = null
+  lightboxTime = null
+  lightboxCovers = []
+  document.removeEventListener('keydown', handleLightboxKeydown, true)
+}
+
+function showLightboxImage(nextIndex: number) {
+  if (!lightboxCovers.length) return
+  lightboxIndex = (nextIndex + lightboxCovers.length) % lightboxCovers.length
+  renderLightboxImage()
+}
+
+function handleLightboxKeydown(event: KeyboardEvent) {
+  if (!lightboxRoot) return
+
+  if (event.key === 'Escape') {
+    event.preventDefault()
+    closeCoverLightbox()
+    return
+  }
+
+  if (event.key === 'ArrowLeft') {
+    event.preventDefault()
+    showLightboxImage(lightboxIndex - 1)
+    return
+  }
+
+  if (event.key === 'ArrowRight') {
+    event.preventDefault()
+    showLightboxImage(lightboxIndex + 1)
+  }
+}
+
+function handleLightboxWheel(event: WheelEvent) {
+  if (!lightboxRoot || Math.abs(event.deltaY) < 4) return
+
+  event.preventDefault()
+  event.stopPropagation()
+  showLightboxImage(lightboxIndex + (event.deltaY > 0 ? 1 : -1))
+}
+
+function openCoverLightbox(covers: VideoThumbnail[], index: number) {
+  if (!covers.length) return
+
+  closeCoverLightbox()
+
+  lightboxCovers = covers
+  lightboxIndex = index
+
+  const root = document.createElement('div')
+  root.className = 'm115-cover-lightbox'
+
+  const image = document.createElement('img')
+  image.className = 'm115-cover-lightbox-img'
+
+  const time = document.createElement('div')
+  time.className = 'm115-cover-lightbox-time'
+
+  const closeButton = document.createElement('button')
+  closeButton.type = 'button'
+  closeButton.className = 'm115-cover-lightbox-close'
+  closeButton.textContent = '×'
+
+  const prevButton = document.createElement('button')
+  prevButton.type = 'button'
+  prevButton.className = 'm115-cover-lightbox-nav is-prev'
+  prevButton.textContent = '‹'
+
+  const nextButton = document.createElement('button')
+  nextButton.type = 'button'
+  nextButton.className = 'm115-cover-lightbox-nav is-next'
+  nextButton.textContent = '›'
+
+  root.appendChild(image)
+  root.appendChild(time)
+  root.appendChild(closeButton)
+  root.appendChild(prevButton)
+  root.appendChild(nextButton)
+  document.documentElement.appendChild(root)
+
+  lightboxRoot = root
+  lightboxImg = image
+  lightboxTime = time
+  renderLightboxImage()
+
+  root.addEventListener('click', closeCoverLightbox)
+  image.addEventListener('click', closeCoverLightbox)
+  root.addEventListener('wheel', handleLightboxWheel, { passive: false })
+  closeButton.addEventListener('click', closeCoverLightbox)
+  prevButton.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    showLightboxImage(lightboxIndex - 1)
+  })
+  nextButton.addEventListener('click', (event) => {
+    event.preventDefault()
+    event.stopPropagation()
+    showLightboxImage(lightboxIndex + 1)
+  })
+  document.addEventListener('keydown', handleLightboxKeydown, true)
 }
 
 /** 预览图加载状态 */
@@ -150,7 +271,7 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
         const row = document.createElement('div')
         row.className = 'm115-cover-loaded'
 
-        covers.forEach((cover) => {
+        covers.forEach((cover, index) => {
           const thumb = document.createElement('span')
           thumb.className = 'm115-cover-thumb'
 
@@ -160,6 +281,15 @@ export function renderPreview(item: HTMLElement, file: FileInfo) {
           img.alt = `预览 ${Math.floor(cover.time)}s`
 
           thumb.appendChild(img)
+          thumb.addEventListener('click', (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+            openCoverLightbox(covers, index)
+          })
+          thumb.addEventListener('dblclick', (event) => {
+            event.preventDefault()
+            event.stopPropagation()
+          })
           row.appendChild(thumb)
         })
 
