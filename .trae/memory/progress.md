@@ -28,6 +28,7 @@
 - 2026-05-15：字幕修复后 `pnpm test`、`pnpm build` 通过；构建仍仅有既有 chunk 体积警告
 - 2026-05-15：字幕控件文案与宽度调整后，`pnpm test`、`pnpm build` 继续通过
 - 2026-05-23：图片墙/文件夹墙拖选修复后，`pnpm test`、`pnpm build` 通过；构建仍仅有既有 chunk 体积警告；已提交 `e7c7b10`
+- 2026-05-23：扩展更新后旧页面 `Extension context invalidated` 不再触发或残留列表视频转码提示，只显示刷新提示；`pnpm test`、`pnpm build` 通过，构建仍仅有既有 chunk 体积警告
 
 ## 后续优化候选
 

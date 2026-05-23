@@ -2,6 +2,16 @@ function isContextInvalidated(error: unknown): boolean {
   return error instanceof Error && /Extension context invalidated/i.test(error.message)
 }
 
+export interface RuntimeContextInvalidatedResult {
+  runtimeContextInvalidated: true
+}
+
+export function isRuntimeContextInvalidatedResult(value: unknown): value is RuntimeContextInvalidatedResult {
+  return !!value && typeof value === 'object' && (value as RuntimeContextInvalidatedResult).runtimeContextInvalidated === true
+}
+
+let runtimeContextInvalidated = false
+
 function formatRuntimeMessage(message: unknown): string {
   if (message && typeof message === 'object' && 'type' in message) {
     return String((message as { type?: unknown }).type ?? 'unknown')
@@ -40,8 +50,13 @@ export async function sendRuntimeMessageSafe<T = unknown>(
   message: unknown,
   retries = 2,
   delay = 300,
-): Promise<T | null> {
+): Promise<T | RuntimeContextInvalidatedResult | null> {
   const messageLabel = formatRuntimeMessage(message)
+  if (runtimeContextInvalidated) {
+    showContextInvalidatedTip()
+    return { runtimeContextInvalidated: true }
+  }
+
   console.log(`[115m][runtime] sendRuntimeMessage start type=${messageLabel} retries=${retries} delay=${delay}`)
 
   for (let i = 0; i <= retries; i++) {
@@ -57,12 +72,14 @@ export async function sendRuntimeMessageSafe<T = unknown>(
       return response
     }
     catch (error) {
-      console.warn(`[115m][runtime] sendRuntimeMessage failed type=${messageLabel} attempt=${i} error=${String(error)}`)
       if (isContextInvalidated(error)) {
-        // Extension reload invalidates the old page context. Show a refresh tip without polluting error panels.
+        runtimeContextInvalidated = true
+        console.info(`[115m][runtime] context invalidated type=${messageLabel} attempt=${i}`)
         showContextInvalidatedTip()
-        return null
+        return { runtimeContextInvalidated: true }
       }
+
+      console.warn(`[115m][runtime] sendRuntimeMessage failed type=${messageLabel} attempt=${i} error=${String(error)}`)
 
       if (i < retries) {
         await new Promise(resolve => setTimeout(resolve, delay))

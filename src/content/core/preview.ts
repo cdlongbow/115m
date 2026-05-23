@@ -1,7 +1,7 @@
 import { getVideoCovers } from '../../lib/videoThumbnail'
 import type { VideoThumbnail } from '../../lib/videoThumbnail'
 import type { FileInfo } from './types'
-import { sendRuntimeMessageSafe } from './runtime'
+import { isRuntimeContextInvalidatedResult, sendRuntimeMessageSafe } from './runtime'
 import {
   Scheduler,
   TaskCancelledError,
@@ -463,6 +463,15 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
     button.textContent = 'VIP加速转码'
   }
 
+  const setContextInvalidatedState = () => {
+    stopPolling()
+    acceleratedSet.delete(pickCode)
+    label.textContent = '扩展已更新，请刷新页面后继续使用'
+    label.style.color = '#8c8c8c'
+    button.hidden = true
+    button.disabled = true
+  }
+
   const cleanupTranscodeFrame = () => {
     transcodeFrame?.remove()
     transcodeFrame = undefined
@@ -540,6 +549,10 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       type: 'TRANSCODE_STATUS',
       data: { pickCode },
     }).then((res) => {
+      if (isRuntimeContextInvalidatedResult(res)) {
+        setContextInvalidatedState()
+        return
+      }
       console.log(`[115m][transcode] runStatusCheck response pickCode=${pickCode} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
       if (res && applyStatus(res)) {
         return
@@ -569,6 +582,10 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       data: { pickCode, batchFolder: true },
     })).then((res) => {
       cleanupTranscodeFrame()
+      if (isRuntimeContextInvalidatedResult(res)) {
+        setContextInvalidatedState()
+        return
+      }
       console.log(`[115m][transcode] runTranscode response pickCode=${pickCode} manual=${String(manual)} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
       if (res && applyStatus(res)) {
         return
