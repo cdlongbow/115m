@@ -1,5 +1,6 @@
 import type { MediaWallImageItem, LightboxController } from './media-wall-types'
 import { openNativeFolder, openNativeFolderContextMenu, selectNativeFolder } from './media-wall-folders'
+import { installWallDragSelection, isWallSourceItemSelected } from './media-wall-selection'
 
 function readAttr(item: HTMLElement, names: string[]): string {
   for (const name of names) {
@@ -17,18 +18,6 @@ function isImageExtension(name: string): boolean {
 
 function toOriginalImageUrl(url: string): string {
   return url.replace(/_\d+(\?|$)/, '_0$1')
-}
-
-function isSourceItemSelected(sourceItem: HTMLElement): boolean {
-  const nativeInput = sourceItem.querySelector<HTMLInputElement>('input[type="checkbox"]')
-  return !!nativeInput?.checked
-    || sourceItem.classList.contains('selected')
-    || sourceItem.classList.contains('cur')
-    || sourceItem.getAttribute('selected') === 'selected'
-    || sourceItem.getAttribute('check') === '1'
-    || sourceItem.getAttribute('is_selected') === '1'
-    || sourceItem.getAttribute('data-selected') === 'true'
-    || sourceItem.getAttribute('aria-selected') === 'true'
 }
 
 function startSelectionSync(sourceItem: HTMLElement, sync: () => void): () => void {
@@ -739,7 +728,7 @@ export function createImageModule(sendRuntimeMessageSafe: typeof import('./runti
       images.forEach((image) => {
         const card = grid.querySelector<HTMLElement>(`.m115-image-card[data-image-id="${CSS.escape(image.id)}"]`)
         if (!card) return
-        card.classList.toggle('is-selected', isSourceItemSelected(image.sourceItem))
+        card.classList.toggle('is-selected', isWallSourceItemSelected(image.sourceItem))
       })
     }
 
@@ -804,6 +793,14 @@ export function createImageModule(sendRuntimeMessageSafe: typeof import('./runti
       grid.appendChild(button)
       stopSyncList.push(startSelectionSync(image.sourceItem, syncSelectionState))
     })
+
+    installWallDragSelection(
+      doc,
+      section,
+      '.m115-image-card',
+      element => images.find(image => element.dataset.imageId === image.id),
+      syncSelectionState,
+    )
 
     syncSelectionState()
     window.setTimeout(syncSelectionState, 0)

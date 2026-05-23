@@ -1,4 +1,5 @@
 import type { MediaWallFolderItem } from './media-wall-types'
+import { installWallDragSelection, isWallSourceItemSelected } from './media-wall-selection'
 
 function dispatchMouseSequence(target: HTMLElement, events: Array<{ type: string, init: MouseEventInit }>) {
   events.forEach(({ type, init }) => {
@@ -41,18 +42,6 @@ function buildMouseInit(event?: MouseEvent, button = 0): MouseEventInit {
     shiftKey: event?.shiftKey ?? false,
     altKey: event?.altKey ?? false,
   }
-}
-
-function isSourceItemSelected(sourceItem: HTMLElement): boolean {
-  const nativeInput = sourceItem.querySelector<HTMLInputElement>('input[type="checkbox"]')
-  return !!nativeInput?.checked
-    || sourceItem.classList.contains('selected')
-    || sourceItem.classList.contains('cur')
-    || sourceItem.getAttribute('selected') === 'selected'
-    || sourceItem.getAttribute('check') === '1'
-    || sourceItem.getAttribute('is_selected') === '1'
-    || sourceItem.getAttribute('data-selected') === 'true'
-    || sourceItem.getAttribute('aria-selected') === 'true'
 }
 
 function findNativeSelectionTarget(sourceItem: HTMLElement): HTMLElement {
@@ -235,7 +224,7 @@ export function renderFoldersSection(
     folders.forEach((folder) => {
       const card = grid.querySelector<HTMLElement>(`.m115-folder-card[data-folder-id="${CSS.escape(folder.id)}"]`)
       if (!card) return
-      card.classList.toggle('is-selected', isSourceItemSelected(folder.sourceItem))
+      card.classList.toggle('is-selected', isWallSourceItemSelected(folder.sourceItem))
     })
   }
 
@@ -362,6 +351,14 @@ export function renderFoldersSection(
     })
     grid.appendChild(card)
   })
+
+  installWallDragSelection(
+    doc,
+    section,
+    '.m115-folder-card',
+    element => folders.find(folder => element.dataset.folderId === folder.id),
+    syncSelectionState,
+  )
 
   syncSelectionState()
   window.setTimeout(syncSelectionState, 0)
