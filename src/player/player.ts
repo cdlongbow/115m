@@ -119,6 +119,12 @@ class PlayerManager {
   private static readonly NEXT_CONTROL_NAME = 'm115-next-control'
   private static readonly VIDEO_SWITCH_COOLDOWN_MS = 1200
   private static readonly NATIVE_AUDIO_PROBE_DELAY_MS = 4500
+  private static readonly NATIVE_STALL_CHECK_INTERVAL_MS = 1500
+  private static readonly NATIVE_STALL_TIME_THRESHOLD_MS = 4500
+  private static readonly NATIVE_STALL_MIN_BUFFER_AHEAD_SEC = 6
+  private static readonly NATIVE_STALL_MAX_TIME_DRIFT_SEC = 0.12
+  private static readonly NATIVE_SEEK_LONG_JUMP_SEC = 45
+  private static readonly NATIVE_SEEK_RECOVERY_WINDOW_MS = 8000
   private artplayer: Artplayer | null = null
   private hlsInstance: HlsType | null = null
   private m3u8List: M3u8Item[] = []
@@ -155,6 +161,14 @@ class PlayerManager {
   private lastPlaylistProgressSyncSec = -1
   private nativePlaybackRetryCount = 0
   private nativeAudioProbeTimer: number | null = null
+  private nativeStallCheckTimer: number | null = null
+  private nativeStallStartedAt = 0
+  private nativeStallLastTime = 0
+  private nativeStallLastFrameCount = 0
+  private nativeStallFallbackInFlight = false
+  private nativeSeekStartedAt = 0
+  private nativeSeekFromTime = 0
+  private nativeSeekRecoveryUntil = 0
   private currentRotation = 0
   private currentPlaybackRate = 1
   private currentPlaybackMode: PlaybackMode = loadPlaybackMode()
@@ -498,6 +512,26 @@ class PlayerManager {
       this.syncCurrentPlaylistProgress(true)
     })
 
+    this.artplayer.on('video:seeking', () => {
+      if (!this.artplayer || !this.isNativeVideo || this.currentPlaybackType !== 'native') return
+      this.nativeSeekStartedAt = Date.now()
+      this.nativeSeekFromTime = this.nativeStallLastTime || this.artplayer.currentTime || 0
+      this.nativeStallStartedAt = 0
+    })
+
+    this.artplayer.on('video:seeked', () => {
+      if (!this.artplayer || !this.isNativeVideo || this.currentPlaybackType !== 'native') return
+      const targetTime = this.artplayer.currentTime || 0
+      const jumpDistance = Math.abs(targetTime - this.nativeSeekFromTime)
+      this.nativeSeekRecoveryUntil = jumpDistance >= PlayerManager.NATIVE_SEEK_LONG_JUMP_SEC
+        ? Date.now() + PlayerManager.NATIVE_SEEK_RECOVERY_WINDOW_MS
+        : 0
+      this.nativeStallStartedAt = 0
+      this.nativeStallLastTime = targetTime
+      this.nativeStallLastFrameCount = this.getTotalVideoFrames(this.artplayer.video as HTMLVideoElement)
+      this.scheduleNativeStallCheck()
+    })
+
     this.artplayer.on('video:play', () => {})
 
     this.artplayer.on('video:timeupdate', () => {
@@ -571,6 +605,8 @@ class PlayerManager {
           this.clearPlaybackEndState()
           this.nativePlaybackRetryCount = 0
           this.clearNativeAudioProbe()
+          this.resetNativeStallState()
+          this.scheduleNativeStallCheck()
           this.perfMarks.playing = performance.now()
           this.reportFirstFrameSummary()
           if (this.isNativeVideo) {
@@ -1193,6 +1229,7 @@ class PlayerManager {
 
 
   private async fallbackToHls(reason = '播放失败', rememberOriginal = false) {
+    this.resetNativeStallState()
     this.clearNativeAudioProbe()
     console.log('[115m] fallbackToHls triggered, current m3u8List length:', this.m3u8List.length, 'reason:', reason)
     
@@ -1247,6 +1284,112 @@ class PlayerManager {
       window.clearTimeout(this.nativeAudioProbeTimer)
       this.nativeAudioProbeTimer = null
     }
+  }
+
+  private clearNativeStallCheck() {
+    if (this.nativeStallCheckTimer != null) {
+      window.clearTimeout(this.nativeStallCheckTimer)
+      this.nativeStallCheckTimer = null
+    }
+  }
+
+  private resetNativeStallState() {
+    this.clearNativeStallCheck()
+    this.nativeStallStartedAt = 0
+    this.nativeStallLastTime = 0
+    this.nativeStallLastFrameCount = 0
+    this.nativeStallFallbackInFlight = false
+    this.nativeSeekStartedAt = 0
+    this.nativeSeekFromTime = 0
+    this.nativeSeekRecoveryUntil = 0
+  }
+
+  private scheduleNativeStallCheck() {
+    this.clearNativeStallCheck()
+    if (!this.artplayer || !this.isNativeVideo || this.currentPlaybackType !== 'native') return
+    this.nativeStallCheckTimer = window.setTimeout(() => {
+      this.nativeStallCheckTimer = null
+      void this.checkNativePlaybackStall()
+    }, PlayerManager.NATIVE_STALL_CHECK_INTERVAL_MS)
+  }
+
+  private getBufferedAhead(video: HTMLVideoElement) {
+    const currentTime = video.currentTime || 0
+    for (let i = 0; i < video.buffered.length; i += 1) {
+      const start = video.buffered.start(i)
+      const end = video.buffered.end(i)
+      if (currentTime >= start && currentTime <= end) {
+        return Math.max(0, end - currentTime)
+      }
+    }
+    return 0
+  }
+
+  private getTotalVideoFrames(video: HTMLVideoElement) {
+    const quality = (video.getVideoPlaybackQuality?.() || {}) as VideoPlaybackQualityLike
+    const total = quality.totalVideoFrames
+    if (typeof total === 'number' && total > 0) return total
+    return (video as HTMLVideoElement & { webkitDecodedFrameCount?: number }).webkitDecodedFrameCount ?? 0
+  }
+
+  private async checkNativePlaybackStall() {
+    if (!this.artplayer || !this.isNativeVideo || this.currentPlaybackType !== 'native') return
+    if (this.nativeStallFallbackInFlight) return
+
+    const video = this.artplayer.video as HTMLVideoElement
+    if (video.paused || video.ended || video.seeking) {
+      this.nativeStallStartedAt = 0
+      this.nativeStallLastTime = video.currentTime || 0
+      this.nativeStallLastFrameCount = this.getTotalVideoFrames(video)
+      this.scheduleNativeStallCheck()
+      return
+    }
+
+    if (!this.perfMarks.playing || video.currentTime < 3) {
+      this.nativeStallStartedAt = 0
+      this.nativeStallLastTime = video.currentTime || 0
+      this.nativeStallLastFrameCount = this.getTotalVideoFrames(video)
+      this.scheduleNativeStallCheck()
+      return
+    }
+
+    const bufferedAhead = this.getBufferedAhead(video)
+    const currentTime = video.currentTime || 0
+    const totalFrames = this.getTotalVideoFrames(video)
+    const timeDrift = Math.abs(currentTime - this.nativeStallLastTime)
+    const frameDrift = Math.abs(totalFrames - this.nativeStallLastFrameCount)
+    const hasEnoughBuffer = bufferedAhead >= PlayerManager.NATIVE_STALL_MIN_BUFFER_AHEAD_SEC
+    const mediaLikelyStalled = video.readyState <= HTMLMediaElement.HAVE_CURRENT_DATA
+    const inSeekRecovery = this.nativeSeekRecoveryUntil > Date.now()
+    const stallThresholdMs = inSeekRecovery
+      ? Math.max(2500, PlayerManager.NATIVE_STALL_TIME_THRESHOLD_MS - 1500)
+      : PlayerManager.NATIVE_STALL_TIME_THRESHOLD_MS
+
+    if (hasEnoughBuffer && mediaLikelyStalled && timeDrift <= PlayerManager.NATIVE_STALL_MAX_TIME_DRIFT_SEC && frameDrift === 0) {
+      if (!this.nativeStallStartedAt) {
+        this.nativeStallStartedAt = Date.now()
+      }
+      else if (Date.now() - this.nativeStallStartedAt >= stallThresholdMs) {
+        this.nativeStallFallbackInFlight = true
+        console.warn('[115m][native] stall detected, fallback to HLS', {
+          currentTime,
+          bufferedAhead,
+          readyState: video.readyState,
+          networkState: video.networkState,
+          totalFrames,
+          inSeekRecovery,
+        })
+        await this.fallbackToHls(inSeekRecovery ? '无损远跳后恢复失败，已改用 115原画' : '无损播放卡死，已改用 115原画', true)
+        return
+      }
+    }
+    else {
+      this.nativeStallStartedAt = 0
+    }
+
+    this.nativeStallLastTime = currentTime
+    this.nativeStallLastFrameCount = totalFrames
+    this.scheduleNativeStallCheck()
   }
 
   private scheduleNativeAudioProbe() {
@@ -1312,6 +1455,7 @@ class PlayerManager {
   private retryNativePlayback() {
     if (!this.artplayer) return
 
+    this.resetNativeStallState()
     const retryUrl = this.ultraUrl || this.artplayer.url || ''
     if (!retryUrl) return
 
