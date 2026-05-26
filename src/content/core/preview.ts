@@ -131,6 +131,32 @@ function handleLightboxKeydown(event: KeyboardEvent) {
     return
   }
 
+  const runNativeFallback = () => {
+    stopPolling()
+    button.disabled = true
+    button.textContent = '后台加速中...'
+    label.textContent = '正在后台打开原生播放页触发加速...'
+    label.style.color = '#1677ff'
+    console.log(`[115m][transcode] native fallback start pickCode=${pickCode}`)
+    sendRuntimeMessageSafe<TranscodeResponse>({
+      type: 'TRANSCODE_NATIVE_FALLBACK',
+      data: { pickCode },
+    }).then((res) => {
+      if (isRuntimeContextInvalidatedResult(res)) {
+        setContextInvalidatedState()
+        return
+      }
+      console.log(`[115m][transcode] native fallback response pickCode=${pickCode} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
+      if (res && applyStatus(res)) {
+        return
+      }
+      setNativeFallback(res?.error || res?.detail || '后台加速未命中，可稍后再试')
+    }).catch((error) => {
+      console.warn(`[115m][transcode] native fallback exception pickCode=${pickCode} error=${error instanceof Error ? error.message : String(error)}`)
+      setNativeFallback('后台加速异常，可稍后再试')
+    })
+  }
+
   if (event.key === 'ArrowLeft') {
     event.preventDefault()
     showLightboxImage(lightboxIndex - 1)
@@ -435,6 +461,7 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
 
   let pollTimer: number | undefined
   let transcodeFrame: HTMLIFrameElement | undefined
+  let nativeFallbackVisible = false
 
   const stopPolling = () => {
     if (typeof pollTimer === 'number') {
@@ -455,12 +482,23 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
   }
 
   const setManualFallback = (message: string) => {
+    nativeFallbackVisible = false
     stopPolling()
     label.textContent = message
     label.style.color = '#fa8c16'
     button.hidden = false
     button.disabled = false
     button.textContent = 'VIP加速转码'
+  }
+
+  const setNativeFallback = (message: string) => {
+    nativeFallbackVisible = true
+    stopPolling()
+    label.textContent = message
+    label.style.color = '#fa8c16'
+    button.hidden = false
+    button.disabled = false
+    button.textContent = '后台加速'
   }
 
   const setContextInvalidatedState = () => {
@@ -593,7 +631,7 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
 
       acceleratedSet.delete(pickCode)
       if (manual) {
-        setManualFallback(res?.error || '手动加速失败，请稍后重试')
+        setNativeFallback(res?.error || '手动加速失败，可尝试后台加速')
         return
       }
 
@@ -607,7 +645,7 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       console.warn(`[115m][transcode] runTranscode exception pickCode=${pickCode} manual=${String(manual)} error=${error instanceof Error ? error.message : String(error)}`)
       acceleratedSet.delete(pickCode)
       if (manual) {
-        setManualFallback('手动加速异常，请稍后重试')
+        setNativeFallback('手动加速异常，可尝试后台加速')
         return
       }
 
@@ -624,6 +662,10 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
     event.stopPropagation()
     console.log(`[115m][transcode] manual button click pickCode=${pickCode}`)
     acceleratedSet.add(pickCode)
+    if (nativeFallbackVisible) {
+      runNativeFallback()
+      return
+    }
     runTranscode(true)
   })
 

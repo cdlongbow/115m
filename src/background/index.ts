@@ -17,6 +17,7 @@ import {
   handleMoveFile,
   handleMoveSuccessRefresh,
   handleTranscode,
+  handleTranscodeNativeFallback,
   handleTranscodeStatus,
 } from './handlers'
 
@@ -195,6 +196,10 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
     case 'TRANSCODE_STATUS':
       assertTrustedSender(sender, message.type)
       return handleTranscodeStatus(message)
+
+    case 'TRANSCODE_NATIVE_FALLBACK':
+      assertTrustedSender(sender, message.type)
+      return handleTranscodeNativeFallback(message)
 
     case 'SET_COOKIE': {
       assertTrustedSender(sender, message.type)

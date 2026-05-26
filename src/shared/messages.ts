@@ -136,6 +136,11 @@ export interface MsgTranscodeStatus {
   data: { pickCode: string }
 }
 
+export interface MsgTranscodeNativeFallback {
+  type: 'TRANSCODE_NATIVE_FALLBACK'
+  data: { pickCode: string }
+}
+
 export interface MsgFetchPlaylistResponse {
   list?: FileItem[]
   path?: Array<{ cid: string, name: string }>
@@ -179,3 +184,4 @@ export type RuntimeMessage =
   | MsgDeleteSuccessRefresh
   | MsgTranscode
   | MsgTranscodeStatus
+  | MsgTranscodeNativeFallback

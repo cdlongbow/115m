@@ -9,6 +9,7 @@ import type {
   MsgFetchSubtitles,
   MsgMoveFile,
   MsgTranscode,
+  MsgTranscodeNativeFallback,
   MsgTranscodeStatus,
 } from '../shared/messages'
 import { parseM3u8Text } from '../lib/m3u8-parser'
@@ -50,8 +51,12 @@ interface IsTranscodedResult {
 const TRANSCODE_COOLDOWN_MS = 45_000
 const BATCH_TRANSCODE_COOLDOWN_MS = 10 * 60_000
 const MAX_BATCH_TRANSCODE_COUNT = 20
+const NATIVE_FALLBACK_TIMEOUT_MS = 12_000
+const NATIVE_FALLBACK_SETTLE_MS = 3_000
 const transcodeCooldown = new Map<string, { ts: number, response: unknown }>()
 const batchTranscodeCooldown = new Map<string, number>()
+let nativeFallbackQueue: Promise<unknown> = Promise.resolve()
+const nativeFallbackTabs = new Set<number>()
 
 function isTransientFrameError(error: unknown): boolean {
   return /Frame with ID \d+ was removed|No frame with id|The tab was closed|Cannot access contents of url/i.test(String(error))
@@ -77,6 +82,71 @@ function setTranscodeCooldown(pickCode: string, response: unknown) {
 
 function wait(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
+}
+
+async function waitForTabStatus(tabId: number, status: chrome.tabs.TabStatus, timeoutMs: number) {
+  try {
+    const tab = await chrome.tabs.get(tabId)
+    if (tab.status === status) return
+  }
+  catch {
+    return
+  }
+
+  await new Promise<void>((resolve) => {
+    const timer = setTimeout(() => {
+      chrome.tabs.onUpdated.removeListener(listener)
+      resolve()
+    }, timeoutMs)
+
+    const listener = (updatedTabId: number, changeInfo: chrome.tabs.TabChangeInfo) => {
+      if (updatedTabId === tabId && changeInfo.status === status) {
+        clearTimeout(timer)
+        chrome.tabs.onUpdated.removeListener(listener)
+        resolve()
+      }
+    }
+
+    chrome.tabs.onUpdated.addListener(listener)
+  })
+}
+
+async function closeNativeFallbackTabs() {
+  const tabIds = Array.from(nativeFallbackTabs)
+  nativeFallbackTabs.clear()
+  for (const tabId of tabIds) {
+    try {
+      await chrome.tabs.remove(tabId)
+    }
+    catch {
+    }
+  }
+}
+
+async function runNativeFallbackOnce(pickCode: string) {
+  await closeNativeFallbackTabs()
+  const url = `https://115.com/web/lixian/master/video/?pick_code=${encodeURIComponent(pickCode)}&pickCode=${encodeURIComponent(pickCode)}&m115_transcode_fallback=1`
+  const tab = await chrome.tabs.create({ url, active: false })
+  if (!tab.id) throw new Error('后台加速页面创建失败')
+  nativeFallbackTabs.add(tab.id)
+  try {
+    await waitForTabStatus(tab.id, 'complete', NATIVE_FALLBACK_TIMEOUT_MS)
+    await wait(NATIVE_FALLBACK_SETTLE_MS)
+  }
+  finally {
+    nativeFallbackTabs.delete(tab.id)
+    try {
+      await chrome.tabs.remove(tab.id)
+    }
+    catch {
+    }
+  }
+}
+
+function enqueueNativeFallback<T>(task: () => Promise<T>) {
+  const queued = nativeFallbackQueue.then(task, task)
+  nativeFallbackQueue = queued.catch(() => {})
+  return queued
 }
 
 function getBatchCooldownKey(pickCode: string, fileIds: string[]) {
@@ -596,4 +666,36 @@ export async function handleTranscode(message: MsgTranscode) {
     await close115VodFrameSession(pickCodeForCooldown)
     await closeExtensionCreated115VodTab()
   }
+}
+
+export async function handleTranscodeNativeFallback(message: MsgTranscodeNativeFallback) {
+  const pickCode = message.data.pickCode
+  return enqueueNativeFallback(async () => {
+    try {
+      await runNativeFallbackOnce(pickCode)
+      await wait(1200)
+      const status = await handleTranscodeStatus({ type: 'TRANSCODE_STATUS', data: { pickCode } }) as Record<string, unknown>
+      if (status.ok && status.state !== 'failed') {
+        return {
+          ...status,
+          nativeFallback: true,
+          detail: status.detail || '后台原生页已触发',
+        }
+      }
+      return {
+        ok: true,
+        state: 'manual_required',
+        nativeFallback: true,
+        detail: status.error || '后台加速已尝试，暂未命中队列',
+      }
+    }
+    catch (e: any) {
+      return {
+        ok: false,
+        state: 'failed',
+        nativeFallback: true,
+        error: e?.message || String(e),
+      }
+    }
+  })
 }
