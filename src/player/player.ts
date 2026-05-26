@@ -15,7 +15,7 @@ import { buildSpeedControlItem as buildSpeedControlConfig } from './core/player-
 import { buildAudioControlItem as buildAudioControlConfig } from './core/player-audio'
 import { buildPlaybackModeControlItem as buildPlaybackModeControlConfig } from './core/player-playback-mode-control'
 import { fetchM3u8WithRetry } from './core/source'
-import { deletePlayHistory, loadPlayHistory, loadVideoRotation, saveQualityPreference, saveVideoRotation } from './core/history'
+import { deletePlayHistory, loadPlayHistory, loadVideoRotation, loadVolumePreference, saveQualityPreference, saveVideoRotation, saveVolumePreference } from './core/history'
 import { buildNavControlItem } from './core/player-center-controls'
 import type { AudioTrackOption, QualityOption } from './core/types'
 import { buildPlaybackModePlan, getPlaybackModeLabel, loadPlaybackMode, savePlaybackMode, type PlaybackMode } from './core/player-playback-mode'
@@ -417,6 +417,7 @@ class PlayerManager {
   private createArtplayer(videoUrl: string, type: 'native' | 'hls') {
     const container = document.getElementById('artplayer-app')
     if (!container) throw new Error('找不到播放器容器')
+    const volumePreference = loadVolumePreference()
 
     // 记录初始 URL，用于区分初始化和用户手动切换
     this._initUrl = videoUrl
@@ -429,7 +430,7 @@ class PlayerManager {
     this.artplayer = new Artplayer({
       container: container as HTMLDivElement,
       url: videoUrl,
-      volume: 1,
+      volume: volumePreference.volume,
       autoplay: true,
       pip: false,
       autoMini: true,
@@ -492,6 +493,8 @@ class PlayerManager {
         },
       },
     })
+
+    this.artplayer.video.muted = volumePreference.muted
 
     // Don't use ArtPlayer's fullscreenWeb — it uses position:fixed + moves to body,
     // which covers #playlist-sidebar. Instead the player fills its flex container naturally.
@@ -612,6 +615,13 @@ class PlayerManager {
           if (this.isNativeVideo) {
             this.scheduleNativeAudioProbe()
           }
+        },
+        onVolumeChange: () => {
+          if (!this.artplayer) return
+          saveVolumePreference({
+            volume: this.artplayer.volume,
+            muted: this.artplayer.video.muted,
+          })
         },
         onEnded: () => {
           this.handlePlaybackEnded()

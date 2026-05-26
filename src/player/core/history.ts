@@ -1,5 +1,10 @@
 import { sendRuntimeMessageSafe } from './runtime'
 
+export interface VolumePreference {
+  volume: number
+  muted: boolean
+}
+
 /**
  * 画质偏好记录
  */
@@ -39,12 +44,31 @@ export interface PlaylistProgressSnapshot {
 
 const QUALITY_PREF_STORAGE_KEY = '115m-quality-preferences'
 const VIDEO_ROTATION_STORAGE_KEY = '115m-video-rotations'
+const VOLUME_PREF_STORAGE_KEY = '115m-volume-preference'
+const DEFAULT_VOLUME_PREFERENCE: VolumePreference = {
+  volume: 0.6,
+  muted: false,
+}
 const PLAY_HISTORY_COMPLETED_REMAINING_SEC = 15
 const PLAY_HISTORY_COMPLETED_RATIO = 0.98
 const PLAY_HISTORY_WRITE_DEBOUNCE_MS = 3000
 const PLAY_HISTORY_MIN_WRITE_INTERVAL_MS = 15000
 const NATIVE_PLAY_HISTORY_ENABLED = true
 const LOCAL_PLAY_HISTORY_ENABLED = false
+
+function normalizeVolumePreference(value: unknown): VolumePreference {
+  if (!value || typeof value !== 'object') return DEFAULT_VOLUME_PREFERENCE
+
+  const record = value as Partial<VolumePreference>
+  const volume = typeof record.volume === 'number'
+    ? Math.max(0, Math.min(1, record.volume))
+    : DEFAULT_VOLUME_PREFERENCE.volume
+  const muted = typeof record.muted === 'boolean'
+    ? record.muted
+    : DEFAULT_VOLUME_PREFERENCE.muted
+
+  return { volume, muted }
+}
 
 function readQualityPreferenceMap(): Record<string, QualityPreference> {
   try {
@@ -82,6 +106,27 @@ function readVideoRotationMap(): Record<string, number> {
 function writeVideoRotationMap(map: Record<string, number>) {
   try {
     localStorage.setItem(VIDEO_ROTATION_STORAGE_KEY, JSON.stringify(map))
+  }
+  catch {
+    // ignore storage errors
+  }
+}
+
+export function loadVolumePreference(): VolumePreference {
+  try {
+    const raw = localStorage.getItem(VOLUME_PREF_STORAGE_KEY)
+    if (!raw) return DEFAULT_VOLUME_PREFERENCE
+    const parsed = JSON.parse(raw) as VolumePreference
+    return normalizeVolumePreference(parsed)
+  }
+  catch {
+    return DEFAULT_VOLUME_PREFERENCE
+  }
+}
+
+export function saveVolumePreference(preference: VolumePreference) {
+  try {
+    localStorage.setItem(VOLUME_PREF_STORAGE_KEY, JSON.stringify(normalizeVolumePreference(preference)))
   }
   catch {
     // ignore storage errors
@@ -224,45 +269,8 @@ export function buildPlaylistProgressSnapshot(history?: PlayHistoryRecord): Play
   }
 }
 
-function clearPendingPlayHistoryWrite(pickCode: string) {
-  const pending = pendingPlayHistoryWrites.get(pickCode)
-  if (pending?.timer) {
-    window.clearTimeout(pending.timer)
-  }
-  pendingPlayHistoryWrites.delete(pickCode)
-}
-
-async function flushPlayHistoryWrite(pickCode: string) {
-  const pending = pendingPlayHistoryWrites.get(pickCode)
-  if (!pending) return
-
-  pendingPlayHistoryWrites.delete(pickCode)
-  lastPlayHistoryWriteAt.set(pickCode, Date.now())
-  await persistPlayHistory(pending.params)
-}
-
-function schedulePlayHistoryWrite(params: {
-  pickCode: string
-  fileName: string
-  currentTime: number
-  duration: number
-  quality: string
-}) {
-  const now = Date.now()
-  const lastWriteAt = lastPlayHistoryWriteAt.get(params.pickCode) || 0
-  const delay = Math.max(PLAY_HISTORY_WRITE_DEBOUNCE_MS, PLAY_HISTORY_MIN_WRITE_INTERVAL_MS - (now - lastWriteAt))
-  const previous = pendingPlayHistoryWrites.get(params.pickCode)
-
-  if (previous?.timer) {
-    window.clearTimeout(previous.timer)
-  }
-
-  pendingPlayHistoryWrites.set(params.pickCode, {
-    params,
-    timer: window.setTimeout(() => {
-      void flushPlayHistoryWrite(params.pickCode)
-    }, delay),
-  })
+function buildPlayHistoryIdentity(params: { pickCode: string, fileName: string }) {
+  return `${params.pickCode}::${params.fileName}`
 }
 
 async function persistPlayHistory(params: {
@@ -273,40 +281,16 @@ async function persistPlayHistory(params: {
   quality: string
 }) {
   await sendRuntimeMessageSafe({
-    type: 'SET_NATIVE_HISTORY',
+    type: 'SAVE_HISTORY',
     data: {
       pickCode: params.pickCode,
-      currentTime: params.currentTime,
-      definition: params.quality === '无损' ? 1 : 0,
       shareId: '0',
+      currentTime: Math.max(0, params.currentTime),
+      duration: Math.max(0, params.duration),
+      quality: params.quality,
+      fileName: params.fileName,
+      watchEnd: false,
     },
-  })
-
-  if (!LOCAL_PLAY_HISTORY_ENABLED) return
-
-  await sendRuntimeMessageSafe({
-    type: 'SET_HISTORY',
-    data: params,
-  })
-}
-
-export function resetPlayHistory(params: {
-  pickCode: string
-  fileName: string
-  duration: number
-  quality: string
-}) {
-  const { pickCode, fileName, duration, quality } = params
-  if (!pickCode) return
-
-  clearPendingPlayHistoryWrite(pickCode)
-  lastPlayHistoryWriteAt.set(pickCode, Date.now())
-  void persistPlayHistory({
-    pickCode,
-    fileName,
-    currentTime: 0,
-    duration,
-    quality,
   })
 }
 
@@ -317,13 +301,84 @@ export function savePlayHistory(params: {
   duration: number
   quality: string
 }) {
-  const { pickCode, fileName, currentTime, duration, quality } = params
-  if (!pickCode || !duration) return
-  if (isCompletedPlayback(currentTime, duration)) {
-    resetPlayHistory({ pickCode, fileName, duration, quality })
-    return
-  }
-  if (currentTime < 5) return
+  if (!NATIVE_PLAY_HISTORY_ENABLED || !params.pickCode || !params.fileName) return
+  if (!Number.isFinite(params.currentTime) || params.currentTime <= 0) return
 
-  schedulePlayHistoryWrite({ pickCode, fileName, currentTime, duration, quality })
+  const identity = buildPlayHistoryIdentity(params)
+  const current = pendingPlayHistoryWrites.get(identity)
+  if (current?.timer) {
+    window.clearTimeout(current.timer)
+  }
+
+  const next: PendingPlayHistoryWrite = {
+    params,
+    timer: window.setTimeout(async () => {
+      const latest = pendingPlayHistoryWrites.get(identity)
+      if (!latest) return
+
+      const now = Date.now()
+      const lastAt = lastPlayHistoryWriteAt.get(identity) ?? 0
+      const elapsed = now - lastAt
+      if (elapsed < PLAY_HISTORY_MIN_WRITE_INTERVAL_MS) {
+        latest.timer = window.setTimeout(async () => {
+          try {
+            await persistPlayHistory(latest.params)
+            lastPlayHistoryWriteAt.set(identity, Date.now())
+          }
+          catch {
+            // ignore save errors
+          }
+          finally {
+            pendingPlayHistoryWrites.delete(identity)
+          }
+        }, PLAY_HISTORY_MIN_WRITE_INTERVAL_MS - elapsed)
+        pendingPlayHistoryWrites.set(identity, latest)
+        return
+      }
+
+      try {
+        await persistPlayHistory(latest.params)
+        lastPlayHistoryWriteAt.set(identity, Date.now())
+      }
+      catch {
+        // ignore save errors
+      }
+      finally {
+        pendingPlayHistoryWrites.delete(identity)
+      }
+    }, PLAY_HISTORY_WRITE_DEBOUNCE_MS),
+  }
+
+  pendingPlayHistoryWrites.set(identity, next)
+}
+
+export function resetPlayHistory(params: {
+  pickCode: string
+  fileName: string
+  duration: number
+  quality: string
+}) {
+  if (!NATIVE_PLAY_HISTORY_ENABLED || !params.pickCode || !params.fileName) return
+
+  const identity = buildPlayHistoryIdentity(params)
+  const pending = pendingPlayHistoryWrites.get(identity)
+  if (pending?.timer) {
+    window.clearTimeout(pending.timer)
+  }
+  pendingPlayHistoryWrites.delete(identity)
+
+  void sendRuntimeMessageSafe({
+    type: 'SAVE_HISTORY',
+    data: {
+      pickCode: params.pickCode,
+      shareId: '0',
+      currentTime: 0,
+      duration: Math.max(0, params.duration),
+      quality: params.quality,
+      fileName: params.fileName,
+      watchEnd: true,
+    },
+  }).catch(() => {
+    // ignore reset errors
+  })
 }
