@@ -44,13 +44,25 @@ function showContextInvalidatedTip() {
   document.body.appendChild(tip)
 }
 
+function runtimeDebug(...args: unknown[]) {
+  if (localStorage.getItem('115m-player-debug') === '1') {
+    console.debug(...args)
+  }
+}
+
+function getRuntimeMessageType(message: unknown) {
+  return message && typeof message === 'object' && 'type' in message
+    ? String((message as { type?: unknown }).type || 'unknown')
+    : 'unknown'
+}
+
 /**
  * 确保 Service Worker 已就绪
  * 浏览器重启后 SW 可能处于冷启动状态，需要等待它完全加载
  * 通过发送一个简单的 ping 消息来唤醒 SW
  */
 export async function ensureServiceWorkerReady(maxRetries = 5, delay = 500): Promise<void> {
-  console.log('[115m] ensureServiceWorkerReady: starting...')
+  runtimeDebug('[115m] ensureServiceWorkerReady: starting...')
   if (!canUseRuntimeMessaging()) {
     console.warn('[115m] ensureServiceWorkerReady skipped: runtime unavailable')
     return
@@ -60,7 +72,7 @@ export async function ensureServiceWorkerReady(maxRetries = 5, delay = 500): Pro
       const runtime = getRuntimeApi()
       if (!runtime?.sendMessage) return
       const result = await runtime.sendMessage({ type: 'PING' })
-      console.log('[115m] ensureServiceWorkerReady: PING response', result)
+      runtimeDebug('[115m] ensureServiceWorkerReady: PING response', result)
       if (result) return
     }
     catch (e) {
@@ -69,7 +81,7 @@ export async function ensureServiceWorkerReady(maxRetries = 5, delay = 500): Pro
         showContextInvalidatedTip()
         return
       }
-      console.warn('[115m] ensureServiceWorkerReady: PING error, retrying...', i, e)
+      runtimeDebug('[115m] ensureServiceWorkerReady: PING error, retrying...', i, e)
     }
     if (i < maxRetries - 1) {
       await new Promise(resolve => setTimeout(resolve, delay))
@@ -89,7 +101,7 @@ export async function sendRuntimeMessageSafe<T = unknown>(
   timeoutMs = 0,
 ): Promise<T | null> {
   if (!canUseRuntimeMessaging()) {
-    console.warn('[115m] sendRuntimeMessage skipped: runtime unavailable', message)
+    console.warn('[115m] sendRuntimeMessage skipped: runtime unavailable', getRuntimeMessageType(message))
     return null
   }
   for (let i = 0; i <= retries; i++) {
@@ -107,7 +119,7 @@ export async function sendRuntimeMessageSafe<T = unknown>(
         return result
       }
       // result 为 undefined 时重试（可能由于 Service Worker 尚未就绪导致没有响应）
-      console.warn('[115m] sendMessage got undefined, retrying...', i)
+      runtimeDebug('[115m] sendMessage got undefined, retrying...', i, getRuntimeMessageType(message))
     }
     catch (e) {
       if (isContextInvalidated(e)) {
@@ -115,12 +127,12 @@ export async function sendRuntimeMessageSafe<T = unknown>(
         showContextInvalidatedTip()
         return null
       }
-      console.warn('[115m] sendMessage error, retrying...', i, e)
+      runtimeDebug('[115m] sendMessage error, retrying...', i, getRuntimeMessageType(message), e)
     }
     if (i < retries) {
       await new Promise(resolve => setTimeout(resolve, delay))
     }
   }
-  console.warn('[115m] sendRuntimeMessage failed after retries:', message)
+  console.warn('[115m] sendRuntimeMessage failed after retries:', getRuntimeMessageType(message))
   return null
 }

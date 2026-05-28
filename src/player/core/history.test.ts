@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest'
-import { buildPlaylistProgressSnapshot, isCompletedPlayback, loadVideoRotation, saveVideoRotation, shouldRestorePlayHistory } from './history'
+import { buildPlaylistProgressSnapshot, isCompletedPlayback, loadAudioTrackPreference, loadSubtitlePreference, loadVideoRotation, saveAudioTrackPreference, saveSubtitlePreference, saveVideoRotation, shouldRestorePlayHistory } from './history'
 
 describe('play history restore guard', () => {
   it('skips restoring progress near the end of playback', () => {
@@ -53,5 +53,49 @@ describe('video rotation storage', () => {
     expect(loadVideoRotation('pick-a')).toBe(90)
     expect(loadVideoRotation('pick-b')).toBe(180)
     expect(loadVideoRotation('pick-c')).toBe(0)
+  })
+})
+
+describe('subtitle and audio preference storage', () => {
+  it('persists per-video subtitle preference including disabled state', () => {
+    const store = new Map<string, string>()
+    const localStorageMock = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value)
+      },
+    }
+
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: localStorageMock,
+    })
+
+    saveSubtitlePreference('pick-a', { sid: 'sid-a', title: '简体中文', type: 'srt', language: 'zh' })
+    saveSubtitlePreference('pick-b', { sid: '', title: '', type: '', disabled: true })
+
+    expect(loadSubtitlePreference('pick-a')).toEqual({ sid: 'sid-a', title: '简体中文', type: 'srt', language: 'zh' })
+    expect(loadSubtitlePreference('pick-b')).toEqual({ sid: '', title: '', type: '', disabled: true })
+    expect(loadSubtitlePreference('pick-c')).toBeNull()
+  })
+
+  it('persists per-video audio track preference', () => {
+    const store = new Map<string, string>()
+    const localStorageMock = {
+      getItem: (key: string) => store.get(key) ?? null,
+      setItem: (key: string, value: string) => {
+        store.set(key, value)
+      },
+    }
+
+    Object.defineProperty(globalThis, 'localStorage', {
+      configurable: true,
+      value: localStorageMock,
+    })
+
+    saveAudioTrackPreference('pick-a', { id: 1, label: 'English（eng）' })
+
+    expect(loadAudioTrackPreference('pick-a')).toEqual({ id: 1, label: 'English（eng）' })
+    expect(loadAudioTrackPreference('pick-b')).toBeNull()
   })
 })

@@ -2,8 +2,6 @@
  * 播放器页面逻辑
  */
 
-console.log('[115m] player.ts loading...')
-
 import Artplayer from 'artplayer'
 import type HlsType from 'hls.js'
 import playerSkinCss from './core/player-skin.css?inline'
@@ -15,7 +13,7 @@ import { buildSpeedControlItem as buildSpeedControlConfig } from './core/player-
 import { buildAudioControlItem as buildAudioControlConfig } from './core/player-audio'
 import { buildPlaybackModeControlItem as buildPlaybackModeControlConfig } from './core/player-playback-mode-control'
 import { fetchM3u8WithRetry } from './core/source'
-import { deletePlayHistory, loadPlayHistory, loadVideoRotation, loadVolumePreference, saveQualityPreference, saveVideoRotation, saveVolumePreference } from './core/history'
+import { deletePlayHistory, loadAudioTrackPreference, loadPlayHistory, loadSubtitlePreference, loadVideoRotation, loadVolumePreference, saveAudioTrackPreference, saveQualityPreference, saveSubtitlePreference, saveVideoRotation, saveVolumePreference } from './core/history'
 import { buildNavControlItem } from './core/player-center-controls'
 import type { AudioTrackOption, QualityOption } from './core/types'
 import { buildPlaybackModePlan, getPlaybackModeLabel, loadPlaybackMode, savePlaybackMode, type PlaybackMode } from './core/player-playback-mode'
@@ -53,6 +51,7 @@ import { canUseNativeUltraSource, isConservativeNativeUltraExtension, shouldFall
 import { applyRotationToVideo, buildRotateControlItem, getNextRotationDegrees } from './core/player-rotation'
 import { bindClickSelectorBehavior } from './core/player-selector'
 import { SubtitleManager } from './core/subtitle-manager'
+import type { SubtitleItem } from './core/subtitles'
 
 function injectPlayerSkinStyles() {
   if (document.getElementById('m115-player-skin-style')) return
@@ -105,6 +104,12 @@ function safePlay(art: Artplayer | null) {
   void art.play().catch(() => {
     // Ignore native play promise rejections during source switches and transient media reloads.
   })
+}
+
+function playerDebug(...args: unknown[]) {
+  if (localStorage.getItem('115m-player-debug') === '1') {
+    console.debug(...args)
+  }
 }
 
 bindInterruptedPlayRejectionGuard()
@@ -181,6 +186,8 @@ class PlayerManager {
   private currentHlsSourceUrl: string | null = null
   private currentHlsLogicalUrl: string | null = null
   private preferredAudioTrackId: number | null = null
+  private subtitlePreferenceAppliedForPickCode = ''
+  private audioPreferenceAppliedForPickCode = ''
   private isSwitchingVideo = false
   private lastVideoSwitchStartedAt = 0
   private pendingVideoSwitch: { pickCode: string, keepPlaylistOpen: boolean, autoPlay: boolean } | null = null
@@ -228,7 +235,7 @@ class PlayerManager {
       initCostMs: Math.round(now - this.initStartTs),
       ...extra,
     }
-    console.log('[115m][Perf]', payload)
+    playerDebug('[115m][Perf]', payload)
   }
 
   private reportFirstFrameSummary() {
@@ -243,7 +250,7 @@ class PlayerManager {
     const metaToPlay = p.loadedmetadata ? Math.round(p.playing - p.loadedmetadata) : -1
     const initToPlay = Math.round(p.playing - p.init)
 
-    console.log('[115m][首播耗时]', {
+    playerDebug('[115m][首播耗时]', {
       traceId: this.traceId,
       pickCode: this.currentPickCode,
       clickToPlayMs: clickToPlay,
@@ -747,7 +754,7 @@ class PlayerManager {
           button.addEventListener('click', (event) => {
             event.preventDefault()
             event.stopPropagation()
-            void this.subtitleManager?.select(button.dataset.sid || '')
+            void this.applySubtitleSelection(button.dataset.sid || '', true)
           })
         })
       },
@@ -770,6 +777,7 @@ class PlayerManager {
       sendMessage: sendRuntimeMessageSafe,
       onListChange: () => this.renderSubtitleControl(),
       onTrackChange: () => this.renderSubtitleControl(),
+      onListLoaded: () => this.restoreSubtitlePreferenceForCurrentVideo(),
       onError: message => this.overlay?.showToast(message),
     })
     void this.subtitleManager.loadList(this.currentPickCode)
@@ -778,6 +786,49 @@ class PlayerManager {
   private resetSubtitlesForCurrentVideo() {
     this.subtitleManager?.clearTrack()
     void this.subtitleManager?.loadList(this.currentPickCode)
+  }
+
+  private async applySubtitleSelection(sid: string, remember = false) {
+    if (!this.subtitleManager) return
+    const items = this.subtitleManager.getItems()
+    const item = sid ? items.find(entry => entry.sid === sid) : null
+    await this.subtitleManager.select(sid)
+    if (remember) {
+      saveSubtitlePreference(this.currentPickCode, item
+        ? {
+            sid: item.sid,
+            title: item.title,
+            type: item.type,
+            language: item.language,
+          }
+        : {
+            sid: '',
+            title: '',
+            type: '',
+            disabled: true,
+          })
+    }
+  }
+
+  private restoreSubtitlePreferenceForCurrentVideo() {
+    if (!this.subtitleManager || this.subtitlePreferenceAppliedForPickCode === this.currentPickCode) return
+    const preference = loadSubtitlePreference(this.currentPickCode)
+    if (!preference) return
+    this.subtitlePreferenceAppliedForPickCode = this.currentPickCode
+    if (preference.disabled) {
+      void this.applySubtitleSelection('', false)
+      return
+    }
+    const item = this.findPreferredSubtitleItem(this.subtitleManager.getItems(), preference)
+    if (item) {
+      void this.applySubtitleSelection(item.sid, false)
+    }
+  }
+
+  private findPreferredSubtitleItem(items: SubtitleItem[], preference: { sid: string, title: string, type: string, language?: string }) {
+    return items.find(item => item.sid === preference.sid)
+      || items.find(item => item.title === preference.title && item.type === preference.type && (item.language || '') === (preference.language || ''))
+      || items.find(item => item.title === preference.title)
   }
 
   private escapeHtml(value: string) {
@@ -957,8 +1008,9 @@ class PlayerManager {
     this.currentAudioTrackId = typeof hls?.audioTrack === 'number' ? hls.audioTrack : -1
     const active = this.audioTrackOptions.find(track => track.id === this.currentAudioTrackId)
     this.currentAudioTrackLabel = active?.label || (this.audioTrackOptions.length > 0 ? this.audioTrackOptions[0].label : '音轨')
+    this.restoreAudioPreferenceForCurrentVideo()
     this.renderAudioControl()
-    console.log('[115m][audio] tracks', {
+    playerDebug('[115m][audio] tracks', {
       count: this.audioTrackOptions.length,
       currentAudioTrackId: this.currentAudioTrackId,
       options: this.audioTrackOptions,
@@ -1003,7 +1055,7 @@ class PlayerManager {
         this.currentAudioTrackId = 0
         this.currentAudioTrackLabel = fallbackTracks[0]?.label || '音轨'
         this.renderAudioControl()
-        console.log('[115m][audio] fallback tracks from master playlist', fallbackTracks)
+        playerDebug('[115m][audio] fallback tracks from master playlist', fallbackTracks)
       }
     }
     catch (error) {
@@ -1025,6 +1077,7 @@ class PlayerManager {
     const active = this.audioTrackOptions.find(track => track.id === id)
     if (active) {
       this.currentAudioTrackLabel = active.label
+      saveAudioTrackPreference(this.currentPickCode, active)
     }
     this.renderAudioControl()
 
@@ -1034,6 +1087,34 @@ class PlayerManager {
       shouldResume,
       track,
     })
+  }
+
+  private restoreAudioPreferenceForCurrentVideo() {
+    if (this.audioPreferenceAppliedForPickCode === this.currentPickCode) return
+    const preference = loadAudioTrackPreference(this.currentPickCode)
+    if (!preference) return
+    const option = this.audioTrackOptions.find(item => item.id === preference.id && item.label === preference.label)
+      || this.audioTrackOptions.find(item => item.label === preference.label)
+    if (!option || option.id === this.currentAudioTrackId) {
+      this.audioPreferenceAppliedForPickCode = this.currentPickCode
+      return
+    }
+    const hls = this.hlsInstance as any
+    if (!hls || typeof hls.audioTrack !== 'number') return
+    this.audioPreferenceAppliedForPickCode = this.currentPickCode
+    this.preferredAudioTrackId = option.id
+    this.currentAudioTrackId = option.id
+    this.currentAudioTrackLabel = option.label
+    try {
+      const track = Array.isArray(hls.audioTracks) ? hls.audioTracks[option.id] : null
+      if (track && typeof hls.setAudioOption === 'function') {
+        hls.setAudioOption(track)
+      }
+    }
+    catch {
+      // ignore and continue
+    }
+    hls.audioTrack = option.id
   }
 
   private async rebuildHlsForAudioTrack(params: {
@@ -1072,7 +1153,7 @@ class PlayerManager {
       this.artplayer.once('video:loadedmetadata', restore)
       this.artplayer.once('video:canplay', restore)
 
-      console.log('[115m][audio] rebuild track', {
+      playerDebug('[115m][audio] rebuild track', {
         id: params.id,
         currentTime: params.currentTime,
         track: params.track,
@@ -1183,8 +1264,8 @@ class PlayerManager {
       if (favoriteStatus !== null) {
         this.overlay?.updateFavoriteStatus(favoriteStatus)
       }
-    } catch (e) {
-      console.warn('[115m] fetchFileFavoriteStatus failed:', e)
+    } catch (error) {
+      playerDebug('[115m] fetchFileFavoriteStatus failed:', error)
     }
   }
 
@@ -1241,7 +1322,7 @@ class PlayerManager {
   private async fallbackToHls(reason = '播放失败', rememberOriginal = false) {
     this.resetNativeStallState()
     this.clearNativeAudioProbe()
-    console.log('[115m] fallbackToHls triggered, current m3u8List length:', this.m3u8List.length, 'reason:', reason)
+    playerDebug('[115m] fallbackToHls triggered', { m3u8Count: this.m3u8List.length, reason })
     
     if (!this.artplayer) {
       this.showError('播放失败，无可用的视频源')
@@ -1250,7 +1331,7 @@ class PlayerManager {
 
     // 确保有 m3u8 列表
     if (this.m3u8List.length === 0) {
-      console.log('[115m] m3u8List empty, fetching...')
+      playerDebug('[115m] m3u8List empty, fetching...')
       const fetched = await fetchM3u8WithRetry(this.currentPickCode).catch((e) => {
         console.error('[115m] fetchM3u8WithRetry failed:', e)
         return null
@@ -1277,7 +1358,7 @@ class PlayerManager {
       return
     }
     
-    console.log('[115m] fallbackToHls: switching to', bestQualityUrl.substring(0, 80) + '...')
+    playerDebug('[115m] fallbackToHls: switching to HLS')
     this.renderQualityPanel()
     this.overlay?.showToast(`${reason}，已切换 115原画`)
     try {
@@ -1430,7 +1511,7 @@ class PlayerManager {
     })) return
     const hasHlsAudioTracks = await this.masterPlaylistHasAudioTracks()
     if (!hasHlsAudioTracks) return
-    console.warn('[115m][audio] native source has no decoded audio, fallback to HLS')
+    console.info('[115m][audio] native source has no decoded audio, fallback to HLS')
     await this.fallbackToHls('无损音频不兼容，已改用 115原画', true)
   }
 
@@ -1518,7 +1599,7 @@ class PlayerManager {
       this.syncOverlayPlaybackNav()
     }
     catch (error) {
-      console.warn('[115m] prefetchPlaylistItems failed:', error)
+      playerDebug('[115m] prefetchPlaylistItems failed:', error)
     }
   }
 
@@ -1880,6 +1961,9 @@ class PlayerManager {
 
       this.currentPickCode = pickCode
       this.currentRotation = loadVideoRotation(pickCode)
+      this.subtitlePreferenceAppliedForPickCode = ''
+      this.audioPreferenceAppliedForPickCode = ''
+      this.preferredAudioTrackId = null
       this.perfMarks = { init: performance.now() }
       this.firstPlayingReported = false
       this.lastPlaylistProgressSyncSec = -1
@@ -1939,8 +2023,7 @@ class PlayerManager {
   private async resolvePlaybackForPickCode(pickCode: string) {
     const playback = await resolvePlaybackBundle(sendRuntimeMessageSafe, pickCode, this.nativeUltraSupported)
 
-    console.log('[115m] Source fetch result:', {
-      pickCode,
+    playerDebug('[115m] Source fetch result:', {
       ultraOk: !!playback.ultraUrl,
       m3u8Ok: playback.m3u8List.length > 0,
       m3u8Count: playback.m3u8List.length,

@@ -75,6 +75,12 @@ export function readOverlayMetaFromQuery(): PlayerOverlayMeta {
   return readOverlayMetaQuery(window.location.search)
 }
 
+function overlayDebug(...args: unknown[]) {
+  if (localStorage.getItem('115m-player-debug') === '1') {
+    console.debug(...args)
+  }
+}
+
 export class PlayerOverlayController {
   private readonly root: HTMLElement
   private readonly controlsEl: HTMLElement
@@ -157,7 +163,7 @@ export class PlayerOverlayController {
       this.setPlaylistOpen(true)
     }
     catch (error) {
-      console.warn('[115m] restore playlist open failed:', error)
+      overlayDebug('[115m] restore playlist open failed:', error)
     }
   }
 
@@ -349,7 +355,6 @@ export class PlayerOverlayController {
   private bindFavoriteButton(button: HTMLButtonElement) {
     button.addEventListener('click', async () => {
       const fileId = this.options.meta.fileId
-      console.log('[115m] 收藏切换:', { fileId, currentMarked: this.options.meta.isMarked })
       if (!fileId) {
         this.showToast('文件 ID 缺失，无法收藏')
         return
@@ -366,7 +371,6 @@ export class PlayerOverlayController {
         button.style.transform = 'scale(1.3)'
         setTimeout(() => { button.style.transform = '' }, 200)
         this.showToast(result ? '已星标' : '已取消星标')
-        console.log('[115m] 收藏结果:', result)
       }
       catch (e) {
         console.error('[115m] 收藏失败:', e)
@@ -519,7 +523,6 @@ export class PlayerOverlayController {
     const moveBtn = createHeaderActionButton('移动视频', '<svg width="18" height="18" viewBox="0 0 24 24"><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M5 9l-3 3 3 3"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M2 12h14"/><path style="fill:none;stroke:rgba(255,255,255,.82);stroke-width:2" d="M12 5V2h10v20H12v-3"/></svg>')
     moveBtn.addEventListener('click', async () => {
       const { fileId, cid } = this.options.meta
-      console.log('[115m] 移动文件:', fileId, cid)
       if (!fileId) {
         this.showToast('文件 ID 缺失')
         return
@@ -640,7 +643,7 @@ export class PlayerOverlayController {
       console.warn('[115m] #playlist-sidebar not found in DOM')
       return
     }
-    console.log('[115m] mountSidebarContent: sidebar found, setting up content')
+    overlayDebug('[115m] mountSidebarContent: sidebar found, setting up content')
 
     this.sidebarEl.innerHTML = ''
     this.sidebarEl.style.cssText = 'width:0;min-width:0;flex:0 0 0;overflow:hidden;transition:width .25s ease, flex-basis .25s ease;background:#0a0a0a;border-left:1px solid rgba(255,255,255,.06);display:flex;flex-direction:column;box-sizing:border-box;height:100%;pointer-events:none;'
@@ -705,7 +708,7 @@ export class PlayerOverlayController {
       this.sidebarEl.style.pointerEvents = open ? 'auto' : 'none'
 
       const computed = window.getComputedStyle(this.sidebarEl)
-      console.log('[115m] setPlaylistOpen:', {
+      overlayDebug('[115m] setPlaylistOpen:', {
         open,
         sidebarEl: true,
         inlineWidth: this.sidebarEl.style.width,
@@ -790,10 +793,10 @@ export class PlayerOverlayController {
 
   private handlePlaylistToggle = async () => {
     const nextOpen = !this.playlistOpen
-    console.log('[115m] handlePlaylistToggle:', { nextOpen, sidebarEl: !!this.sidebarEl, playlistListEl: !!this.playlistListEl })
+    overlayDebug('[115m] handlePlaylistToggle:', { nextOpen, sidebarEl: !!this.sidebarEl, playlistListEl: !!this.playlistListEl })
     if (nextOpen) {
       const items = await this.options.onPlaylistToggle(true)
-      console.log('[115m] playlist items received:', items.length, items)
+      overlayDebug('[115m] playlist items received:', items.length)
       this.renderPlaylist(items)
     }
     this.setPlaylistOpen(nextOpen)

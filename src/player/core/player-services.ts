@@ -11,6 +11,12 @@ type RuntimeSender = <T = unknown>(message: unknown, retries?: number, delay?: n
 
 const PLAYBACK_SOURCE_TIMEOUT_MS = 12000
 
+function playerServiceDebug(...args: unknown[]) {
+  if (localStorage.getItem('115m-player-debug') === '1') {
+    console.debug(...args)
+  }
+}
+
 export interface ResolvedPlaybackBundle {
   qualityPreference: QualityPreference | null
   ultraUrl: string | null
@@ -44,15 +50,10 @@ export async function resolvePlaybackBundle(
   const ultraUrl = downloadResult?.url?.url || null
   const resolvedM3u8List = Array.isArray(m3u8List) ? m3u8List : []
 
-  console.log('[115m][preview] playback sources', {
-    pickCode,
+  playerServiceDebug('[115m][preview] playback sources', {
     ultraAvailable: !!ultraUrl,
     m3u8Count: resolvedM3u8List.length,
-    m3u8Qualities: resolvedM3u8List.map(item => ({
-      quality: item.quality,
-      name: item.name,
-      url: item.url.slice(0, 120),
-    })),
+    m3u8Qualities: resolvedM3u8List.map(item => ({ quality: item.quality, name: item.name })),
     previewAssetsHint: 'No standalone VTT/sprite source detected in current playback bundle',
   })
 
@@ -60,14 +61,14 @@ export async function resolvePlaybackBundle(
     console.warn('[115m] fetchM3u8WithRetry failed:', m3u8Error)
   }
   else if (m3u8Error) {
-    console.debug('[115m] m3u8 unavailable, fallback to ultra source')
+    playerServiceDebug('[115m] m3u8 unavailable, fallback to ultra source')
   }
 
   if (ultraError && resolvedM3u8List.length === 0) {
     console.warn('[115m] fetchUltraSource failed:', ultraError)
   }
   else if (ultraError) {
-    console.debug('[115m] ultra source unavailable, fallback to m3u8 source')
+    playerServiceDebug('[115m] ultra source unavailable, fallback to m3u8 source')
   }
 
   if (downloadResult?.url?.auth_cookie) {

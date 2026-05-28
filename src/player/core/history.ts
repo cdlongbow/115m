@@ -13,6 +13,19 @@ export interface QualityPreference {
   quality: number
 }
 
+export interface SubtitlePreference {
+  sid: string
+  title: string
+  type: string
+  language?: string
+  disabled?: boolean
+}
+
+export interface AudioTrackPreference {
+  id: number
+  label: string
+}
+
 interface PlayHistoryRecord {
   currentTime: number
   duration?: number
@@ -43,6 +56,8 @@ export interface PlaylistProgressSnapshot {
 }
 
 const QUALITY_PREF_STORAGE_KEY = '115m-quality-preferences'
+const SUBTITLE_PREF_STORAGE_KEY = '115m-subtitle-preferences'
+const AUDIO_TRACK_PREF_STORAGE_KEY = '115m-audio-track-preferences'
 const VIDEO_ROTATION_STORAGE_KEY = '115m-video-rotations'
 const VOLUME_PREF_STORAGE_KEY = '115m-volume-preference'
 const DEFAULT_VOLUME_PREFERENCE: VolumePreference = {
@@ -85,6 +100,48 @@ function readQualityPreferenceMap(): Record<string, QualityPreference> {
 function writeQualityPreferenceMap(map: Record<string, QualityPreference>) {
   try {
     localStorage.setItem(QUALITY_PREF_STORAGE_KEY, JSON.stringify(map))
+  }
+  catch {
+    // ignore storage errors
+  }
+}
+
+function readSubtitlePreferenceMap(): Record<string, SubtitlePreference> {
+  try {
+    const raw = localStorage.getItem(SUBTITLE_PREF_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, SubtitlePreference>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+function writeSubtitlePreferenceMap(map: Record<string, SubtitlePreference>) {
+  try {
+    localStorage.setItem(SUBTITLE_PREF_STORAGE_KEY, JSON.stringify(map))
+  }
+  catch {
+    // ignore storage errors
+  }
+}
+
+function readAudioTrackPreferenceMap(): Record<string, AudioTrackPreference> {
+  try {
+    const raw = localStorage.getItem(AUDIO_TRACK_PREF_STORAGE_KEY)
+    if (!raw) return {}
+    const parsed = JSON.parse(raw) as Record<string, AudioTrackPreference>
+    return parsed && typeof parsed === 'object' ? parsed : {}
+  }
+  catch {
+    return {}
+  }
+}
+
+function writeAudioTrackPreferenceMap(map: Record<string, AudioTrackPreference>) {
+  try {
+    localStorage.setItem(AUDIO_TRACK_PREF_STORAGE_KEY, JSON.stringify(map))
   }
   catch {
     // ignore storage errors
@@ -141,7 +198,6 @@ export function saveQualityPreference(pickCode: string, label: string, quality: 
   const prefs = readQualityPreferenceMap()
   prefs[pickCode] = { label, quality }
   writeQualityPreferenceMap(prefs)
-  console.log('[115m] saveQualityPreference saved:', pickCode, label, quality)
 }
 
 /**
@@ -151,7 +207,32 @@ export function saveQualityPreference(pickCode: string, label: string, quality: 
 export async function loadQualityPreference(pickCode: string): Promise<QualityPreference | null> {
   if (!pickCode) return null
   const prefs = readQualityPreferenceMap()
-  console.log('[115m] loadQualityPreference all prefs:', JSON.stringify(prefs))
+  return prefs[pickCode] ?? null
+}
+
+export function saveSubtitlePreference(pickCode: string, preference: SubtitlePreference) {
+  if (!pickCode) return
+  const prefs = readSubtitlePreferenceMap()
+  prefs[pickCode] = preference
+  writeSubtitlePreferenceMap(prefs)
+}
+
+export function loadSubtitlePreference(pickCode: string): SubtitlePreference | null {
+  if (!pickCode) return null
+  const prefs = readSubtitlePreferenceMap()
+  return prefs[pickCode] ?? null
+}
+
+export function saveAudioTrackPreference(pickCode: string, preference: AudioTrackPreference) {
+  if (!pickCode) return
+  const prefs = readAudioTrackPreferenceMap()
+  prefs[pickCode] = preference
+  writeAudioTrackPreferenceMap(prefs)
+}
+
+export function loadAudioTrackPreference(pickCode: string): AudioTrackPreference | null {
+  if (!pickCode) return null
+  const prefs = readAudioTrackPreferenceMap()
   return prefs[pickCode] ?? null
 }
 

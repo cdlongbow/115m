@@ -6,10 +6,17 @@ interface SubtitleManagerOptions {
   sendMessage: <T = unknown>(message: unknown, retries?: number, delay?: number, timeoutMs?: number) => Promise<T | null>
   onListChange?: () => void
   onTrackChange?: () => void
+  onListLoaded?: () => void
   onError?: (message: string) => void
 }
 
 const NATIVE_PREFIX = '__native__'
+
+function subtitleDebug(...args: unknown[]) {
+  if (localStorage.getItem('115m-player-debug') === '1') {
+    console.debug(...args)
+  }
+}
 
 export class SubtitleManager {
   private readonly layer: HTMLDivElement
@@ -52,26 +59,28 @@ export class SubtitleManager {
     const token = this.loadToken
     this.nativeTracks.clear()
 
-    console.log('[115m][subtitle] loadList called with pickCode:', pickCode)
+    subtitleDebug('[115m][subtitle] loadList called')
 
     try {
       const list = await fetchSubtitleList(this.options.sendMessage, pickCode)
       if (this.destroyed || token !== this.loadToken) return
-      console.log('[115m][subtitle] API returned list:', list.length, 'items')
+      subtitleDebug('[115m][subtitle] API returned list:', list.length, 'items')
       this.list = list
       this.options.onListChange?.()
 
       if (list.length === 0) {
-        console.log('[115m][subtitle] API returned empty, scanning native tracks...')
+        subtitleDebug('[115m][subtitle] API returned empty, scanning native tracks...')
         this.scanNativeTracks()
       }
+      this.options.onListLoaded?.()
     }
     catch (error) {
       if (this.destroyed || token !== this.loadToken) return
-      console.error('[115m][subtitle] loadList error:', error)
+      console.warn('[115m][subtitle] loadList failed:', error)
       this.list = []
       this.scanNativeTracks()
       this.options.onListChange?.()
+      this.options.onListLoaded?.()
     }
   }
 
@@ -175,11 +184,11 @@ export class SubtitleManager {
 
     const textTracks = video.textTracks
     if (!textTracks || textTracks.length === 0) {
-      console.log('[115m][subtitle] no textTracks found on video')
+      subtitleDebug('[115m][subtitle] no textTracks found on video')
       return
     }
 
-    console.log('[115m][subtitle] scanning textTracks:', textTracks.length, 'tracks')
+    subtitleDebug('[115m][subtitle] scanning textTracks:', textTracks.length, 'tracks')
 
     let changed = false
 
@@ -188,7 +197,7 @@ export class SubtitleManager {
       if (!track) continue
       if (track.kind === 'metadata' || track.kind === 'chapters') continue
 
-      console.log('[115m][subtitle] found track:', { index: i, kind: track.kind, language: track.language, label: track.label, mode: track.mode, cues: track.cues?.length })
+      subtitleDebug('[115m][subtitle] found track:', { index: i, kind: track.kind, language: track.language, label: track.label, mode: track.mode, cues: track.cues?.length })
 
       const lang = (track.language || '').trim()
       const label = (track.label || '').trim()
@@ -213,7 +222,7 @@ export class SubtitleManager {
     }
 
     if (changed) {
-      console.log('[115m][subtitle] detected new native tracks, list now:', this.list.length)
+      subtitleDebug('[115m][subtitle] detected new native tracks, list now:', this.list.length)
       this.options.onListChange?.()
 
       if (!this.selectedSid && this.list.length > 0) {
