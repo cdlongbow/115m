@@ -3,13 +3,10 @@
  * 等待播放器加载后点击网页全屏按钮
  */
 
-console.log('[115m] 115vod auto web-fullscreen loading...')
-
 function tryClickWebFullscreen(): boolean {
   const btn = document.querySelector('[rel="web_fullscreen"]') as HTMLElement
   if (btn) {
     btn.click()
-    console.log('[115m] 115vod web-fullscreen triggered')
     return true
   }
   return false

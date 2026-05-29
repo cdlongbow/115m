@@ -412,13 +412,10 @@ export async function handleFetchSubtitles(message: MsgFetchSubtitles, sender?: 
           parsed = JSON.parse(mainWorldResult.text)
         } catch (e) {}
 
-        if (parsed) {
-          console.log('[115m][bg] fetch subtitles via script injection success', parsed)
-          return parsed
-        }
+        if (parsed) return parsed
       }
     } catch (e) {
-      console.log('[115m][bg] script injection fetch failed', e)
+      console.warn('[115m][bg] script injection fetch failed', e)
     }
 
     // 备用 fallback: 直接在 background fetch
@@ -435,8 +432,6 @@ export async function handleFetchSubtitles(message: MsgFetchSubtitles, sender?: 
     try {
       result = JSON.parse(text)
     } catch (e) {}
-    
-    console.log('[115m][bg] fetch subtitles fallback result:', result)
     
     if (result) {
       return result
@@ -520,7 +515,7 @@ export async function handleMoveSuccessRefresh() {
         await refreshListPageIn115Tab(tab.id)
       }
       catch (e) {
-        console.log('[115m] executeScript refresh failed:', e)
+        console.warn('[115m] executeScript refresh failed:', e)
       }
     }
   }

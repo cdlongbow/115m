@@ -12,8 +12,6 @@ window.fetch = new Proxy(originalFetch, {
 
     // 拦截视频 token 请求
     if (url.includes('/video/token')) {
-      console.log('[115m] 拦截到视频 token 请求:', url)
-
       return target.apply(thisArg, args as any).then((response) => {
         // 克隆响应以便读取
         const clonedResponse = response.clone()
@@ -47,5 +45,3 @@ window.fetch = new Proxy(originalFetch, {
     return target.apply(thisArg, args as any)
   },
 })
-
-console.log('[115m] Video Token Interceptor initialized')

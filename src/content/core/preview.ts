@@ -560,7 +560,6 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
   }
 
   const runStatusCheck = () => {
-    console.log(`[115m][transcode] runStatusCheck start pickCode=${pickCode}`)
     sendRuntimeMessageSafe<TranscodeResponse>({
       type: 'TRANSCODE_STATUS',
       data: { pickCode },
@@ -569,7 +568,6 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
         setContextInvalidatedState()
         return
       }
-      console.log(`[115m][transcode] runStatusCheck response pickCode=${pickCode} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
       if (res && applyStatus(res)) {
         return
       }
@@ -584,7 +582,6 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
 
   const runTranscode = (manual = false) => {
     stopPolling()
-    console.log(`[115m][transcode] runTranscode start pickCode=${pickCode} manual=${String(manual)}`)
     if (manual) {
       button.disabled = true
       button.textContent = '加速中...'
@@ -602,7 +599,6 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
         setContextInvalidatedState()
         return
       }
-      console.log(`[115m][transcode] runTranscode response pickCode=${pickCode} manual=${String(manual)} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
       if (res && applyStatus(res)) {
         return
       }
@@ -620,7 +616,7 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       button.textContent = 'VIP加速转码'
     }).catch((error) => {
       cleanupTranscodeFrame()
-      console.warn(`[115m][transcode] runTranscode exception pickCode=${pickCode} manual=${String(manual)} error=${error instanceof Error ? error.message : String(error)}`)
+      console.warn(`[115m][transcode] runTranscode exception manual=${String(manual)} error=${error instanceof Error ? error.message : String(error)}`)
       acceleratedSet.delete(pickCode)
       if (manual) {
         setNativeFallback('手动加速异常，可尝试后台加速')
@@ -641,7 +637,6 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
     button.textContent = '后台加速中...'
     label.textContent = '正在后台打开原生播放页触发加速...'
     label.style.color = '#1677ff'
-    console.log(`[115m][transcode] native fallback start pickCode=${pickCode}`)
     sendRuntimeMessageSafe<TranscodeResponse>({
       type: 'TRANSCODE_NATIVE_FALLBACK',
       data: { pickCode },
@@ -650,13 +645,12 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
         setContextInvalidatedState()
         return
       }
-      console.log(`[115m][transcode] native fallback response pickCode=${pickCode} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
       if (res && applyStatus(res)) {
         return
       }
       setNativeFallback(res?.error || res?.detail || '后台加速未命中，可稍后再试')
     }).catch((error) => {
-      console.warn(`[115m][transcode] native fallback exception pickCode=${pickCode} error=${error instanceof Error ? error.message : String(error)}`)
+      console.warn(`[115m][transcode] native fallback exception error=${error instanceof Error ? error.message : String(error)}`)
       setNativeFallback('后台加速异常，可稍后再试')
     })
   }
@@ -664,7 +658,6 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
   button.addEventListener('click', (event) => {
     event.preventDefault()
     event.stopPropagation()
-    console.log(`[115m][transcode] manual button click pickCode=${pickCode}`)
     acceleratedSet.add(pickCode)
     if (nativeFallbackVisible) {
       runNativeFallback()

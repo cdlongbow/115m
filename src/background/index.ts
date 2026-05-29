@@ -21,17 +21,13 @@ import {
   handleTranscodeStatus,
 } from './handlers'
 
-console.log('[115m] Service Worker starting...')
-
 // 安装时初始化
 chrome.runtime.onInstalled.addListener((details) => {
-  console.log('[115m] Extension installed', details.reason)
   registerEarlyOverrideScript()
 })
 
 // 浏览器启动时，确保 early script 已注册
 chrome.runtime.onStartup.addListener(() => {
-  console.log('[115m] Browser startup')
   registerEarlyOverrideScript()
 })
 
@@ -132,7 +128,6 @@ function assertDownloadUrl(rawUrl: string) {
 }
 
 async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.MessageSender): Promise<any> {
-  console.log(`[115m][bg] handleMessage type=${message.type} sender=${readSenderUrl(sender)}`)
   switch (message.type) {
     case 'PING':
       return { pong: true }

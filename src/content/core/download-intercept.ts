@@ -28,7 +28,6 @@ export function addDownloadIntercept(item: HTMLElement, file: FileInfo) {
       if (res.url?.url) {
         // 前台打开直链，IDM/aria2 等下载器可正常拦截
         window.open(res.url.url, '_blank')
-        console.log('[115m] 下载直链已打开，等待下载器接管')
       } else {
         throw new Error('未获取到真实下载地址')
       }

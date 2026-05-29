@@ -1511,7 +1511,6 @@ class PlayerManager {
     })) return
     const hasHlsAudioTracks = await this.masterPlaylistHasAudioTracks()
     if (!hasHlsAudioTracks) return
-    console.info('[115m][audio] native source has no decoded audio, fallback to HLS')
     await this.fallbackToHls('无损音频不兼容，已改用 115原画', true)
   }
 

@@ -57,24 +57,14 @@ export async function sendRuntimeMessageSafe<T = unknown>(
     return { runtimeContextInvalidated: true }
   }
 
-  console.log(`[115m][runtime] sendRuntimeMessage start type=${messageLabel} retries=${retries} delay=${delay}`)
-
   for (let i = 0; i <= retries; i++) {
     try {
       const response = await chrome.runtime.sendMessage(message) as T
-      const responseState = response && typeof response === 'object' && 'state' in (response as Record<string, unknown>)
-        ? String((response as Record<string, unknown>).state ?? '')
-        : ''
-      const responseError = response && typeof response === 'object' && 'error' in (response as Record<string, unknown>)
-        ? String((response as Record<string, unknown>).error ?? '')
-        : ''
-      console.log(`[115m][runtime] sendRuntimeMessage success type=${messageLabel} attempt=${i} state=${responseState} error=${responseError}`)
       return response
     }
     catch (error) {
       if (isContextInvalidated(error)) {
         runtimeContextInvalidated = true
-        console.info(`[115m][runtime] context invalidated type=${messageLabel} attempt=${i}`)
         showContextInvalidatedTip()
         return { runtimeContextInvalidated: true }
       }

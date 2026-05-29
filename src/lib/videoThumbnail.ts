@@ -93,14 +93,12 @@ async function getThumbnailSourceUrl(pickCode: string): Promise<string> {
   if (!cached) {
     cached = (async () => {
       const m3u8List = await drive115.getM3u8(pickCode)
-      console.log('[115m] m3u8List:', m3u8List.map(m => ({ name: m.name, quality: m.quality })))
 
       const source = m3u8List.sort((a, b) => a.quality - b.quality)[0]
       if (!source) {
         throw new Error('No m3u8 source found')
       }
 
-      console.log('[115m] 使用源:', source.name, source.url.slice(0, 80))
       return source.url
     })()
     sourceUrlCache.set(pickCode, cached)
@@ -430,13 +428,7 @@ export async function getVideoCoverAt(
           duration ?? normalizedTime + 30,
           resolvedOptions,
         )
-        console.log('[115m][preview] getVideoCoverAt', {
-          pickCode,
-          time: normalizedTime,
-          durationMs: Date.now() - startedAt,
-          hit: !!cover,
-          frameTime: cover?.time ?? null,
-        })
+        void startedAt
         return cover
       }
       finally {
@@ -457,7 +449,6 @@ export async function getVideoCoverAt(
 
 export async function getVideoCovers(pickCode: string, duration: number, coverNum = 5, options?: VideoCoverOptions): Promise<VideoThumbnail[]> {
   const resolvedOptions = resolveCoverOptions(options)
-  console.log('[115m] getVideoCovers 开始:', { pickCode, duration, coverNum })
   const startedAt = Date.now()
 
   const cacheKey = getBatchCacheKey(pickCode, coverNum, resolvedOptions.cacheScope)
@@ -481,7 +472,6 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
       const hit = normalizeCachedCovers(cached[cacheKey] as VideoThumbnail[] | undefined)
       if (hit.length > 0) {
         memoryCoverCache.set(cacheKey, hit)
-        console.log('[115m] 命中本地强缓存，瞬间读取出图:', pickCode)
         return hit
       }
     }
@@ -494,13 +484,11 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
   }
 
   const clipper = await openClipper(pickCode)
-  console.log('[115m] clipper 已打开, segments:', clipper.hlsIo.segments.length)
 
   try {
     const times = calculateTimes(duration, coverNum)
     const missingTimes = getMissingTimes(times, timelineCovers)
     const fallbackWindow = Math.max(3, Math.min(20, duration / Math.max(coverNum * 4, 1)))
-    console.log('[115m] 截取时间点:', missingTimes)
 
     const covers = await mapWithConcurrency(missingTimes, SEEK_CONCURRENCY, async time =>
       generateCoverWithFallbacks(clipper, time, duration, fallbackWindow, false, resolvedOptions),
@@ -511,16 +499,7 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
     ])
     const results = selectCoverSet(mergedTimeline, duration, coverNum)
 
-    console.log('[115m] getVideoCovers 完成:', pickCode, '成功', results.length, '张')
-    console.log('[115m][preview] getVideoCovers', {
-      pickCode,
-      duration,
-      coverNum,
-      generated: results.length,
-      timelineBefore: timelineCovers.length,
-      missingTimes: missingTimes.length,
-      durationMs: Date.now() - startedAt,
-    })
+    void startedAt
     if (results.length === 0) {
       return results
     }
@@ -532,7 +511,6 @@ export async function getVideoCovers(pickCode: string, duration: number, coverNu
         if (storageArea) {
           const storableResults = await Promise.all(results.map(coverToStorableDataUrl))
           await storageArea.set({ [cacheKey]: storableResults })
-          console.log('[115m] 强缓存已写入数据库永久保存:', pickCode)
         }
         if (resolvedOptions.useTimelineCache) {
           await writeTimelineCovers(pickCode, mergedTimeline)
