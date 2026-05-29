@@ -1,5 +1,5 @@
-import { describe, expect, it } from 'vitest'
-import { buildPlaylistProgressSnapshot, isCompletedPlayback, loadAudioTrackPreference, loadSubtitlePreference, loadVideoRotation, saveAudioTrackPreference, saveSubtitlePreference, saveVideoRotation, shouldRestorePlayHistory } from './history'
+import { describe, expect, it, vi } from 'vitest'
+import { buildPlaylistProgressSnapshot, isCompletedPlayback, loadAudioTrackPreference, loadPlayHistoryWhenReady, loadSubtitlePreference, loadVideoRotation, saveAudioTrackPreference, saveSubtitlePreference, saveVideoRotation, shouldRestorePlayHistory } from './history'
 
 describe('play history restore guard', () => {
   it('skips restoring progress near the end of playback', () => {
@@ -97,5 +97,27 @@ describe('subtitle and audio preference storage', () => {
 
     expect(loadAudioTrackPreference('pick-a')).toEqual({ id: 1, label: 'English（eng）' })
     expect(loadAudioTrackPreference('pick-b')).toBeNull()
+  })
+
+  it('restores progress after media metadata is ready', async () => {
+    const listeners = new Map<string, () => void>()
+    const target = {
+      readyState: 0,
+      currentTime: 0,
+      addEventListener: vi.fn((type: 'loadedmetadata' | 'canplay', listener: () => void) => {
+        listeners.set(type, listener)
+      }),
+      removeEventListener: vi.fn(),
+    }
+    vi.stubGlobal('chrome', { runtime: { sendMessage: vi.fn().mockResolvedValue({ currentTime: 45, duration: 120 }) } })
+    vi.stubGlobal('HTMLMediaElement', { HAVE_METADATA: 1 })
+
+    await loadPlayHistoryWhenReady('pick-a', () => target)
+    expect(target.currentTime).toBe(0)
+
+    listeners.get('loadedmetadata')?.()
+    expect(target.currentTime).toBe(45)
+
+    vi.unstubAllGlobals()
   })
 })

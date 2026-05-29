@@ -13,7 +13,7 @@ import { buildSpeedControlItem as buildSpeedControlConfig } from './core/player-
 import { buildAudioControlItem as buildAudioControlConfig } from './core/player-audio'
 import { buildPlaybackModeControlItem as buildPlaybackModeControlConfig } from './core/player-playback-mode-control'
 import { fetchM3u8WithRetry } from './core/source'
-import { deletePlayHistory, loadAudioTrackPreference, loadPlayHistory, loadSubtitlePreference, loadVideoRotation, loadVolumePreference, saveAudioTrackPreference, saveQualityPreference, saveSubtitlePreference, saveVideoRotation, saveVolumePreference } from './core/history'
+import { deletePlayHistory, loadAudioTrackPreference, loadPlayHistory, loadPlayHistoryWhenReady, loadSubtitlePreference, loadVideoRotation, loadVolumePreference, saveAudioTrackPreference, saveQualityPreference, saveSubtitlePreference, saveVideoRotation, saveVolumePreference } from './core/history'
 import { buildNavControlItem } from './core/player-center-controls'
 import type { AudioTrackOption, QualityOption } from './core/types'
 import { buildPlaybackModePlan, getPlaybackModeLabel, loadPlaybackMode, savePlaybackMode, type PlaybackMode } from './core/player-playback-mode'
@@ -1395,6 +1395,12 @@ class PlayerManager {
     this.nativeSeekRecoveryUntil = 0
   }
 
+  private clearTransientPlaybackWatchers() {
+    this.clearNativeAudioProbe()
+    this.resetNativeStallState()
+    this.clearAudioTrackSyncTimers()
+  }
+
   private scheduleNativeStallCheck() {
     this.clearNativeStallCheck()
     if (!this.artplayer || !this.isNativeVideo || this.currentPlaybackType !== 'native') return
@@ -1951,6 +1957,7 @@ class PlayerManager {
     const targetItem = findPlaylistItemByPickCode(this.playlistItemsCache, pickCode)
 
     this.clearPlaybackEndState()
+    this.clearTransientPlaybackWatchers()
     this.lastVideoSwitchStartedAt = Date.now()
     this.setVideoSwitching(true)
 
@@ -1995,11 +2002,11 @@ class PlayerManager {
         safePlay(this.artplayer)
       }
 
-      void loadPlayHistory(pickCode, (time) => {
-        if (requestId === this.switchVideoRequestId && this.artplayer) {
-          this.artplayer.seek = time
-        }
-      })
+      void loadPlayHistoryWhenReady(
+        pickCode,
+        () => requestId === this.switchVideoRequestId && this.artplayer ? this.artplayer.video as HTMLVideoElement : null,
+        () => requestId === this.switchVideoRequestId && this.currentPickCode === pickCode,
+      )
 
       void this.fetchBreadcrumbs(pickCode)
 

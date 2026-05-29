@@ -32,6 +32,13 @@ interface PlayHistoryRecord {
   watchEnd?: boolean
 }
 
+export interface PlayHistoryRestoreTarget {
+  readyState: number
+  currentTime: number
+  addEventListener: (type: 'loadedmetadata' | 'canplay', listener: () => void, options?: AddEventListenerOptions) => void
+  removeEventListener: (type: 'loadedmetadata' | 'canplay', listener: () => void) => void
+}
+
 interface PendingPlayHistoryWrite {
   params: {
     pickCode: string
@@ -257,6 +264,57 @@ export async function loadPlayHistory(pickCode: string, onRestore: (time: number
     if (response && shouldRestorePlayHistory(response.currentTime, response.duration, response.watchEnd)) {
       setTimeout(() => onRestore(response.currentTime), 500)
     }
+  }
+  catch {
+    // ignore history errors
+  }
+}
+
+export async function loadPlayHistoryWhenReady(
+  pickCode: string,
+  getTarget: () => PlayHistoryRestoreTarget | null,
+  canRestore: () => boolean = () => true,
+) {
+  try {
+    const response = await loadNativePlayHistory(pickCode)
+    if (!response || !shouldRestorePlayHistory(response.currentTime, response.duration, response.watchEnd)) return
+
+    const target = getTarget()
+    if (!target) return
+
+    const restore = () => {
+      if (!canRestore()) return
+      const currentTarget = getTarget()
+      if (currentTarget) currentTarget.currentTime = response.currentTime
+    }
+
+    if (target.readyState >= HTMLMediaElement.HAVE_METADATA) {
+      restore()
+      return
+    }
+
+    let restored = false
+    let fallbackTimer: number | null = null
+
+    const cleanup = () => {
+      target.removeEventListener('loadedmetadata', restoreOnce)
+      target.removeEventListener('canplay', restoreOnce)
+      if (fallbackTimer !== null) {
+        window.clearTimeout(fallbackTimer)
+        fallbackTimer = null
+      }
+    }
+
+    const restoreOnce = () => {
+      if (restored) return
+      restored = true
+      cleanup()
+      restore()
+    }
+
+    target.addEventListener('loadedmetadata', restoreOnce, { once: true })
+    target.addEventListener('canplay', restoreOnce, { once: true })
+    fallbackTimer = window.setTimeout(restoreOnce, 1200)
   }
   catch {
     // ignore history errors
