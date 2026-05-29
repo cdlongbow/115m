@@ -131,32 +131,6 @@ function handleLightboxKeydown(event: KeyboardEvent) {
     return
   }
 
-  const runNativeFallback = () => {
-    stopPolling()
-    button.disabled = true
-    button.textContent = '后台加速中...'
-    label.textContent = '正在后台打开原生播放页触发加速...'
-    label.style.color = '#1677ff'
-    console.log(`[115m][transcode] native fallback start pickCode=${pickCode}`)
-    sendRuntimeMessageSafe<TranscodeResponse>({
-      type: 'TRANSCODE_NATIVE_FALLBACK',
-      data: { pickCode },
-    }).then((res) => {
-      if (isRuntimeContextInvalidatedResult(res)) {
-        setContextInvalidatedState()
-        return
-      }
-      console.log(`[115m][transcode] native fallback response pickCode=${pickCode} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
-      if (res && applyStatus(res)) {
-        return
-      }
-      setNativeFallback(res?.error || res?.detail || '后台加速未命中，可稍后再试')
-    }).catch((error) => {
-      console.warn(`[115m][transcode] native fallback exception pickCode=${pickCode} error=${error instanceof Error ? error.message : String(error)}`)
-      setNativeFallback('后台加速异常，可稍后再试')
-    })
-  }
-
   if (event.key === 'ArrowLeft') {
     event.preventDefault()
     showLightboxImage(lightboxIndex - 1)
@@ -550,6 +524,10 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       type: 'TRANSCODE_FRAME_READY',
       data: { pickCode },
     })
+    if (isRuntimeContextInvalidatedResult(ready)) {
+      setContextInvalidatedState()
+      throw new Error('Extension context invalidated')
+    }
     if (!ready?.ok) {
       throw new Error(ready?.error || '115vod iframe not ready')
     }
@@ -654,6 +632,32 @@ function showTranscodeButton(container: HTMLElement, pickCode: string) {
       button.hidden = false
       button.disabled = false
       button.textContent = 'VIP加速转码'
+    })
+  }
+
+  const runNativeFallback = () => {
+    stopPolling()
+    button.disabled = true
+    button.textContent = '后台加速中...'
+    label.textContent = '正在后台打开原生播放页触发加速...'
+    label.style.color = '#1677ff'
+    console.log(`[115m][transcode] native fallback start pickCode=${pickCode}`)
+    sendRuntimeMessageSafe<TranscodeResponse>({
+      type: 'TRANSCODE_NATIVE_FALLBACK',
+      data: { pickCode },
+    }).then((res) => {
+      if (isRuntimeContextInvalidatedResult(res)) {
+        setContextInvalidatedState()
+        return
+      }
+      console.log(`[115m][transcode] native fallback response pickCode=${pickCode} ok=${String(res?.ok)} state=${res?.state || ''} error=${res?.error || ''} detail=${res?.detail || ''}`)
+      if (res && applyStatus(res)) {
+        return
+      }
+      setNativeFallback(res?.error || res?.detail || '后台加速未命中，可稍后再试')
+    }).catch((error) => {
+      console.warn(`[115m][transcode] native fallback exception pickCode=${pickCode} error=${error instanceof Error ? error.message : String(error)}`)
+      setNativeFallback('后台加速异常，可稍后再试')
     })
   }
 

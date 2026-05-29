@@ -1,6 +1,7 @@
 import type { MediaWallImageItem, LightboxController } from './media-wall-types'
 import { openNativeFolder, openNativeFolderContextMenu, selectNativeFolder } from './media-wall-folders'
 import { installWallDragSelection, isWallSourceItemSelected } from './media-wall-selection'
+import { isRuntimeContextInvalidatedResult } from './runtime'
 
 function readAttr(item: HTMLElement, names: string[]): string {
   for (const name of names) {
@@ -510,6 +511,7 @@ function createLightboxController(doc: Document, sendRuntimeMessageSafe: typeof 
           parentId: current.parentId,
         },
       })
+      if (isRuntimeContextInvalidatedResult(response)) throw new Error('扩展已更新，请刷新页面后继续使用')
       if (!response?.ok) throw new Error(response?.error || '删除失败')
       items = items.filter((item) => item.fileId !== current.fileId)
       current.sourceItem.remove()

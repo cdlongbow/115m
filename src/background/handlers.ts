@@ -57,6 +57,7 @@ const transcodeCooldown = new Map<string, { ts: number, response: unknown }>()
 const batchTranscodeCooldown = new Map<string, number>()
 let nativeFallbackQueue: Promise<unknown> = Promise.resolve()
 const nativeFallbackTabs = new Set<number>()
+type TabLoadStatus = 'loading' | 'complete'
 
 function isTransientFrameError(error: unknown): boolean {
   return /Frame with ID \d+ was removed|No frame with id|The tab was closed|Cannot access contents of url/i.test(String(error))
@@ -84,7 +85,7 @@ function wait(ms: number) {
   return new Promise(resolve => setTimeout(resolve, ms))
 }
 
-async function waitForTabStatus(tabId: number, status: chrome.tabs.TabStatus, timeoutMs: number) {
+async function waitForTabStatus(tabId: number, status: TabLoadStatus, timeoutMs: number) {
   try {
     const tab = await chrome.tabs.get(tabId)
     if (tab.status === status) return

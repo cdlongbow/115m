@@ -1,6 +1,12 @@
 import type { FileInfo } from './types'
-import { sendRuntimeMessageSafe } from './runtime'
+import { isRuntimeContextInvalidatedResult, sendRuntimeMessageSafe } from './runtime'
 import { fetchBestDownloadResult } from '../../lib/pro-api'
+
+const sendRuntimeMessageForDownload = async <T = unknown>(message: unknown): Promise<T | null> => {
+  const response = await sendRuntimeMessageSafe<T>(message)
+  if (isRuntimeContextInvalidatedResult(response)) return null
+  return response
+}
 
 /**
  * 拦截列表中原生下载按钮，替换为扩展下载（可被 IDM/aria2 等下载器自动接管）
@@ -17,7 +23,7 @@ export function addDownloadIntercept(item: HTMLElement, file: FileInfo) {
     try {
       downloadNode.style.opacity = '0.5'
 
-        const res = await fetchBestDownloadResult(sendRuntimeMessageSafe, file.pickCode)
+      const res = await fetchBestDownloadResult(sendRuntimeMessageForDownload, file.pickCode)
 
       if (res.url?.url) {
         // 前台打开直链，IDM/aria2 等下载器可正常拦截

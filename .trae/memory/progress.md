@@ -31,6 +31,8 @@
 - 2026-05-23：图片墙/文件夹墙拖选修复后，`pnpm test`、`pnpm build` 通过；构建仍仅有既有 chunk 体积警告；已提交 `e7c7b10`
 - 2026-05-23：扩展更新后旧页面 `Extension context invalidated` 不再触发或残留列表视频转码提示，只显示刷新提示；`pnpm test`、`pnpm build` 通过，构建仍仅有既有 chunk 体积警告
 - 2026-05-26：自动 VIP 加速转码新增“后台加速”最后兜底：仅在自动失败后用户手动加速也失败/异常时显示按钮；点击后用全局单例队列打开一个非激活 115 原生播放页短暂触发，随后关闭并刷新转码状态。当前缺少可复现样本，待用户后续反馈实测结果；已通过 `pnpm test`、`pnpm build`，构建仍仅有既有 chunk 体积警告
+- 2026-05-29：修复 `pnpm typecheck` 失败：后台加速按钮函数恢复到转码按钮闭包内，runtime context invalidated 返回值调用方已做类型收窄，`OPEN_TAB` 已补 sender 校验；已通过 `pnpm typecheck`、`pnpm test`、`pnpm build`，构建仍仅有既有 chunk 体积警告
+- 2026-05-29：收窄 `web_accessible_resources`，移除全量 `*` 暴露，仅保留播放器入口、`.vite/manifest.json`、`assets/*.js/css` 等必要资源；`dist/manifest.json` 已确认包含 video-page、player、hls 等构建产物；已通过 `pnpm build`、`pnpm test`，构建仍仅有既有 chunk 体积警告
 
 ## 待测事项
 

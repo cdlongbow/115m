@@ -152,6 +152,7 @@ async function handleMessage(message: RuntimeMessage, sender?: chrome.runtime.Me
       return register115VodFrameSession(sender, message.data.pickCode)
 
     case 'OPEN_TAB': {
+      assertTrustedSender(sender, message.type)
       const now = Date.now()
       if (lastOpenTabMeta && lastOpenTabMeta.url === message.url && now - lastOpenTabMeta.ts < 2500) {
         return { success: true, deduped: true }

@@ -1,5 +1,5 @@
 import type { FileInfo } from './types'
-import { sendRuntimeMessageSafe } from './runtime'
+import { isRuntimeContextInvalidatedResult, sendRuntimeMessageSafe } from './runtime'
 
 const ARCHIVE_EXTENSIONS = ['zip', 'rar', '7z', 'tar', 'gz', 'tgz', 'bz2', 'xz']
 const COMPOUND_ARCHIVE_EXTENSIONS = ['tar.gz', 'tar.bz2', 'tar.xz']
@@ -54,6 +54,7 @@ async function requestJson<T>(url: string, body?: URLSearchParams): Promise<T> {
     data: body ? { url, body: body.toString() } : { url },
   })
 
+  if (isRuntimeContextInvalidatedResult(res)) throw new Error('扩展已更新，请刷新页面后继续使用')
   if (!res?.ok) throw new Error(res?.error || `接口请求失败${res?.status ? `(${res.status})` : ''}`)
   if (!res.text) throw new Error('接口返回为空')
 
